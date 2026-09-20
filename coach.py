@@ -421,6 +421,116 @@ class AIHevyCoach:
         except Exception as e:
             return f"Ошибка получения данных из YAZIO: {e}"
 
+    def get_weekly_nutrition_report(self) -> str:
+        """Generates a mobile-optimized weekly nutrition summary with daily breakdown and averages."""
+        if not self.yazio.is_configured():
+            return "YAZIO не авторизован."
+
+        try:
+            weekly = self.yazio.get_weekly_nutrition(days_count=7)
+            if not weekly or not weekly.get("days"):
+                return "Не удалось получить данные о питании за неделю."
+
+            lines = []
+            lines.append("🥗 *Недельный отчет по питанию (YAZIO)*")
+            lines.append(f"📅 Период: *с {weekly['start_date']} по {weekly['end_date']}* (за 7 дней)\n")
+
+            lines.append("━━━━━━━━━━━━━━━━━━━━")
+            lines.append("📊 *Среднесуточные показатели:*")
+            lines.append(f"• 🔥 Средний калораж: *{weekly['avg_calories']:,} ккал/день*")
+            lines.append(f"• 🥩 Средний белок: *{weekly['avg_protein']} г/день* (цель: 158–198 г)")
+            lines.append(f"• 🥑 Средние жиры: *{weekly['avg_fat']} г/день*")
+            lines.append(f"• 🍞 Средние углеводы: *{weekly['avg_carbs']} г/день*\n")
+
+            lines.append("━━━━━━━━━━━━━━━━━━━━")
+            lines.append("📅 *По дням недели:*\n")
+
+            for d in weekly["days"]:
+                tag = " _(сегодня)_" if d.get("is_today") else ""
+                if d.get("is_logged"):
+                    lines.append(f"• *{d['date']} ({d['weekday']})*{tag}: *{d['calories']:,} ккал*")
+                    lines.append(f"   _Б: {d['protein']}г  |  Ж: {d['fat']}г  |  У: {d['carbs']}г_\n")
+                else:
+                    lines.append(f"• *{d['date']} ({d['weekday']})*{tag}: _нет записей_\n")
+
+            lines.append("━━━━━━━━━━━━━━━━━━━━")
+            lines.append("💡 *Оценка тренера:*")
+            cur_weight = 98.8
+            try:
+                prof = self.yazio.get_user_profile()
+                cur_weight = prof.get("current_weight_kg", 98.8)
+            except Exception:
+                pass
+
+            opt_prot = round(cur_weight * 1.6)
+            if weekly['avg_protein'] >= opt_prot:
+                lines.append(f"1. *Белок в норме*: средние {weekly['avg_protein']} г/день уверенно покрывают норму 1.6 г/кг для веса {cur_weight} кг. Мышцы надежно защищены от катаболизма!")
+            else:
+                lines.append(f"1. *Просадка по белку*: средние *{weekly['avg_protein']} г/день* ниже рекомендуемой планки *{opt_prot} г/день* (1.6 г/кг для веса {cur_weight} кг). Обратите внимание на дни с низким белком (<100 г) и добавьте творог, куриное филе, тунец или протеиновый коктейль.")
+
+            if weekly['avg_calories'] > 0 and weekly['avg_calories'] < 2000:
+                lines.append(f"2. *Качественный дефицит*: Средний калораж {weekly['avg_calories']:,} ккал/день создает отличный дефицит в ~1,000–1,200 ккал от расхода (TDEE ~3,100 ккал). При этом следите за самочувствием и силовыми весами в зале.")
+
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Ошибка при расчете недельного питания: {e}"
+
+    def get_consumed_products_report(self, target_date_str: Optional[str] = None) -> str:
+        """Returns detailed list of food products eaten for a given date."""
+        if not self.yazio.is_configured():
+            return "YAZIO не авторизован."
+
+        try:
+            from datetime import date, datetime, timedelta
+            if target_date_str:
+                d = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+            else:
+                d = date.today()
+
+            data = self.yazio.get_consumed_products(d)
+
+            # If today has no products yet (e.g. early morning), fallback to yesterday
+            is_yesterday = False
+            if not data.get("meals") and not target_date_str:
+                yesterday = d - timedelta(days=1)
+                y_data = self.yazio.get_consumed_products(yesterday)
+                if y_data.get("meals"):
+                    data = y_data
+                    d = yesterday
+                    is_yesterday = True
+
+            prefix = "(Вчера)" if is_yesterday else "(Сегодня)"
+            meals = data.get("meals", {})
+
+            if not meals:
+                return f"🍽 Записи о продуктах в YAZIO за {data.get('date', '')} не найдены."
+
+            lines = []
+            lines.append(f"🍽 *Продукты в рационе YAZIO {prefix} — {data['date']}*\n")
+
+            meal_emojis = {
+                "Завтрак": "🍳",
+                "Обед": "🍲",
+                "Ужин": "🥗",
+                "Перекус": "🍏"
+            }
+
+            for meal_name, items in meals.items():
+                emoji = meal_emojis.get(meal_name, "🍽")
+                lines.append("━━━━━━━━━━━━━━━━━━━━")
+                lines.append(f"{emoji} *{meal_name}:*\n")
+                for item in items:
+                    prod_name = item.get("name", "Продукт")
+                    producer = f" ({item['producer']})" if item.get("producer") else ""
+                    amount = f" — *{item['amount_g']} г*" if item.get("amount_g") else ""
+                    cal_str = f" (~{item['calories']} ккал)" if item.get("calories") else ""
+                    lines.append(f"• *{prod_name}*{producer}{amount}{cal_str}")
+                lines.append("")
+
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Ошибка при получении списка продуктов: {e}"
+
     def get_profile_report(self) -> str:
         """Returns comprehensive biometric report formatted for mobile."""
         if not self.yazio.is_configured():
@@ -452,10 +562,10 @@ class AIHevyCoach:
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Hevy & Yazio AI Coach CLI")
-    parser.add_argument("command", choices=["last", "next", "weekly", "sync", "prog", "nutrition", "profile"], nargs="?", default="last",
-                        help="Command to run: last, next, weekly, sync, prog, nutrition, profile")
+    parser.add_argument("command", choices=["last", "next", "weekly", "sync", "prog", "nutrition", "weekly_nutrition", "products", "profile"], nargs="?", default="last",
+                        help="Command to run: last, next, weekly, sync, prog, nutrition, weekly_nutrition, products, profile")
     parser.add_argument("--exercise", "-e", type=str, help="Exercise name for 'prog' command", default="")
-    parser.add_argument("--date", "-d", type=str, help="Date for 'nutrition' command (YYYY-MM-DD)", default="")
+    parser.add_argument("--date", "-d", type=str, help="Date for 'nutrition' / 'products' command (YYYY-MM-DD)", default="")
 
     args = parser.parse_args()
     coach = AIHevyCoach(auto_sync=False)
@@ -470,6 +580,10 @@ def main():
         print(coach.weekly_overview())
     elif args.command == "nutrition":
         print(coach.get_nutrition_report(args.date if args.date else None))
+    elif args.command == "weekly_nutrition":
+        print(coach.get_weekly_nutrition_report())
+    elif args.command == "products":
+        print(coach.get_consumed_products_report(args.date if args.date else None))
     elif args.command == "profile":
         print(coach.get_profile_report())
     elif args.command == "prog":

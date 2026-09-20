@@ -1,12 +1,13 @@
 import os
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from config import BASE_DIR, DATA_DIR
 
 YAZIO_TOKEN_FILE = DATA_DIR / "yazio_token.txt"
 NUTRITION_CACHE_FILE = DATA_DIR / "nutrition_cache.json"
+PRODUCTS_CACHE_FILE = DATA_DIR / "products_cache.json"
 
 class YazioManager:
     """Manager for retrieving nutrition and calorie data from YAZIO."""
@@ -69,10 +70,9 @@ class YazioManager:
 
         from yazio_exporter.export_profile import fetch_user
         from yazio_exporter.export_body import fetch_weight_range
-        from datetime import date, timedelta, datetime
 
         user = fetch_user(self.client) or {}
-        
+
         # Calculate age
         dob_str = user.get("date_of_birth")
         age = 0
@@ -85,7 +85,7 @@ class YazioManager:
         start_d = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
         end_d = date.today().strftime("%Y-%m-%d")
         weights = fetch_weight_range(self.client, start_d, end_d)
-        
+
         latest_weight = user.get("start_weight", 0.0)
         if weights:
             latest_date = max(weights.keys())
@@ -154,6 +154,7 @@ class YazioManager:
 
             return {
                 "date": d.strftime("%d.%m.%Y"),
+                "raw_date": d.strftime("%Y-%m-%d"),
                 "calories": round(total_cal, 1),
                 "protein": round(total_prot, 1),
                 "fat": round(total_fat, 1),
@@ -174,20 +175,152 @@ class YazioManager:
         except Exception as e:
             raise RuntimeError(f"Не удалось получить данные из YAZIO за {d}: {e}")
 
-    def get_recent_days(self, days_count: int = 3) -> List[Dict[str, Any]]:
-        """Fetches recent nutrition summaries."""
-        if not self.client or not self.token:
-            return []
+    def _load_products_cache(self) -> Dict[str, Any]:
+        if PRODUCTS_CACHE_FILE.exists():
+            try:
+                with open(PRODUCTS_CACHE_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
 
-        from datetime import timedelta
-        results = []
+    def _save_products_cache(self, cache: Dict[str, Any]):
+        try:
+            with open(PRODUCTS_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            pass
+
+    def get_consumed_products(self, target_date: Optional[date] = None) -> Dict[str, Any]:
+        """Fetches detailed list of consumed foods and products for a given date with local caching."""
+        if not self.client or not self.token:
+            raise RuntimeError("YAZIO не авторизован.")
+
+        from yazio_exporter.export_days import fetch_consumed
+        from yazio_exporter.export_products import fetch_product
+
+        d = target_date or date.today()
+        consumed = fetch_consumed(self.client, d)
+        if not consumed or not getattr(consumed, "products", None):
+            return {"date": d.strftime("%d.%m.%Y"), "meals": {}}
+
+        cache = self._load_products_cache()
+        cache_updated = False
+
+        meal_names_ru = {
+            "breakfast": "Завтрак",
+            "lunch": "Обед",
+            "dinner": "Ужин",
+            "snack": "Перекус"
+        }
+
+        meals_dict = {
+            "Завтрак": [],
+            "Обед": [],
+            "Ужин": [],
+            "Перекус": []
+        }
+
+        for item in consumed.products:
+            pid = item.get("product_id")
+            amount = item.get("amount", 0)
+            daytime = item.get("daytime", "snack")
+            meal_key = meal_names_ru.get(daytime, "Перекус")
+
+            prod_info = cache.get(pid)
+            if not prod_info:
+                try:
+                    prod_info = fetch_product(self.client, pid)
+                    if prod_info:
+                        cache[pid] = prod_info
+                        cache_updated = True
+                except Exception:
+                    prod_info = {"name": "Продукт"}
+
+            name = prod_info.get("name", "Продукт") if prod_info else "Продукт"
+            producer = prod_info.get("producer") if prod_info else None
+
+            # Approximate calories if available
+            nut = prod_info.get("nutrients", {}) if prod_info else {}
+            cal_per_g = float(nut.get("energy.energy", 0.0))
+            cal = round(amount * cal_per_g) if cal_per_g > 0 else None
+
+            meals_dict[meal_key].append({
+                "name": name,
+                "producer": producer,
+                "amount_g": amount,
+                "calories": cal
+            })
+
+        if cache_updated:
+            self._save_products_cache(cache)
+
+        filtered_meals = {k: v for k, v in meals_dict.items() if v}
+
+        return {
+            "date": d.strftime("%d.%m.%Y"),
+            "meals": filtered_meals
+        }
+
+    def get_weekly_nutrition(self, days_count: int = 7) -> Dict[str, Any]:
+        """Fetches daily nutrition summaries for the past N days and calculates averages."""
+        if not self.client or not self.token:
+            raise RuntimeError("YAZIO не авторизован.")
+
         today = date.today()
-        for i in range(days_count):
+        weekday_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+        days_list = []
+        total_cal = 0.0
+        total_prot = 0.0
+        total_fat = 0.0
+        total_carb = 0.0
+        logged_days = 0
+
+        for i in range(days_count - 1, -1, -1):
             cur_date = today - timedelta(days=i)
             try:
-                data = self.get_daily_summary(cur_date)
-                if data:
-                    results.append({"date": cur_date.strftime("%Y-%m-%d"), "summary": data})
+                summary = self.get_daily_summary(cur_date)
+                cal = summary.get("calories", 0.0)
+                prot = summary.get("protein", 0.0)
+                fat = summary.get("fat", 0.0)
+                carb = summary.get("carbs", 0.0)
+
+                is_logged = (cal > 0 or prot > 0)
+                if is_logged:
+                    total_cal += cal
+                    total_prot += prot
+                    total_fat += fat
+                    total_carb += carb
+                    logged_days += 1
+
+                days_list.append({
+                    "date": cur_date.strftime("%d.%m"),
+                    "full_date": cur_date.strftime("%d.%m.%Y"),
+                    "weekday": weekday_names[cur_date.weekday()],
+                    "calories": round(cal),
+                    "protein": round(prot, 1),
+                    "fat": round(fat, 1),
+                    "carbs": round(carb, 1),
+                    "is_today": (cur_date == today),
+                    "is_logged": is_logged
+                })
             except Exception:
                 continue
-        return results
+
+        avg_cal = round(total_cal / logged_days) if logged_days > 0 else 0
+        avg_prot = round(total_prot / logged_days, 1) if logged_days > 0 else 0
+        avg_fat = round(total_fat / logged_days, 1) if logged_days > 0 else 0
+        avg_carb = round(total_carb / logged_days, 1) if logged_days > 0 else 0
+
+        return {
+            "start_date": (today - timedelta(days=days_count - 1)).strftime("%d.%m"),
+            "end_date": today.strftime("%d.%m"),
+            "days": days_list,
+            "logged_days_count": logged_days,
+            "avg_calories": avg_cal,
+            "avg_protein": avg_prot,
+            "avg_fat": avg_fat,
+            "avg_carbs": avg_carb,
+            "total_calories": round(total_cal)
+        }

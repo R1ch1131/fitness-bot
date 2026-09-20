@@ -23,12 +23,15 @@ def get_main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     b_last = types.KeyboardButton("🏋️ Последняя тренировка")
     b_next = types.KeyboardButton("📋 План на тренировку")
-    b_nutrition = types.KeyboardButton("🥗 Питание (YAZIO)")
+    b_nut_today = types.KeyboardButton("🥗 Питание (сегодня)")
+    b_nut_week = types.KeyboardButton("📊 Питание за неделю")
+    b_products = types.KeyboardButton("🍽 Что я ел (продукты)")
     b_weekly = types.KeyboardButton("📈 Недельный отчет")
     b_profile = types.KeyboardButton("👤 Мой профиль и вес")
     b_sync = types.KeyboardButton("🔄 Синхронизация")
     keyboard.add(b_last, b_next)
-    keyboard.add(b_nutrition, b_weekly)
+    keyboard.add(b_nut_today, b_nut_week)
+    keyboard.add(b_products, b_weekly)
     keyboard.add(b_profile, b_sync)
     return keyboard
 
@@ -62,18 +65,54 @@ def ask_gemini_ai(user_question: str) -> str:
             last_w = coach.analyzer.get_latest_workout()
             last_w_str = f"{last_w.get('title')} ({last_w.get('start_time')})" if last_w else "нет записей"
 
+            # Weekly nutrition context
+            weekly_nut_text = "Данные о недельном питании пока не загружены."
+            try:
+                if coach.yazio.is_configured():
+                    wn = coach.yazio.get_weekly_nutrition(days_count=7)
+                    if wn and wn.get("days"):
+                        days_str = "; ".join([f"{d['date']} ({d['weekday']}): {d['calories']} ккал (Б:{d['protein']}г, Ж:{d['fat']}г, У:{d['carbs']}г)" for d in wn["days"] if d.get("is_logged")])
+                        weekly_nut_text = (
+                            f"За последние 7 дней (с {wn.get('start_date')} по {wn.get('end_date')}):\n"
+                            f"- Средний калораж: {wn.get('avg_calories')} ккал/день\n"
+                            f"- Средний белок: {wn.get('avg_protein')} г/день (целевая норма: 158-198 г)\n"
+                            f"- Средние жиры: {wn.get('avg_fat')} г/день\n"
+                            f"- Средние углеводы: {wn.get('avg_carbs')} г/день\n"
+                            f"- По дням недели: {days_str}"
+                        )
+            except Exception as e:
+                print(f"Weekly nut context note: {e}")
+
+            # Consumed products context
+            products_text = "Продукты за сегодня еще не записаны."
+            try:
+                if coach.yazio.is_configured():
+                    cp = coach.yazio.get_consumed_products()
+                    if cp and cp.get("meals"):
+                        meals_str = []
+                        for m_name, items in cp["meals"].items():
+                            item_strs = [f"{it['name']}{' (' + it['producer'] + ')' if it.get('producer') else ''} {it.get('amount_g')}г" for it in items]
+                            meals_str.append(f"{m_name}: {', '.join(item_strs)}")
+                        products_text = "\n".join(meals_str)
+            except Exception as e:
+                print(f"Products context note: {e}")
+
             system_instruction = f"""
 Ты — персональный спортивный тренер и нутрициолог для атлета со следующими параметрами:
 - Атлет: Мужчина, Возраст: {age} года (30.06.2004), Рост: {h_cur} см.
-- Вес: {w_cur} кг (начальный вес: {start_w} кг, цель: 80 кг). Идет сушка/похудение с сохранением мышц.
+- Вес: {w_cur} кг (начальный вес: {start_w} кг, сброшено: {abs(w_cur - start_w):.1f} кг, цель: 80 кг). Идет сушка/похудение с сохранением мышц.
 - Тренировочные программы атлета в Hevy (5-дневный сплит):
 {routines_context}
 - Последняя проведенная тренировка: {last_w_str}.
 - Кардио: бег 3-4 км в темпе ~10 км/ч (в день ног рекомендована ходьба в гору для защиты коленей).
-- Питание (YAZIO): норма белка 160-200 г (1.6-2.0 г/кг). Сейчас среднее потребление ~1700-2000 ккал.
+- Питание атлета (YAZIO):
+  * Недельный рацион и средние значения:
+{weekly_nut_text}
+  * Продукты, съеденные сегодня:
+{products_text}
 
-Отвечай четко, профессионально, с мотивацией, дружелюбно и строго научно (спортивная биомеханика, гипертрофия, восстановление).
-Если атлет спрашивает про конкретный день (например, понедельник), подробно разбери его упражнения из его программы выше, дай советы по технике, весам и разминке.
+Отвечай четко, профессионально, с мотивацией, дружелюбно и строго научно (спортивная биомеханика, гипертрофия, восстановление, подсчет КБЖУ).
+Если атлет спрашивает про средние калории за неделю или что он ел, используй точные реальные цифры и названия продуктов из данных выше.
 Отвечай на русском языке.
 """
             for model_name in ["gemini-3.6-flash", "gemini-2.5-flash"]:
@@ -90,6 +129,10 @@ def ask_gemini_ai(user_question: str) -> str:
             print(f"Gemini API error: {e}")
 
     # Fallback to direct handlers if Gemini is unavailable
+    if any(w in q_lower for w in ["продукт", "что ел", "что я ел", "меню", "съел"]):
+        return coach.get_consumed_products_report()
+    if any(w in q_lower for w in ["средн", "недел", "неделя"]) and any(w in q_lower for w in ["калор", "пит", "ед", "бжу", "белок"]):
+        return coach.get_weekly_nutrition_report()
     if any(w in q_lower for w in ["план", "след", "что дела"]):
         return coach.preview_next_workout()
     if any(w in q_lower for w in ["послед", "прошл", "тренировк", "как прошл", "тоннаж"]):
@@ -128,6 +171,28 @@ def run_health_server():
     except Exception as e:
         print(f"Health-check server note: {e}")
 
+def run_keep_alive_pinger():
+    """Background loop sending HTTP request to public URL every 10 minutes to prevent Render free-tier sleep."""
+    import time
+    import threading
+    import requests
+
+    public_url = os.getenv("RENDER_EXTERNAL_URL", "https://fitness-bot-9f8m.onrender.com")
+
+    def ping_worker():
+        time.sleep(30)
+        while True:
+            try:
+                resp = requests.get(public_url, timeout=20)
+                print(f"⏰ Self-ping sent to {public_url}: status {resp.status_code}")
+            except Exception as e:
+                print(f"Self-ping note: {e}")
+            time.sleep(600)  # Ping every 10 minutes
+
+    t = threading.Thread(target=ping_worker, daemon=True)
+    t.start()
+    print(f"⏰ Фоновый keep-alive пингер запущен (интервал 10 мин, цель: {public_url})")
+
 def start_bot():
     if not TELEGRAM_TOKEN:
         print("⚠️ ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
@@ -140,6 +205,8 @@ def start_bot():
         print(f"Initial coach load warning: {e}")
 
     run_health_server()
+    run_keep_alive_pinger()
+
     bot = telebot.TeleBot(TELEGRAM_TOKEN, parse_mode="Markdown")
 
     def safe_send(chat_id, text, reply_markup=None):
@@ -173,10 +240,22 @@ def start_bot():
         res = coach.preview_next_workout()
         safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
-    @bot.message_handler(func=lambda msg: msg.text == "🥗 Питание (YAZIO)" or msg.text == "/today")
+    @bot.message_handler(func=lambda msg: msg.text in ["🥗 Питание (сегодня)", "🥗 Питание (YAZIO)"] or msg.text in ["/today", "/nutrition"])
     def handle_nutrition(message):
         bot.send_chat_action(message.chat.id, "typing")
         res = coach.get_nutrition_report()
+        safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(func=lambda msg: msg.text == "📊 Питание за неделю" or msg.text == "/week_nutrition")
+    def handle_week_nutrition(message):
+        bot.send_chat_action(message.chat.id, "typing")
+        res = coach.get_weekly_nutrition_report()
+        safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(func=lambda msg: msg.text == "🍽 Что я ел (продукты)" or msg.text == "/products")
+    def handle_products(message):
+        bot.send_chat_action(message.chat.id, "typing")
+        res = coach.get_consumed_products_report()
         safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "📈 Недельный отчет" or msg.text == "/weekly")
