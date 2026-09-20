@@ -24,23 +24,23 @@ def classify_muscle_group(exercise_title: str) -> str:
     title = exercise_title.lower()
     
     # Cardio
-    if any(k in title for k in ["treadmill", "дорожка", "бег", "run", "bike", "вело", "rower"]):
+    if any(k in title for k in ["treadmill", "дорожка", "бег", "run", "bike", "вело", "rower", "кардио"]):
         return "Кардио"
     
     # Chest
-    if any(k in title for k in ["bench press", "жим лежа", "жим лёжа", "chest", "груд"]):
+    if any(k in title for k in ["bench press", "жим лежа", "жим лёжа", "chest", "груд", "жим на наклонной", "наклонный жим", "брусья", "кроссовер"]):
         return "Грудь"
     
     # Shoulders
-    if any(k in title for k in ["shoulder press", "жим от плеч", "жим стоя", "lateral raise", "махи", "плеч", "дельт"]):
+    if any(k in title for k in ["shoulder press", "жим от плеч", "жим стоя", "lateral raise", "махи", "плеч", "дельт", "армейский"]):
         return "Плечи"
     
     # Back
-    if any(k in title for k in ["lat pulldown", "вертикальная тяга", "cable row", "горизонтальная тяга", "bent over row", "тяга в наклоне", "pull up", "подтягиван", "спин"]):
+    if any(k in title for k in ["lat pulldown", "вертикальная тяга", "cable row", "горизонтальная тяга", "bent over row", "тяга в наклоне", "pull up", "подтягиван", "спин", "т-гриф"]):
         return "Спина"
     
     # Arms - Triceps
-    if any(k in title for k in ["triceps", "трицепс", "брусья", "разгибание рук"]):
+    if any(k in title for k in ["triceps", "трицепс", "разгибание рук"]):
         return "Трицепс"
     
     # Arms - Biceps
@@ -51,8 +51,8 @@ def classify_muscle_group(exercise_title: str) -> str:
     if any(k in title for k in ["deadlift", "становая тяга", "romanian", "румынская", "leg curl", "сгибание ног"]):
         return "Задняя поверхность / Ягодицы"
     
-    # Legs - Quads & General
-    if any(k in title for k in ["squat", "присед", "leg press", "жим ногами", "leg extension", "разгибание ног", "lunge", "выпад", "calf", "голень"]):
+    # Legs - Quads, Calves & General
+    if any(k in title for k in ["squat", "присед", "leg press", "жим ногами", "leg extension", "разгибание ног", "lunge", "выпад", "calf", "голень", "носки", "икр"]):
         return "Квадрицепсы / Ноги"
     
     # Core
@@ -157,6 +157,7 @@ class WorkoutAnalyzer:
 
                 exercises_analysis.append({
                     "title": title,
+                    "exercise_template_id": ex.get("exercise_template_id"),
                     "muscle": muscle,
                     "working_sets": ex_working_sets,
                     "total_reps": ex_reps,

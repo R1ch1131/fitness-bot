@@ -55,7 +55,7 @@ def ask_gemini_ai(user_question: str) -> str:
             # Routines overview for Gemini context
             routines_context = ""
             for r in coach.routines:
-                ex_names = ", ".join([e.get("title", "") for e in r.get("exercises", [])])
+                ex_names = ", ".join([coach.translate_exercise_title(e.get("title", ""), e.get("exercise_template_id")) for e in r.get("exercises", [])])
                 routines_context += f"- {r.get('title')}: {ex_names}\n"
 
             # Last workout overview
@@ -142,59 +142,68 @@ def start_bot():
     run_health_server()
     bot = telebot.TeleBot(TELEGRAM_TOKEN, parse_mode="Markdown")
 
+    def safe_send(chat_id, text, reply_markup=None):
+        try:
+            return bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=reply_markup)
+        except Exception as e:
+            print(f"Markdown send fallback ({e}), sending as plain text...")
+            return bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup)
+
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
+        prof = coach.yazio.get_user_profile() if coach.yazio.is_configured() else {}
+        w = prof.get("current_weight_kg", 98.8)
         text = (
             f"Привет, атлет! 🏋️‍♂️\n\n"
-            f"Я твой персональный ИИ-тренер, подключенный к твоим аккаунтам **Hevy** и **YAZIO**.\n\n"
-            f"Твои текущие параметры: **{coach.yazio.get_user_profile().get('current_weight_kg', 98.8)} кг** | **182 см** | Цель: **80 кг**.\n\n"
-            f"Используй кнопки внизу для быстрого доступа или просто напиши мне любой вопрос!"
+            f"Я твой персональный ИИ-тренер, подключенный к твоим аккаунтам *Hevy* и *YAZIO*.\n\n"
+            f"Твои параметры: *{w} кг* | *182 см* | Цель: *80 кг*.\n\n"
+            f"Используй кнопки внизу для быстрого доступа или просто напиши мне любой вопрос в чат!"
         )
-        bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "🏋️ Последняя тренировка" or msg.text == "/last")
     def handle_last(message):
         bot.send_chat_action(message.chat.id, "typing")
         res = coach.review_last_workout()
-        bot.send_message(message.chat.id, res, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "📋 План на тренировку" or msg.text == "/next")
     def handle_next(message):
         bot.send_chat_action(message.chat.id, "typing")
         res = coach.preview_next_workout()
-        bot.send_message(message.chat.id, res, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "🥗 Питание (YAZIO)" or msg.text == "/today")
     def handle_nutrition(message):
         bot.send_chat_action(message.chat.id, "typing")
         res = coach.get_nutrition_report()
-        bot.send_message(message.chat.id, res, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "📈 Недельный отчет" or msg.text == "/weekly")
     def handle_weekly(message):
         bot.send_chat_action(message.chat.id, "typing")
         res = coach.weekly_overview()
-        bot.send_message(message.chat.id, res, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "👤 Мой профиль и вес" or msg.text == "/profile")
     def handle_profile(message):
         bot.send_chat_action(message.chat.id, "typing")
         res = coach.get_profile_report()
-        bot.send_message(message.chat.id, res, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "🔄 Синхронизация" or msg.text == "/sync")
     def handle_sync(message):
         bot.send_chat_action(message.chat.id, "typing")
         sync_res = coach.storage.sync_all(verbose=False)
         coach.reload(auto_sync=False) # Reload into memory!
-        text = f"✅ Данные обновлены!\nЗагружено тренировок: {sync_res['workouts_count']}\nПрограмм (сплитов): {sync_res['routines_count']}"
-        bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
+        text = f"✅ *Данные синхронизированы!*\n\n• Загружено тренировок: *{sync_res['workouts_count']}*\n• Программ тренировок: *{sync_res['routines_count']}*"
+        safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: True)
     def handle_free_text(message):
         bot.send_chat_action(message.chat.id, "typing")
         reply = ask_gemini_ai(message.text)
-        bot.send_message(message.chat.id, reply, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, reply, reply_markup=get_main_keyboard())
 
     print("🤖 Telegram бот запущен и слушает входящие сообщения...")
     bot.infinity_polling(timeout=20, long_polling_timeout=20)
