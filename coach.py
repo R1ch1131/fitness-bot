@@ -16,15 +16,20 @@ class AIHevyCoach:
 
     def __init__(self, auto_sync: bool = False):
         self.storage = Storage()
-        if auto_sync:
-            self.storage.sync_all(verbose=False)
+        self.reload(auto_sync=auto_sync)
+        self.yazio = YazioManager()
+
+    def reload(self, auto_sync: bool = True):
+        """Reloads cached workouts and routines from storage/API."""
         self.workouts = self.storage.get_cached_workouts(auto_sync=auto_sync)
         self.routines = self.storage.get_cached_routines(auto_sync=auto_sync)
         self.analyzer = WorkoutAnalyzer(self.workouts)
-        self.yazio = YazioManager()
 
     def review_last_workout(self) -> str:
         """Generates a detailed, motivational and critical review of the last workout."""
+        if not self.workouts:
+            self.reload(auto_sync=True)
+
         last_w = self.analyzer.get_latest_workout()
         if not last_w:
             return "Тренировки не найдены в аккаунте. Запишите тренировку в Hevy или выполните синхронизацию."
@@ -82,6 +87,9 @@ class AIHevyCoach:
 
     def preview_next_workout(self) -> str:
         """Determines the next routine and prepares targets based on past performance."""
+        if not self.routines or not self.workouts:
+            self.reload(auto_sync=True)
+
         last_w = self.analyzer.get_latest_workout()
         last_title = last_w.get("title", "").strip().lower() if last_w else ""
 
@@ -98,7 +106,8 @@ class AIHevyCoach:
         # Find the matching routine in cached routines
         target_routine = None
         for r in self.routines:
-            if next_routine_name in r.get("title", "").strip().lower():
+            r_title = r.get("title", "").strip().lower()
+            if next_routine_name in r_title:
                 target_routine = r
                 break
 
@@ -106,7 +115,7 @@ class AIHevyCoach:
             target_routine = self.routines[0]
 
         if not target_routine:
-            return "Не удалось определить следующую программу тренировок."
+            return "Не удалось определить следующую программу тренировок. Попробуйте нажать кнопку Синхронизация."
 
         lines = []
         lines.append(f"📋 **План на следующую тренировку: {target_routine.get('title')}**")
@@ -137,6 +146,8 @@ class AIHevyCoach:
 
     def weekly_overview(self) -> str:
         """Overview of total workload and muscle distribution."""
+        if not self.workouts:
+            self.reload(auto_sync=True)
         stats = self.analyzer.get_weekly_stats()
         lines = []
         lines.append("📈 **Общий тренировочный отчет**")

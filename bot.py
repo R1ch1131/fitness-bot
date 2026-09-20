@@ -33,75 +33,75 @@ def get_main_keyboard():
     return keyboard
 
 def ask_gemini_ai(user_question: str) -> str:
-    """Uses Gemini API with full training & nutrition context if key is available, with smart rule-based fallback."""
+    """Uses Gemini API with full training & nutrition context, falling back to smart intent recognition."""
     q_lower = user_question.lower().strip()
 
-    # Smart intent recognition (works always, even without Gemini key)
-    if any(w in q_lower for w in ["план", "след", "что дела", "сегодня", "упражнен"]):
+    # If Gemini key is available, pass conversational questions directly to Gemini!
+    if GEMINI_KEY:
+        try:
+            from google import genai
+            client = genai.Client(api_key=GEMINI_KEY)
+
+            # Ensure data is loaded
+            if not coach.workouts or not coach.routines:
+                coach.reload(auto_sync=True)
+
+            prof = coach.yazio.get_user_profile() if coach.yazio.is_configured() else {}
+            w_cur = prof.get("current_weight_kg", 98.8)
+            h_cur = prof.get("height_cm", 182)
+            age = prof.get("age", 22)
+            start_w = prof.get("start_weight_kg", 103.0)
+
+            # Routines overview for Gemini context
+            routines_context = ""
+            for r in coach.routines:
+                ex_names = ", ".join([e.get("title", "") for e in r.get("exercises", [])])
+                routines_context += f"- {r.get('title')}: {ex_names}\n"
+
+            # Last workout overview
+            last_w = coach.analyzer.get_latest_workout()
+            last_w_str = f"{last_w.get('title')} ({last_w.get('start_time')})" if last_w else "нет записей"
+
+            system_instruction = f"""
+Ты — персональный спортивный тренер и нутрициолог для атлета со следующими параметрами:
+- Атлет: Мужчина, Возраст: {age} года (30.06.2004), Рост: {h_cur} см.
+- Вес: {w_cur} кг (начальный вес: {start_w} кг, цель: 80 кг). Идет сушка/похудение с сохранением мышц.
+- Тренировочные программы атлета в Hevy (5-дневный сплит):
+{routines_context}
+- Последняя проведенная тренировка: {last_w_str}.
+- Кардио: бег 3-4 км в темпе ~10 км/ч (в день ног рекомендована ходьба в гору для защиты коленей).
+- Питание (YAZIO): норма белка 160-200 г (1.6-2.0 г/кг). Сейчас среднее потребление ~1700-2000 ккал.
+
+Отвечай четко, профессионально, с мотивацией, дружелюбно и строго научно (спортивная биомеханика, гипертрофия, восстановление).
+Если атлет спрашивает про конкретный день (например, понедельник), подробно разбери его упражнения из его программы выше, дай советы по технике, весам и разминке.
+Отвечай на русском языке.
+"""
+            for model_name in ["gemini-3.6-flash", "gemini-2.5-flash"]:
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=f"Вопрос атлета: {user_question}",
+                        config={"system_instruction": system_instruction}
+                    )
+                    return response.text
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"Gemini API error: {e}")
+
+    # Fallback to direct handlers if Gemini is unavailable
+    if any(w in q_lower for w in ["план", "след", "что дела"]):
         return coach.preview_next_workout()
     if any(w in q_lower for w in ["послед", "прошл", "тренировк", "как прошл", "тоннаж"]):
         return coach.review_last_workout()
-    if any(w in q_lower for w in ["пит", "ед", "калор", "бжу", "белок", "углевод", "yazio", "язио"]):
+    if any(w in q_lower for w in ["пит", "ед", "калор", "бжу", "белок", "yazio"]):
         return coach.get_nutrition_report()
-    if any(w in q_lower for w in ["вес", "профил", "рост", "похудел", "параметр"]):
+    if any(w in q_lower for w in ["вес", "профил", "рост", "похудел"]):
         return coach.get_profile_report()
-    if any(w in q_lower for w in ["недел", "отчет", "стат", "сводк"]):
+    if any(w in q_lower for w in ["недел", "отчет", "стат"]):
         return coach.weekly_overview()
-    if any(w in q_lower for w in ["синхр", "обнов"]):
-        sync_res = coach.storage.sync_all(verbose=False)
-        return f"✅ Данные обновлены!\nЗагружено тренировок: {sync_res['workouts_count']}\nПрограмм: {sync_res['routines_count']}"
 
-    if not GEMINI_KEY:
-        return (
-            "💬 Тренер на связи!\n\n"
-            f"Я вижу твой вопрос: «{user_question}».\n\n"
-            "Ты можешь писать мне текстом простые команды: *«план на сегодня»*, *«как прошла тренировка»*, *«что с питанием»*, *«мой вес»*, или нажимать кнопки меню.\n\n"
-            "🧠 **Хочешь, чтобы я рассуждал и отвечал на любые сложные вопросы?**\n"
-            "Получи бесплатный ключ Gemini за 20 секунд на [aistudio.google.com/apikey](https://aistudio.google.com/apikey) и добавь его как `GEMINI_API_KEY` в настройки бота!"
-        )
-
-    try:
-        from google import genai
-        client = genai.Client(api_key=GEMINI_KEY)
-
-        # Context compilation
-        prof = coach.yazio.get_user_profile() if coach.yazio.is_configured() else {}
-        w_cur = prof.get("current_weight_kg", 99.3)
-        h_cur = prof.get("height_cm", 182)
-        age = prof.get("age", 22)
-        start_w = prof.get("start_weight_kg", 103.0)
-
-        # Recent nutrition
-        try:
-            nut = coach.yazio.get_daily_summary() if coach.yazio.is_configured() else {}
-        except Exception:
-            nut = {}
-
-        system_instruction = f"""
-Ты — персональный спортивный тренер и нутрициолог для атлета со следующими параметрами:
-- Пол: Мужской, Возраст: {age} года (30.06.2004), Рост: {h_cur} см.
-- Текущий вес: {w_cur} кг (начальный вес: {start_w} кг, цель: 80 кг). Идет сушка/похудение с сохранением мышц.
-- Тренировочный сплит (Hevy): 5 дней в неделю (Пн: Push/Жим, Вт: Pull/Спина, Ср: Legs 1, Чт: Upper, Пт: Legs 2/Становая).
-- Кардио: бег 3-4 км в темпе ~10 км/ч (в дни ног рекомендована ходьба в гору для защиты коленей).
-- Питание (YAZIO): целевой белок 160-200 г (1.6-2.0 г/кг). Сейчас потребление ~1700-2000 ккал.
-
-Отвечай четко, профессионально, с мотивацией, дружелюбно и строго научно (спортивная биомеханика, гипертрофия, восстановление).
-Отвечай на русском языке.
-"""
-        for model_name in ["gemini-3.6-flash", "gemini-2.5-flash"]:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=f"Вопрос атлета: {user_question}",
-                    config={"system_instruction": system_instruction}
-                )
-                return response.text
-            except Exception:
-                continue
-
-        return "Извините, не удалось сформировать ответ. Попробуйте еще раз."
-    except Exception as e:
-        return f"Не удалось связаться с Gemini AI: {e}"
+    return "Я на связи! Напиши свой вопрос о тренировках или питании, или выбери действие в меню ниже."
 
 def run_health_server():
     """Lightweight HTTP server for cloud platforms (Render, Koyeb) to keep service active."""
@@ -131,8 +131,13 @@ def run_health_server():
 def start_bot():
     if not TELEGRAM_TOKEN:
         print("⚠️ ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
-        print("Получите токен у @BotFather в Telegram и пропишите его в .env: TELEGRAM_BOT_TOKEN=ваш_токен")
         return
+
+    # Pre-load coach data on startup
+    try:
+        coach.reload(auto_sync=True)
+    except Exception as e:
+        print(f"Initial coach load warning: {e}")
 
     run_health_server()
     bot = telebot.TeleBot(TELEGRAM_TOKEN, parse_mode="Markdown")
@@ -142,7 +147,7 @@ def start_bot():
         text = (
             f"Привет, атлет! 🏋️‍♂️\n\n"
             f"Я твой персональный ИИ-тренер, подключенный к твоим аккаунтам **Hevy** и **YAZIO**.\n\n"
-            f"Твои текущие параметры: **{coach.yazio.get_user_profile().get('current_weight_kg', 99.3)} кг** | **182 см** | Цель: **80 кг**.\n\n"
+            f"Твои текущие параметры: **{coach.yazio.get_user_profile().get('current_weight_kg', 98.8)} кг** | **182 см** | Цель: **80 кг**.\n\n"
             f"Используй кнопки внизу для быстрого доступа или просто напиши мне любой вопрос!"
         )
         bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
@@ -181,6 +186,7 @@ def start_bot():
     def handle_sync(message):
         bot.send_chat_action(message.chat.id, "typing")
         sync_res = coach.storage.sync_all(verbose=False)
+        coach.reload(auto_sync=False) # Reload into memory!
         text = f"✅ Данные обновлены!\nЗагружено тренировок: {sync_res['workouts_count']}\nПрограмм (сплитов): {sync_res['routines_count']}"
         bot.send_message(message.chat.id, text, reply_markup=get_main_keyboard())
 
