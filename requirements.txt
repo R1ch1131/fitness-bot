@@ -1,0 +1,4 @@
+pyTelegramBotAPI>=4.36.0
+yazio-exporter>=0.2.0
+requests>=2.31.0
+google-genai>=2.24.0
