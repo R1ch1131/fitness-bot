@@ -86,13 +86,20 @@ def ask_gemini_ai(user_question: str) -> str:
 - Питание (YAZIO): целевой белок 160-200 г (1.6-2.0 г/кг). Сейчас потребление ~1700-2000 ккал.
 
 Отвечай четко, профессионально, с мотивацией, дружелюбно и строго научно (спортивная биомеханика, гипертрофия, восстановление).
+Отвечай на русском языке.
 """
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f"Вопрос атлета: {user_question}",
-            config={"system_instruction": system_instruction}
-        )
-        return response.text
+        for model_name in ["gemini-3.6-flash", "gemini-2.5-flash"]:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=f"Вопрос атлета: {user_question}",
+                    config={"system_instruction": system_instruction}
+                )
+                return response.text
+            except Exception:
+                continue
+
+        return "Извините, не удалось сформировать ответ. Попробуйте еще раз."
     except Exception as e:
         return f"Не удалось связаться с Gemini AI: {e}"
 
