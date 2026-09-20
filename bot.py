@@ -33,13 +33,31 @@ def get_main_keyboard():
     return keyboard
 
 def ask_gemini_ai(user_question: str) -> str:
-    """Uses Gemini API with full training & nutrition context if key is available."""
+    """Uses Gemini API with full training & nutrition context if key is available, with smart rule-based fallback."""
+    q_lower = user_question.lower().strip()
+
+    # Smart intent recognition (works always, even without Gemini key)
+    if any(w in q_lower for w in ["план", "след", "что дела", "сегодня", "упражнен"]):
+        return coach.preview_next_workout()
+    if any(w in q_lower for w in ["послед", "прошл", "тренировк", "как прошл", "тоннаж"]):
+        return coach.review_last_workout()
+    if any(w in q_lower for w in ["пит", "ед", "калор", "бжу", "белок", "углевод", "yazio", "язио"]):
+        return coach.get_nutrition_report()
+    if any(w in q_lower for w in ["вес", "профил", "рост", "похудел", "параметр"]):
+        return coach.get_profile_report()
+    if any(w in q_lower for w in ["недел", "отчет", "стат", "сводк"]):
+        return coach.weekly_overview()
+    if any(w in q_lower for w in ["синхр", "обнов"]):
+        sync_res = coach.storage.sync_all(verbose=False)
+        return f"✅ Данные обновлены!\nЗагружено тренировок: {sync_res['workouts_count']}\nПрограмм: {sync_res['routines_count']}"
+
     if not GEMINI_KEY:
         return (
             "💬 Тренер на связи!\n\n"
-            "Вы можете использовать быстрые кнопки меню ниже (🏋️ Последняя тренировка, 📋 План, 🥗 Питание, 👤 Профиль).\n\n"
-            "💡 Чтобы я мог отвечать на любые свободные вопросы как полноценный ИИ-собеседник, "
-            "добавьте бесплатный ключ `GEMINI_API_KEY` в файл `.env`."
+            f"Я вижу твой вопрос: «{user_question}».\n\n"
+            "Ты можешь писать мне текстом простые команды: *«план на сегодня»*, *«как прошла тренировка»*, *«что с питанием»*, *«мой вес»*, или нажимать кнопки меню.\n\n"
+            "🧠 **Хочешь, чтобы я рассуждал и отвечал на любые сложные вопросы?**\n"
+            "Получи бесплатный ключ Gemini за 20 секунд на [aistudio.google.com/apikey](https://aistudio.google.com/apikey) и добавь его как `GEMINI_API_KEY` в настройки бота!"
         )
 
     try:
