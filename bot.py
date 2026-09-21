@@ -24,6 +24,8 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 coach = AIHevyCoach(auto_sync=False)
 
 SUBSCRIBERS_FILE = DATA_DIR / "subscribers.json"
+WORKOUT_TRACKER_FILE = DATA_DIR / "workout_tracker.json"
+PENDING_CHECKIN_FILE = DATA_DIR / "pending_checkin.json"
 
 # Cache for Gemini system instruction to avoid repetitive heavy YAZIO queries on every message
 _context_cache = {
@@ -40,7 +42,7 @@ MODELS_CASCADE = [
 ]
 
 def register_subscriber(chat_id: int):
-    """Saves user chat_id for scheduled gym reminders."""
+    """Saves user chat_id for scheduled gym reminders and check-ins."""
     try:
         subscribers = []
         if SUBSCRIBERS_FILE.exists():
@@ -56,6 +58,61 @@ def register_subscriber(chat_id: int):
             print(f"👤 Чат {chat_id} сохранен для напоминаний.")
     except Exception as e:
         print(f"Error registering subscriber: {e}")
+
+def get_all_subscribers() -> list:
+    """Returns list of unique subscriber chat IDs from file and environment."""
+    subscribers = []
+    if SUBSCRIBERS_FILE.exists():
+        try:
+            with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
+                subscribers = json.load(f)
+        except Exception:
+            subscribers = []
+    env_chat = os.getenv("TELEGRAM_USER_CHAT_ID")
+    if env_chat:
+        try:
+            cid = int(env_chat)
+            if cid not in subscribers:
+                subscribers.append(cid)
+        except Exception:
+            pass
+    return subscribers
+
+def load_workout_tracker() -> dict:
+    """Loads state of latest known workout ID and count."""
+    if WORKOUT_TRACKER_FILE.exists():
+        try:
+            with open(WORKOUT_TRACKER_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_workout_tracker(data: dict):
+    """Saves state of latest known workout ID and count."""
+    try:
+        with open(WORKOUT_TRACKER_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving workout tracker: {e}")
+
+def load_pending_checkin() -> dict:
+    """Loads state of pending 20-minute post-workout check-in."""
+    if PENDING_CHECKIN_FILE.exists():
+        try:
+            with open(PENDING_CHECKIN_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_pending_checkin(data: dict):
+    """Saves state of pending 20-minute post-workout check-in."""
+    try:
+        with open(PENDING_CHECKIN_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving pending checkin: {e}")
 
 @contextmanager
 def continuous_typing(bot, chat_id: int):
@@ -218,6 +275,259 @@ def ask_gemini_ai(user_question: str) -> str:
 
     return "⚠️ Сервер ИИ временно перегружен или недоступен. Пожалуйста, повтори свой вопрос через пару секунд."
 
+def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] = None) -> str:
+    """Correlates athlete's subjective feedback with actual Hevy workout metrics using Gemini AI."""
+    workout = None
+    if workout_id:
+        for w in coach.workouts:
+            if w.get("id") == workout_id:
+                workout = w
+                break
+    if not workout:
+        workout = coach.analyzer.get_latest_workout()
+
+    if not workout:
+        return "⚠️ Не удалось найти данные о тренировке для сопоставления. Нажми '🔄 Синхронизация'."
+
+    try:
+        an = coach.analyzer.analyze_workout(workout)
+        w_title = an.get("title", "Тренировка")
+        duration = an.get("duration_minutes", 0)
+        tonnage = an.get("total_tonnage_kg", 0)
+        sets_count = an.get("total_working_sets", 0)
+        w_date = an.get("date", "")
+
+        ex_lines = []
+        for ex in an.get("exercises", []):
+            sets_s = " | ".join(ex.get("sets_formatted", []))
+            ex_lines.append(f"• {ex['title']} ({ex['muscle']}): {sets_s} [Макс: {ex['max_weight_kg']} кг, Тоннаж: {ex['tonnage_kg']:,.0f} кг]")
+        exercises_text = "\n".join(ex_lines) if ex_lines else "Данные по упражнениям отсутствуют"
+
+        cardio_text = "Без кардио"
+        if an.get("cardio"):
+            c_items = [f"{c['title']} ({c.get('distance_km', 0)} км за {c.get('duration_minutes', 0)} мин, темп {c.get('pace_min_km', '')})" for c in an["cardio"]]
+            cardio_text = "; ".join(c_items)
+
+        prof = coach.yazio.get_user_profile() if coach.yazio.is_configured() else {}
+        w_cur = prof.get("current_weight_kg", 98.8)
+
+        prompt = f"""
+Ты — персональный спортивный тренер и физиолог атлета со следующими параметрами:
+- Атлет: Мужчина, 22 года, Рост: 182 см, Вес: {w_cur} кг (начальный 103 кг, цель 80 кг, режим: дефицит калорий / сушка с сохранением мышц).
+- Атлет только что закончил силовую тренировку и прислал свои ощущения.
+
+РЕАЛЬНЫЕ ДАННЫЕ СЕГОДНЯШНЕЙ ТРЕНИРОВКИ ИЗ HEVY:
+- Название программы: {w_title} ({w_date})
+- Время тренировки: {duration} мин
+- Общий тоннаж: {tonnage:,.0f} кг | Рабочих подходов: {sets_count}
+- Выполненные упражнения и подходы:
+{exercises_text}
+- Кардио: {cardio_text}
+
+ОТВЕТ И СУБЪЕКТИВНЫЕ ОЩУЩЕНИЯ АТЛЕТА:
+«{user_feedback}»
+
+ТВОЯ ЗАДАЧА:
+Проанализируй ощущения атлета, опираясь на спортивную физиологию, биомеханику и его реальные цифры из тренировки выше.
+Сформируй структурированный, дружелюбный, ободряющий и научно обоснованный ответ по следующим пунктам:
+1. 🎯 Оценка нагрузки и ощущений: свяжи то, что почувствовал атлет, с конкретными весами, количеством подходов или объемом. Объясни, почему организм так отреагировал.
+2. 🦴 Суставы, связки и техника: если атлет упомянул дискомфорт или ноющую боль (плечо, колено, локоть, поясница), дай четкие рекомендации по технике (угол локтей, наклон скамьи, разминка манжеты плеча, замена хвата на нейтральный). Если суставы в порядке — похвали технику.
+3. ⚡ Восстановление на ближайшие 24-48ч: рекомендации по питанию (белок 30-40г, сложные углеводы, вода/электролиты), сну и расслаблению мышц.
+4. 📝 Корректировка следующих тренировок: стоит ли прогрессировать веса, зафиксировать их или скинуть на 5-10% в проблемных упражнениях?
+
+Форматируй текст в Markdown с жирным шрифтом, списками и эмодзи. Ответ должен быть удобен для чтения с мобильного экрана в Telegram. Отвечай на русском языке.
+"""
+
+        # Try Gemini models cascade
+        if GEMINI_KEY:
+            try:
+                from google import genai
+                client = genai.Client(api_key=GEMINI_KEY)
+                for model_name in MODELS_CASCADE:
+                    try:
+                        resp = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt
+                        )
+                        if resp and resp.text:
+                            return f"📋 *Анализ тренировки и самочувствия:*\n\n{resp.text}"
+                    except Exception as model_err:
+                        print(f"Model {model_name} failed for feedback analysis: {model_err}")
+                        continue
+            except Exception as e:
+                print(f"Gemini client feedback analysis error: {e}")
+
+        # Deterministic fallback if Gemini is unreachable
+        return (
+            f"📋 *Анализ тренировки: {w_title}*\n\n"
+            f"⏱ Длительность: *{duration} мин* | Тоннаж: *{tonnage:,.0f} кг* ({sets_count} раб. подходов)\n\n"
+            f"💬 *Твой отзыв:* «_{user_feedback}_»\n\n"
+            f"💡 *Разбор тренера:*\n"
+            f"1. *Нагрузка*: Суммарный тоннаж {tonnage:,.0f} кг — это солидный силовой объем. Ощущение утомления абсолютно физиологично при сушке и дефиците калорий.\n"
+            f"2. *Восстановление*: Закрой потребность в белке (~35–40 г) и выпей 0.7–1.0 л чистой воды с минералами/электролитами в течение ближайшего часа.\n"
+            f"3. *Суставы и связки*: При любых признаках дискомфорта удели время качественной разминке перед следующей тренировкой и держи под контролем негативную фазу (2-3 сек опускания снаряда).\n"
+            f"4. *Сон*: Не менее 8 часов сна для восстановления нервной системы и снижения кортизола."
+        )
+    except Exception as err:
+        print(f"Error in analyze_post_workout_feedback: {err}")
+        return "⚠️ Не удалось сформировать отчет по самочувствию. Попробуй позже."
+
+def run_hevy_auto_sync_monitor(bot):
+    """Monitors Hevy API every 90 seconds for newly finished workouts and auto-syncs."""
+    def monitor_worker():
+        time.sleep(10)
+        print("🔄 Фоновый монитор Hevy запущен (автопроверка каждые 90 сек)")
+
+        # Initialize tracker on startup if empty
+        tracker = load_workout_tracker()
+        if not tracker.get("last_known_id"):
+            latest = coach.analyzer.get_latest_workout()
+            tracker["last_known_id"] = latest.get("id") if latest else None
+            tracker["last_known_count"] = len(coach.workouts)
+            save_workout_tracker(tracker)
+            print(f"🔄 Монитор инициализирован: {tracker['last_known_count']} тренировок, последняя: {tracker['last_known_id']}")
+
+        while True:
+            try:
+                time.sleep(90)
+                if not coach.hevy.api_key:
+                    continue
+
+                current_count = coach.hevy.get_workouts_count()
+                tracker = load_workout_tracker()
+                last_count = tracker.get("last_known_count", 0)
+                last_id = tracker.get("last_known_id")
+
+                new_detected = False
+                if current_count > last_count:
+                    new_detected = True
+                elif current_count > 0:
+                    try:
+                        latest_resp = coach.hevy.get_workouts(page=1, page_size=1)
+                        w_list = latest_resp.get("workouts", [])
+                        if w_list and w_list[0].get("id") != last_id:
+                            new_detected = True
+                    except Exception:
+                        pass
+
+                if new_detected:
+                    print(f"🎉 Обнаружена новая тренировка в Hevy! Было {last_count}, стало {current_count}. Выполняю автосинхронизацию...")
+                    coach.storage.sync_all(verbose=False)
+                    coach.reload(auto_sync=False)
+                    _context_cache["timestamp"] = 0
+
+                    new_workout = coach.analyzer.get_latest_workout()
+                    new_id = new_workout.get("id") if new_workout else None
+                    w_title = new_workout.get("title", "Тренировка") if new_workout else "Новая тренировка"
+
+                    tracker["last_known_count"] = current_count
+                    tracker["last_known_id"] = new_id
+                    save_workout_tracker(tracker)
+
+                    end_iso = new_workout.get("end_time") or new_workout.get("start_time")
+                    end_dt = None
+                    if end_iso:
+                        try:
+                            from analyzer import parse_iso
+                            end_dt = parse_iso(end_iso)
+                        except Exception:
+                            end_dt = None
+
+                    now_ts = time.time()
+                    if end_dt:
+                        target_due = end_dt.timestamp() + (20 * 60)
+                    else:
+                        target_due = now_ts + (20 * 60)
+
+                    # If workout ended more than 20 minutes ago, schedule prompt in 15 seconds
+                    if target_due < now_ts:
+                        target_due = now_ts + 15
+
+                    pending = {
+                        "workout_id": new_id,
+                        "workout_title": w_title,
+                        "end_time": end_iso,
+                        "due_time": target_due,
+                        "prompt_sent": False,
+                        "prompt_sent_time": 0.0,
+                        "responded": False
+                    }
+                    save_pending_checkin(pending)
+
+                    mins_left = max(1, int((target_due - now_ts) / 60))
+                    msg_text = (
+                        f"🔄 *Авто-синхронизация Hevy:* зафиксирована новая тренировка!\n\n"
+                        f"🏋️‍♂️ *{w_title}*\n"
+                        f"Все упражнения, подходы и веса сохранены в базу.\n\n"
+                        f"⏳ Примерно через *{mins_left} мин.* я пришлю опрос о твоем самочувствии, чтобы разобрать нагрузку и восстановление! 💪"
+                    )
+                    subscribers = get_all_subscribers()
+                    for cid in subscribers:
+                        try:
+                            bot.send_message(cid, msg_text, parse_mode="Markdown")
+                        except Exception as err:
+                            print(f"Не удалось отправить уведомление об автосинхронизации в {cid}: {err}")
+
+            except Exception as e:
+                print(f"Auto-sync monitor error: {e}")
+
+    t = threading.Thread(target=monitor_worker, daemon=True)
+    t.start()
+
+def run_checkin_dispatcher(bot):
+    """Periodically checks if a 20-minute post-workout check-in prompt is due."""
+    def dispatcher_worker():
+        time.sleep(15)
+        print("⏰ Диспетчер опросов после тренировки активен")
+        while True:
+            try:
+                pending = load_pending_checkin()
+                if pending and not pending.get("prompt_sent"):
+                    due_time = pending.get("due_time", 0)
+                    now_ts = time.time()
+                    if now_ts >= due_time:
+                        w_title = pending.get("workout_title", "Тренировка")
+                        w_id = pending.get("workout_id")
+
+                        tonnage_str = ""
+                        for w in coach.workouts:
+                            if w.get("id") == w_id:
+                                try:
+                                    an = coach.analyzer.analyze_workout(w)
+                                    tonnage_str = f" (сегодняшний тоннаж: {an.get('total_tonnage_kg', 0):,.0f} кг)"
+                                except Exception:
+                                    pass
+                                break
+
+                        prompt_text = (
+                            f"🏋️‍♂️ *Как прошла тренировка «{w_title}»?*{tonnage_str}\n\n"
+                            f"Прошло около 20 минут после окончания тренировки — самое время зафиксировать ощущения, пока всё свежо в памяти! 🧠\n\n"
+                            f"💬 *Поделись, как самочувствие:*\n"
+                            f"1️⃣ *Общее состояние*: легко или тяжело далась тренировка? Хватило ли сил и энергии?\n"
+                            f"2️⃣ *Рабочие веса*: как зашли подходы? Был ли запас или работал до отказа?\n"
+                            f"3️⃣ *Суставы и связки*: ничего ли не тянет и не ноет (плечи, локти, колени, поясница)?\n"
+                            f"4️⃣ *Мышцы*: хороший ли памп или чувствуется сильная скованность/забитость?\n\n"
+                            f"✍️ *Напиши мне прямо сюда в чат обычным сообщением* свои ощущения — я сопоставлю их с сегодняшними упражнениями и весами, оценю утомление и подскажу, как скорректировать восстановление и следующие нагрузки! 💪"
+                        )
+
+                        subscribers = get_all_subscribers()
+                        for cid in subscribers:
+                            try:
+                                bot.send_message(cid, prompt_text, parse_mode="Markdown")
+                                print(f"📩 Опрос о самочувствии отправлен пользователю {cid}")
+                            except Exception as err:
+                                print(f"Не удалось отправить опрос о тренировке в {cid}: {err}")
+
+                        pending["prompt_sent"] = True
+                        pending["prompt_sent_time"] = time.time()
+                        save_pending_checkin(pending)
+            except Exception as e:
+                print(f"Check-in dispatcher error: {e}")
+            time.sleep(15)
+
+    t = threading.Thread(target=dispatcher_worker, daemon=True)
+    t.start()
+
 def run_health_server():
     """Lightweight HTTP server for cloud platforms (Render, Koyeb) to keep service active."""
     from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -278,18 +588,7 @@ def run_gym_reminder_scheduler(bot):
                 if now_gmt6.weekday() < 5 and now_gmt6.hour == 10 and now_gmt6.minute == 40:
                     today_str = now_gmt6.strftime("%Y-%m-%d")
                     if last_sent_date != today_str:
-                        subscribers = []
-                        if SUBSCRIBERS_FILE.exists():
-                            try:
-                                with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
-                                    subscribers = json.load(f)
-                            except Exception:
-                                subscribers = []
-
-                        env_chat = os.getenv("TELEGRAM_USER_CHAT_ID")
-                        if env_chat and int(env_chat) not in subscribers:
-                            subscribers.append(int(env_chat))
-
+                        subscribers = get_all_subscribers()
                         reminder_text = "👟🎒 *Не забудь сменные вещи в зал и тапочки!*"
                         for cid in subscribers:
                             try:
@@ -322,6 +621,8 @@ def start_bot():
 
     bot = telebot.TeleBot(TELEGRAM_TOKEN, parse_mode="Markdown")
     run_gym_reminder_scheduler(bot)
+    run_hevy_auto_sync_monitor(bot)
+    run_checkin_dispatcher(bot)
 
     def safe_send(chat_id, text, reply_markup=None):
         try:
@@ -340,8 +641,11 @@ def start_bot():
                 f"Привет, атлет! 🏋️‍♂️\n\n"
                 f"Я твой персональный ИИ-тренер, подключенный к твоим аккаунтам *Hevy* и *YAZIO*.\n\n"
                 f"Твои параметры: *{w} кг* | *182 см* | Цель: *80 кг*.\n\n"
-                f"🔔 *Авто-напоминание в зал*: включено с Пн по Пт в 10:40 утра (GMT+6).\n\n"
-                f"Используй кнопки внизу для быстрого доступа или просто напиши мне любой вопрос в чат!"
+                f"🔥 *Что работает автоматически:*\n"
+                f"• 🔄 *Авто-синхронизация Hevy*: я каждые 90 сек отслеживаю завершение тренировок и сам обновляю базу.\n"
+                f"• 💬 *Опрос через 20 минут*: через ~20 мин после тренировки я напишу тебе, узнаю о самочувствии и сопоставлю твои ощущения с весами и тоннажем!\n"
+                f"• 🔔 *Напоминание в зал*: Пн–Пт в 10:40 утра (GMT+6).\n\n"
+                f"Используй кнопки внизу для быстрого доступа, команды `/test_checkin`, `/test_reminder` или просто напиши мне любой вопрос в чат!"
             )
             safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
 
@@ -354,6 +658,58 @@ def start_bot():
                 "_(Это тестовая проверка напоминания. Автоматически оно будет приходить с понедельника по пятницу ровно в 10:40 утра по твоему времени GMT+6)_"
             )
             safe_send(message.chat.id, reminder_text, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['test_checkin', 'checkin'])
+    def handle_test_checkin(message):
+        register_subscriber(message.chat.id)
+        with continuous_typing(bot, message.chat.id):
+            latest = coach.analyzer.get_latest_workout()
+            if not latest:
+                safe_send(message.chat.id, "⚠️ Тренировок пока не найдено. Нажми '🔄 Синхронизация'.", reply_markup=get_main_keyboard())
+                return
+
+            an = coach.analyzer.analyze_workout(latest)
+            w_title = an.get("title", "Тренировка")
+            tonnage = an.get("total_tonnage_kg", 0)
+
+            pending = {
+                "workout_id": latest.get("id"),
+                "workout_title": w_title,
+                "end_time": latest.get("end_time"),
+                "due_time": time.time() - 1,
+                "prompt_sent": True,
+                "prompt_sent_time": time.time(),
+                "responded": False
+            }
+            save_pending_checkin(pending)
+
+            prompt_text = (
+                f"🏋️‍♂️ *Как прошла тренировка «{w_title}»?* (сегодняшний тоннаж: {tonnage:,.0f} кг)\n\n"
+                f"_(Тестовый запуск опроса самочувствия. В боевом режиме бот присылает его автоматически через 20 минут после окончания тренировки в Hevy)_\n\n"
+                f"💬 *Поделись своими ощущениями:*\n"
+                f"1️⃣ *Общее состояние*: легко или тяжело далась тренировка? Хватило ли сил и энергии?\n"
+                f"2️⃣ *Рабочие веса*: как зашли подходы? Был ли запас или работал до отказа?\n"
+                f"3️⃣ *Суставы и связки*: ничего ли не тянет и не ноет (плечи, локти, колени, поясница)?\n"
+                f"4️⃣ *Мышцы*: хороший ли памп или чувствуется сильная скованность/забитость?\n\n"
+                f"✍️ *Напиши мне прямо сейчас в ответ любое сообщение* со своими мыслями — я проанализирую твои слова вместе с сегодняшними весами и тоннажем, оценю утомление и подскажу, как скорректировать восстановление и следующие нагрузки! 💪"
+            )
+            safe_send(message.chat.id, prompt_text, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['feedback'])
+    def handle_feedback_command(message):
+        register_subscriber(message.chat.id)
+        feedback_text = message.text.replace("/feedback", "", 1).strip()
+        if not feedback_text:
+            safe_send(
+                message.chat.id,
+                "ℹ️ Напиши свой отзыв о последней тренировке после команды, например:\n`/feedback Тяжело пошел жим гантелей, правое плечо немного ныло, трицепс забился`",
+                reply_markup=get_main_keyboard()
+            )
+            return
+
+        with continuous_typing(bot, message.chat.id):
+            feedback_report = analyze_post_workout_feedback(feedback_text)
+            safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "🏋️ Последняя тренировка" or msg.text == "/last")
     def handle_last(message):
@@ -418,6 +774,26 @@ def start_bot():
     @bot.message_handler(func=lambda msg: True)
     def handle_free_text(message):
         register_subscriber(message.chat.id)
+
+        # Check if user is responding to pending post-workout check-in
+        pending = load_pending_checkin()
+        if pending and pending.get("prompt_sent") and not pending.get("responded"):
+            prompt_sent_time = pending.get("prompt_sent_time", 0)
+            # Accept within 8 hours of prompt
+            if time.time() - prompt_sent_time < 8 * 3600 and not message.text.startswith("/"):
+                q_lower = message.text.lower().strip()
+                is_pure_nutrition_query = (
+                    any(w in q_lower for w in ["что ел", "что я ел", "меню", "сколько калор"]) and
+                    not any(w in q_lower for w in ["болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "вес", "тренировк", "самочувств"])
+                )
+                if not is_pure_nutrition_query:
+                    pending["responded"] = True
+                    save_pending_checkin(pending)
+                    with continuous_typing(bot, message.chat.id):
+                        feedback_report = analyze_post_workout_feedback(message.text, pending.get("workout_id"))
+                        safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+                    return
+
         with continuous_typing(bot, message.chat.id):
             reply = ask_gemini_ai(message.text)
             safe_send(message.chat.id, reply, reply_markup=get_main_keyboard())
