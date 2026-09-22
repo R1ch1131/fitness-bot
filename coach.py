@@ -109,6 +109,7 @@ class AIHevyCoach:
 
     def __init__(self, auto_sync: bool = False):
         self.storage = Storage()
+        self.hevy = self.storage.client
         self.reload(auto_sync=auto_sync)
         self.yazio = YazioManager()
 

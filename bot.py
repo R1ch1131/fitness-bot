@@ -372,104 +372,182 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
         print(f"Error in analyze_post_workout_feedback: {err}")
         return "⚠️ Не удалось сформировать отчет по самочувствию. Попробуй позже."
 
+def dispatch_checkin_if_due(bot, target_chat_id: Optional[int] = None):
+    """Dispatches 20-minute post-workout checkin if due."""
+    try:
+        pending = load_pending_checkin()
+        if not pending or pending.get("prompt_sent"):
+            return
+
+        due_time = pending.get("due_time", 0)
+        now_ts = time.time()
+        if now_ts < due_time:
+            return
+
+        subscribers = [target_chat_id] if target_chat_id else get_all_subscribers()
+        if not subscribers:
+            print("⚠️ Опрос готов к отправке, но нет подписчиков. Ожидание сообщения от пользователя...")
+            return
+
+        w_title = pending.get("workout_title", "Тренировка")
+        w_id = pending.get("workout_id")
+
+        tonnage_str = ""
+        for w in coach.workouts:
+            if w.get("id") == w_id:
+                try:
+                    an = coach.analyzer.analyze_workout(w)
+                    tonnage_str = f" (сегодняшний тоннаж: {an.get('total_tonnage_kg', 0):,.0f} кг)"
+                except Exception:
+                    pass
+                break
+
+        prompt_text = (
+            f"🏋️‍♂️ *Как прошла тренировка «{w_title}»?*{tonnage_str}\n\n"
+            f"Прошло около 20 минут после окончания тренировки — самое время зафиксировать ощущения, пока всё свежо в памяти! 🧠\n\n"
+            f"💬 *Поделись, как самочувствие:*\n"
+            f"1️⃣ *Общее состояние*: легко или тяжело далась тренировка? Хватило ли сил и энергии?\n"
+            f"2️⃣ *Рабочие веса*: как зашли подходы? Был ли запас или работал до отказа?\n"
+            f"3️⃣ *Суставы и связки*: ничего ли не тянет и не ноет (плечи, локти, колени, поясница)?\n"
+            f"4️⃣ *Мышцы*: хороший ли памп или чувствуется сильная скованность/забитость?\n\n"
+            f"✍️ *Напиши мне прямо сюда в чат обычным сообщением* свои ощущения — я сопоставлю их с сегодняшними упражнениями и весами, оценю утомление и подскажу, как скорректировать восстановление и следующие нагрузки! 💪"
+        )
+
+        sent_count = 0
+        for cid in subscribers:
+            try:
+                bot.send_message(cid, prompt_text, parse_mode="Markdown")
+                print(f"📩 Опрос о самочувствии отправлен пользователю {cid}")
+                sent_count += 1
+            except Exception as err:
+                print(f"Не удалось отправить опрос о тренировке в {cid}: {err}")
+
+        if sent_count > 0:
+            pending["prompt_sent"] = True
+            pending["prompt_sent_time"] = time.time()
+            save_pending_checkin(pending)
+    except Exception as e:
+        print(f"Error in dispatch_checkin_if_due: {e}")
+
+def check_for_new_workouts_and_sync(bot):
+    """Checks Hevy API for new workouts, performs auto-sync, and schedules 20-min checkin."""
+    try:
+        client = getattr(coach, "hevy", None) or getattr(coach.storage, "client", None)
+        if not client or not getattr(client, "api_key", None):
+            return
+
+        current_count = client.get_workouts_count()
+        tracker = load_workout_tracker()
+        last_count = tracker.get("last_known_count", 0)
+        last_id = tracker.get("last_known_id")
+
+        # Fetch latest workout from Hevy API
+        latest_api_resp = client.get_workouts(page=1, page_size=1)
+        api_workouts = latest_api_resp.get("workouts", [])
+        if not api_workouts:
+            return
+
+        latest_api_w = api_workouts[0]
+        latest_api_id = latest_api_w.get("id")
+
+        # Check if new workout detected
+        is_new = False
+        if current_count > last_count:
+            is_new = True
+        elif last_id and latest_api_id != last_id:
+            is_new = True
+        elif not last_id or len(coach.workouts) < current_count:
+            is_new = True
+
+        if is_new:
+            print(f"🎉 Обнаружена новая тренировка в Hevy: {latest_api_w.get('title')} (ID: {latest_api_id})! Выполняю автосинхронизацию...")
+            coach.storage.sync_all(verbose=False)
+            coach.reload(auto_sync=False)
+            _context_cache["timestamp"] = 0
+
+            tracker["last_known_count"] = current_count
+            tracker["last_known_id"] = latest_api_id
+            save_workout_tracker(tracker)
+
+        # Check if latest workout needs post-workout checkin
+        latest_workout = coach.analyzer.get_latest_workout()
+        if not latest_workout:
+            return
+
+        w_id = latest_workout.get("id")
+        w_title = latest_workout.get("title", "Тренировка")
+        end_iso = latest_workout.get("end_time") or latest_workout.get("start_time")
+
+        from analyzer import parse_iso
+        end_dt = parse_iso(end_iso) if end_iso else None
+        now_ts = time.time()
+
+        # Check if workout ended recently (within last 24 hours)
+        is_recent = False
+        if end_dt:
+            hours_ago = (now_ts - end_dt.timestamp()) / 3600
+            if 0 <= hours_ago <= 24:
+                is_recent = True
+
+        pending = load_pending_checkin()
+        already_prompted = (
+            (tracker.get("last_prompted_id") == w_id) or
+            (pending.get("workout_id") == w_id and pending.get("prompt_sent"))
+        )
+
+        if is_recent and not already_prompted:
+            if end_dt:
+                target_due = end_dt.timestamp() + (20 * 60)
+            else:
+                target_due = now_ts + (20 * 60)
+
+            # If ended >20 min ago, schedule prompt in 5 seconds
+            if target_due < now_ts:
+                target_due = now_ts + 5
+
+            new_pending = {
+                "workout_id": w_id,
+                "workout_title": w_title,
+                "end_time": end_iso,
+                "due_time": target_due,
+                "prompt_sent": False,
+                "prompt_sent_time": 0.0,
+                "responded": False
+            }
+            save_pending_checkin(new_pending)
+            tracker["last_prompted_id"] = w_id
+            save_workout_tracker(tracker)
+
+            # If newly detected, notify subscribers that sync occurred
+            if is_new:
+                mins_left = max(0, int((target_due - now_ts) / 60))
+                time_hint = f"Примерно через *{mins_left} мин.* я пришлю опрос о твоем самочувствии" if mins_left > 0 else "Через несколько секунд я пришлю опрос о твоем самочувствии"
+                msg_text = (
+                    f"🔄 *Авто-синхронизация Hevy:* зафиксирована новая тренировка!\n\n"
+                    f"🏋️‍♂️ *{w_title}*\n"
+                    f"Все упражнения, подходы и веса сохранены в базу.\n\n"
+                    f"⏳ {time_hint}, чтобы разобрать нагрузку и восстановление! 💪"
+                )
+                for cid in get_all_subscribers():
+                    try:
+                        bot.send_message(cid, msg_text, parse_mode="Markdown")
+                    except Exception as err:
+                        print(f"Не удалось отправить уведомление об автосинхронизации в {cid}: {err}")
+
+    except Exception as e:
+        print(f"Error in check_for_new_workouts_and_sync: {e}")
+
 def run_hevy_auto_sync_monitor(bot):
     """Monitors Hevy API every 90 seconds for newly finished workouts and auto-syncs."""
     def monitor_worker():
-        time.sleep(10)
+        time.sleep(5)
         print("🔄 Фоновый монитор Hevy запущен (автопроверка каждые 90 сек)")
-
-        # Initialize tracker on startup if empty
-        tracker = load_workout_tracker()
-        if not tracker.get("last_known_id"):
-            latest = coach.analyzer.get_latest_workout()
-            tracker["last_known_id"] = latest.get("id") if latest else None
-            tracker["last_known_count"] = len(coach.workouts)
-            save_workout_tracker(tracker)
-            print(f"🔄 Монитор инициализирован: {tracker['last_known_count']} тренировок, последняя: {tracker['last_known_id']}")
-
         while True:
             try:
-                time.sleep(90)
-                if not coach.hevy.api_key:
-                    continue
-
-                current_count = coach.hevy.get_workouts_count()
-                tracker = load_workout_tracker()
-                last_count = tracker.get("last_known_count", 0)
-                last_id = tracker.get("last_known_id")
-
-                new_detected = False
-                if current_count > last_count:
-                    new_detected = True
-                elif current_count > 0:
-                    try:
-                        latest_resp = coach.hevy.get_workouts(page=1, page_size=1)
-                        w_list = latest_resp.get("workouts", [])
-                        if w_list and w_list[0].get("id") != last_id:
-                            new_detected = True
-                    except Exception:
-                        pass
-
-                if new_detected:
-                    print(f"🎉 Обнаружена новая тренировка в Hevy! Было {last_count}, стало {current_count}. Выполняю автосинхронизацию...")
-                    coach.storage.sync_all(verbose=False)
-                    coach.reload(auto_sync=False)
-                    _context_cache["timestamp"] = 0
-
-                    new_workout = coach.analyzer.get_latest_workout()
-                    new_id = new_workout.get("id") if new_workout else None
-                    w_title = new_workout.get("title", "Тренировка") if new_workout else "Новая тренировка"
-
-                    tracker["last_known_count"] = current_count
-                    tracker["last_known_id"] = new_id
-                    save_workout_tracker(tracker)
-
-                    end_iso = new_workout.get("end_time") or new_workout.get("start_time")
-                    end_dt = None
-                    if end_iso:
-                        try:
-                            from analyzer import parse_iso
-                            end_dt = parse_iso(end_iso)
-                        except Exception:
-                            end_dt = None
-
-                    now_ts = time.time()
-                    if end_dt:
-                        target_due = end_dt.timestamp() + (20 * 60)
-                    else:
-                        target_due = now_ts + (20 * 60)
-
-                    # If workout ended more than 20 minutes ago, schedule prompt in 15 seconds
-                    if target_due < now_ts:
-                        target_due = now_ts + 15
-
-                    pending = {
-                        "workout_id": new_id,
-                        "workout_title": w_title,
-                        "end_time": end_iso,
-                        "due_time": target_due,
-                        "prompt_sent": False,
-                        "prompt_sent_time": 0.0,
-                        "responded": False
-                    }
-                    save_pending_checkin(pending)
-
-                    mins_left = max(1, int((target_due - now_ts) / 60))
-                    msg_text = (
-                        f"🔄 *Авто-синхронизация Hevy:* зафиксирована новая тренировка!\n\n"
-                        f"🏋️‍♂️ *{w_title}*\n"
-                        f"Все упражнения, подходы и веса сохранены в базу.\n\n"
-                        f"⏳ Примерно через *{mins_left} мин.* я пришлю опрос о твоем самочувствии, чтобы разобрать нагрузку и восстановление! 💪"
-                    )
-                    subscribers = get_all_subscribers()
-                    for cid in subscribers:
-                        try:
-                            bot.send_message(cid, msg_text, parse_mode="Markdown")
-                        except Exception as err:
-                            print(f"Не удалось отправить уведомление об автосинхронизации в {cid}: {err}")
-
+                check_for_new_workouts_and_sync(bot)
             except Exception as e:
-                print(f"Auto-sync monitor error: {e}")
+                print(f"Auto-sync monitor worker error: {e}")
+            time.sleep(90)
 
     t = threading.Thread(target=monitor_worker, daemon=True)
     t.start()
@@ -477,50 +555,11 @@ def run_hevy_auto_sync_monitor(bot):
 def run_checkin_dispatcher(bot):
     """Periodically checks if a 20-minute post-workout check-in prompt is due."""
     def dispatcher_worker():
-        time.sleep(15)
+        time.sleep(10)
         print("⏰ Диспетчер опросов после тренировки активен")
         while True:
             try:
-                pending = load_pending_checkin()
-                if pending and not pending.get("prompt_sent"):
-                    due_time = pending.get("due_time", 0)
-                    now_ts = time.time()
-                    if now_ts >= due_time:
-                        w_title = pending.get("workout_title", "Тренировка")
-                        w_id = pending.get("workout_id")
-
-                        tonnage_str = ""
-                        for w in coach.workouts:
-                            if w.get("id") == w_id:
-                                try:
-                                    an = coach.analyzer.analyze_workout(w)
-                                    tonnage_str = f" (сегодняшний тоннаж: {an.get('total_tonnage_kg', 0):,.0f} кг)"
-                                except Exception:
-                                    pass
-                                break
-
-                        prompt_text = (
-                            f"🏋️‍♂️ *Как прошла тренировка «{w_title}»?*{tonnage_str}\n\n"
-                            f"Прошло около 20 минут после окончания тренировки — самое время зафиксировать ощущения, пока всё свежо в памяти! 🧠\n\n"
-                            f"💬 *Поделись, как самочувствие:*\n"
-                            f"1️⃣ *Общее состояние*: легко или тяжело далась тренировка? Хватило ли сил и энергии?\n"
-                            f"2️⃣ *Рабочие веса*: как зашли подходы? Был ли запас или работал до отказа?\n"
-                            f"3️⃣ *Суставы и связки*: ничего ли не тянет и не ноет (плечи, локти, колени, поясница)?\n"
-                            f"4️⃣ *Мышцы*: хороший ли памп или чувствуется сильная скованность/забитость?\n\n"
-                            f"✍️ *Напиши мне прямо сюда в чат обычным сообщением* свои ощущения — я сопоставлю их с сегодняшними упражнениями и весами, оценю утомление и подскажу, как скорректировать восстановление и следующие нагрузки! 💪"
-                        )
-
-                        subscribers = get_all_subscribers()
-                        for cid in subscribers:
-                            try:
-                                bot.send_message(cid, prompt_text, parse_mode="Markdown")
-                                print(f"📩 Опрос о самочувствии отправлен пользователю {cid}")
-                            except Exception as err:
-                                print(f"Не удалось отправить опрос о тренировке в {cid}: {err}")
-
-                        pending["prompt_sent"] = True
-                        pending["prompt_sent_time"] = time.time()
-                        save_pending_checkin(pending)
+                dispatch_checkin_if_due(bot)
             except Exception as e:
                 print(f"Check-in dispatcher error: {e}")
             time.sleep(15)
@@ -528,7 +567,7 @@ def run_checkin_dispatcher(bot):
     t = threading.Thread(target=dispatcher_worker, daemon=True)
     t.start()
 
-def run_health_server():
+def run_health_server(bot=None):
     """Lightweight HTTP server for cloud platforms (Render, Koyeb) to keep service active."""
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -536,6 +575,37 @@ def run_health_server():
 
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/debug":
+                self.send_response(200)
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                try:
+                    latest_w = coach.analyzer.get_latest_workout()
+                    data = {
+                        "subscribers": get_all_subscribers(),
+                        "workouts_count": len(coach.workouts),
+                        "latest_workout": latest_w.get("title") if latest_w else None,
+                        "latest_workout_end": latest_w.get("end_time") if latest_w else None,
+                        "tracker": load_workout_tracker(),
+                        "pending_checkin": load_pending_checkin()
+                    }
+                    self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+                except Exception as err:
+                    self.wfile.write(json.dumps({"error": str(err)}).encode("utf-8"))
+                return
+
+            if self.path == "/sync_now" and bot:
+                self.send_response(200)
+                self.send_header("Content-type", "application/json; charset=utf-8")
+                self.end_headers()
+                try:
+                    check_for_new_workouts_and_sync(bot)
+                    dispatch_checkin_if_due(bot)
+                    self.wfile.write(b'{"status": "ok", "message": "Manual sync and checkin check completed"}')
+                except Exception as err:
+                    self.wfile.write(json.dumps({"error": str(err)}).encode("utf-8"))
+                return
+
             self.send_response(200)
             self.send_header("Content-type", "text/plain; charset=utf-8")
             self.end_headers()
@@ -616,13 +686,19 @@ def start_bot():
     except Exception as e:
         print(f"Initial coach load warning: {e}")
 
-    run_health_server()
-    run_keep_alive_pinger()
-
     bot = telebot.TeleBot(TELEGRAM_TOKEN, parse_mode="Markdown")
+
+    run_health_server(bot)
+    run_keep_alive_pinger()
     run_gym_reminder_scheduler(bot)
     run_hevy_auto_sync_monitor(bot)
     run_checkin_dispatcher(bot)
+
+    # Initial check on startup: sync new workouts & dispatch any pending checkins immediately
+    threading.Thread(
+        target=lambda: (time.sleep(2), check_for_new_workouts_and_sync(bot), dispatch_checkin_if_due(bot)),
+        daemon=True
+    ).start()
 
     def safe_send(chat_id, text, reply_markup=None):
         try:
@@ -645,9 +721,25 @@ def start_bot():
                 f"• 🔄 *Авто-синхронизация Hevy*: я каждые 90 сек отслеживаю завершение тренировок и сам обновляю базу.\n"
                 f"• 💬 *Опрос через 20 минут*: через ~20 мин после тренировки я напишу тебе, узнаю о самочувствии и сопоставлю твои ощущения с весами и тоннажем!\n"
                 f"• 🔔 *Напоминание в зал*: Пн–Пт в 10:40 утра (GMT+6).\n\n"
-                f"Используй кнопки внизу для быстрого доступа, команды `/test_checkin`, `/test_reminder` или просто напиши мне любой вопрос в чат!"
+                f"Используй кнопки внизу для быстрого доступа, команды `/test_checkin`, `/myid`, `/test_reminder` или просто напиши мне любой вопрос в чат!"
             )
             safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
+        dispatch_checkin_if_due(bot, message.chat.id)
+
+    @bot.message_handler(commands=['myid', 'id'])
+    def handle_my_id(message):
+        register_subscriber(message.chat.id)
+        text = (
+            f"👤 *Твой Telegram Chat ID:* `{message.chat.id}`\n\n"
+            f"✅ Ты успешно зарегистрирован в списке подписчиков бота для напоминаний и опросов после тренировок!\n\n"
+            f"💡 *Совет для 100% надежности на Render:*\n"
+            f"В панели Render в настройках сервиса в разделе *Environment Variables* добавь:\n"
+            f"• Ключ: `TELEGRAM_USER_CHAT_ID`\n"
+            f"• Значение: `{message.chat.id}`\n\n"
+            f"Тогда сервер никогда не забудет твой чат даже при любых перезагрузках сервиса."
+        )
+        safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
+        dispatch_checkin_if_due(bot, message.chat.id)
 
     @bot.message_handler(commands=['test_reminder'])
     def handle_test_reminder(message):
@@ -768,8 +860,10 @@ def start_bot():
             _context_cache["timestamp"] = 0
             sync_res = coach.storage.sync_all(verbose=False)
             coach.reload(auto_sync=False)
+            check_for_new_workouts_and_sync(bot)
             text = f"✅ *Данные синхронизированы!*\n\n• Загружено тренировок: *{sync_res['workouts_count']}*\n• Программ тренировок: *{sync_res['routines_count']}*"
             safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
+        dispatch_checkin_if_due(bot, message.chat.id)
 
     @bot.message_handler(func=lambda msg: True)
     def handle_free_text(message):
