@@ -63,15 +63,33 @@ class YazioManager:
         except Exception as e:
             raise RuntimeError(f"Ошибка авторизации в YAZIO: {e}")
 
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """Executes a function, auto-refreshing authentication on 401 Unauthorized errors."""
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if ("401" in err_msg or "unauthorized" in err_msg or "token" in err_msg) and self.email and self.password:
+                print("🔄 YAZIO токен истек, выполняю автоматический повторный вход...")
+                try:
+                    self.authenticate(self.email, self.password)
+                    return func(*args, **kwargs)
+                except Exception as auth_err:
+                    print(f"Ошибка повторной авторизации YAZIO: {auth_err}")
+            raise
+
     def get_user_profile(self) -> Dict[str, Any]:
         """Fetches personal metrics (weight, height, age, goal) from YAZIO."""
         if not self.client or not self.token:
-            raise RuntimeError("YAZIO не авторизован.")
+            if self.email and self.password:
+                self.authenticate(self.email, self.password)
+            else:
+                raise RuntimeError("YAZIO не авторизован.")
 
         from yazio_exporter.export_profile import fetch_user
         from yazio_exporter.export_body import fetch_weight_range
 
-        user = fetch_user(self.client) or {}
+        user = self._execute_with_retry(fetch_user, self.client) or {}
 
         # Calculate age
         dob_str = user.get("date_of_birth")
@@ -84,7 +102,7 @@ class YazioManager:
         # Fetch recent weight
         start_d = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
         end_d = date.today().strftime("%Y-%m-%d")
-        weights = fetch_weight_range(self.client, start_d, end_d)
+        weights = self._execute_with_retry(fetch_weight_range, self.client, start_d, end_d)
 
         latest_weight = user.get("start_weight", 0.0)
         if weights:
@@ -107,13 +125,16 @@ class YazioManager:
     def get_daily_summary(self, target_date: Optional[date] = None) -> Dict[str, Any]:
         """Fetches calories and macronutrient breakdown for a given date as a clean dict."""
         if not self.client or not self.token:
-            raise RuntimeError("YAZIO не авторизован. Укажите логин и пароль.")
+            if self.email and self.password:
+                self.authenticate(self.email, self.password)
+            else:
+                raise RuntimeError("YAZIO не авторизован. Укажите логин и пароль.")
 
         d = target_date or date.today()
         from yazio_exporter.export_days import fetch_daily_summary
 
         try:
-            summary = fetch_daily_summary(self.client, d)
+            summary = self._execute_with_retry(fetch_daily_summary, self.client, d)
             if not summary:
                 return {}
 
@@ -194,13 +215,16 @@ class YazioManager:
     def get_consumed_products(self, target_date: Optional[date] = None) -> Dict[str, Any]:
         """Fetches detailed list of consumed foods and products for a given date with local caching."""
         if not self.client or not self.token:
-            raise RuntimeError("YAZIO не авторизован.")
+            if self.email and self.password:
+                self.authenticate(self.email, self.password)
+            else:
+                raise RuntimeError("YAZIO не авторизован.")
 
         from yazio_exporter.export_days import fetch_consumed
         from yazio_exporter.export_products import fetch_product
 
         d = target_date or date.today()
-        consumed = fetch_consumed(self.client, d)
+        consumed = self._execute_with_retry(fetch_consumed, self.client, d)
         if not consumed or not getattr(consumed, "products", None):
             return {"date": d.strftime("%d.%m.%Y"), "meals": {}}
 

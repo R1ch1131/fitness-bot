@@ -308,8 +308,14 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
             c_items = [f"{c['title']} ({c.get('distance_km', 0)} км за {c.get('duration_minutes', 0)} мин, темп {c.get('pace_min_km', '')})" for c in an["cardio"]]
             cardio_text = "; ".join(c_items)
 
-        prof = coach.yazio.get_user_profile() if coach.yazio.is_configured() else {}
-        w_cur = prof.get("current_weight_kg", 98.8)
+        prof = {}
+        try:
+            if coach.yazio.is_configured():
+                prof = coach.yazio.get_user_profile() or {}
+        except Exception as e:
+            print(f"YAZIO profile note in feedback: {e}")
+            prof = {}
+        w_cur = prof.get("current_weight_kg", 98.1)
 
         prompt = f"""
 Ты — персональный спортивный тренер и физиолог атлета со следующими параметрами:
