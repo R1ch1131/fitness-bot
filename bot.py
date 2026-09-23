@@ -35,11 +35,34 @@ _context_cache = {
 
 # Reliable active Gemini models in priority order
 MODELS_CASCADE = [
-    "gemini-3.6-flash",
     "gemini-3.5-flash",
+    "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
     "gemini-flash-latest"
 ]
+
+def split_message(text: str, max_len: int = 3900) -> list:
+    """Splits message into chunks under 4000 chars, preserving markdown/newlines."""
+    if not text:
+        return [""]
+    if len(text) <= max_len:
+        return [text]
+    chunks = []
+    current_text = text
+    while current_text:
+        if len(current_text) <= max_len:
+            chunks.append(current_text)
+            break
+        idx = current_text.rfind("\n\n", 0, max_len)
+        if idx == -1:
+            idx = current_text.rfind("\n", 0, max_len)
+        if idx == -1:
+            idx = max_len
+        chunk = current_text[:idx].strip()
+        if chunk:
+            chunks.append(chunk)
+        current_text = current_text[idx:].strip()
+    return chunks or [text[:max_len]]
 
 def register_subscriber(chat_id: int):
     """Saves user chat_id for scheduled gym reminders and check-ins."""
@@ -205,6 +228,16 @@ def get_system_instruction() -> str:
         except Exception as e:
             print(f"Products context note: {e}")
 
+        recent_feedback_context = ""
+        try:
+            pending = load_pending_checkin()
+            if pending and pending.get("last_user_feedback"):
+                last_fb_age = time.time() - pending.get("last_feedback_time", 0)
+                if last_fb_age < 12 * 3600:
+                    recent_feedback_context = f"- Недавние ощущения и вопросы атлета после тренировки: «{pending['last_user_feedback']}»\n"
+        except Exception:
+            pass
+
         instruction = f"""
 Ты — персональный спортивный тренер и нутрициолог для атлета со следующими параметрами:
 - Атлет: Мужчина, Возраст: {age} года (30.06.2004), Рост: {h_cur} см.
@@ -212,7 +245,7 @@ def get_system_instruction() -> str:
 - Тренировочные программы атлета в Hevy (5-дневный сплит):
 {routines_context}
 - Последняя проведенная тренировка: {last_w_str}.
-- Кардио: бег 3-4 км в темпе ~10 км/ч (в день ног рекомендована ходьба в гору для защиты коленей).
+{recent_feedback_context}- Кардио: бег 3-4 км в темпе ~10 км/ч (в день ног рекомендована ходьба в гору для защиты коленей).
 - Питание атлета (YAZIO):
   * Недельный рацион и средние значения:
 {weekly_nut_text}
@@ -717,11 +750,19 @@ def start_bot():
     ).start()
 
     def safe_send(chat_id, text, reply_markup=None):
-        try:
-            return bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=reply_markup)
-        except Exception as e:
-            print(f"Markdown send fallback ({e}), sending as plain text...")
-            return bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup)
+        chunks = split_message(str(text), max_len=3900)
+        last_msg = None
+        for i, chunk in enumerate(chunks):
+            markup = reply_markup if i == len(chunks) - 1 else None
+            try:
+                last_msg = bot.send_message(chat_id, chunk, parse_mode="Markdown", reply_markup=markup)
+            except Exception as e:
+                print(f"Markdown send fallback for chunk ({e}), sending as plain text...")
+                try:
+                    last_msg = bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
+                except Exception as e2:
+                    print(f"Failed to send message chunk: {e2}")
+        return last_msg
 
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
@@ -903,6 +944,8 @@ def start_bot():
                             safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
                             # Mark as responded ONLY after successful send
                             pending["responded"] = True
+                            pending["last_user_feedback"] = message.text
+                            pending["last_feedback_time"] = time.time()
                             save_pending_checkin(pending)
                         except Exception as fb_err:
                             print(f"Feedback analysis send error: {fb_err}")
