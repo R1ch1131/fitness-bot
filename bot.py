@@ -724,7 +724,31 @@ def run_gym_reminder_scheduler(bot):
     t = threading.Thread(target=scheduler_worker, daemon=True)
     t.start()
 
-def run_sunday_report_scheduler(bot, safe_send_fn):
+def send_weekly_report(bot, chat_id: int, reply_markup=None):
+    """Sends weekly summary as a modern infographic image with fallback to markdown table."""
+    try:
+        from report_image import generate_weekly_report_image
+        buf = generate_weekly_report_image(coach)
+        caption = (
+            "📊 *Твой персональный еженедельный дайджест готов!*\n\n"
+            "Вся динамика веса, баланс питания (КБЖУ) и тренировочный тоннаж сведены на инфографике выше 👆\n\n"
+            "🔥 Держим курс на 80 кг!"
+        )
+        return bot.send_photo(chat_id, photo=buf, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
+    except Exception as e:
+        print(f"Image report generation note ({e}), sending text table...")
+        report_text = coach.get_sunday_weekly_table_report()
+        chunks = split_message(str(report_text), max_len=3900)
+        last_m = None
+        for i, chunk in enumerate(chunks):
+            m = reply_markup if i == len(chunks) - 1 else None
+            try:
+                last_m = bot.send_message(chat_id, chunk, parse_mode="Markdown", reply_markup=m)
+            except Exception:
+                last_m = bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=m)
+        return last_m
+
+def run_sunday_report_scheduler(bot):
     """Sends comprehensive weekly summary table every Sunday at 12:00 PM (GMT+6)."""
     tz_gmt6 = timezone(timedelta(hours=6))
     last_sent_date = None
@@ -747,15 +771,9 @@ def run_sunday_report_scheduler(bot, safe_send_fn):
                                 coach.reload(auto_sync=False)
                             except Exception:
                                 pass
-                            report_text = coach.get_sunday_weekly_table_report()
-                            intro_text = (
-                                "📊🔔 *Твой воскресный отчет готов!*\n"
-                                "Подводим итоги недели: баланс питания, динамика веса и тренировочный тоннаж. 👇\n\n"
-                            )
-                            full_report = intro_text + report_text
                             for cid in subscribers:
                                 try:
-                                    safe_send_fn(cid, full_report)
+                                    send_weekly_report(bot, cid)
                                     print(f"📊 Воскресный отчет отправлен пользователю {cid}")
                                 except Exception as err:
                                     print(f"Не удалось отправить воскресный отчет в {cid}: {err}")
@@ -807,7 +825,7 @@ def start_bot():
                     print(f"Failed to send message chunk: {e2}")
         return last_msg
 
-    run_sunday_report_scheduler(bot, safe_send)
+    run_sunday_report_scheduler(bot)
 
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
@@ -945,15 +963,13 @@ def start_bot():
     def handle_sunday_report_cmd(message):
         register_subscriber(message.chat.id)
         with continuous_typing(bot, message.chat.id):
-            res = coach.get_sunday_weekly_table_report()
-            safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
+            send_weekly_report(bot, message.chat.id, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "📈 Недельный отчет" or msg.text == "/weekly")
     def handle_weekly(message):
         register_subscriber(message.chat.id)
         with continuous_typing(bot, message.chat.id):
-            res = coach.get_sunday_weekly_table_report()
-            safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
+            send_weekly_report(bot, message.chat.id, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "👤 Мой профиль и вес" or msg.text == "/profile")
     def handle_profile(message):
