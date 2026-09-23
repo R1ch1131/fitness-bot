@@ -255,7 +255,10 @@ def ask_gemini_ai(user_question: str) -> str:
     if GEMINI_KEY:
         try:
             from google import genai
-            client = genai.Client(api_key=GEMINI_KEY)
+            client = genai.Client(
+                api_key=GEMINI_KEY,
+                http_options={"timeout": 30_000}  # 30 sec timeout
+            )
             system_instruction = get_system_instruction()
 
             for model_name in MODELS_CASCADE:
@@ -333,6 +336,7 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
 ОТВЕТ И СУБЪЕКТИВНЫЕ ОЩУЩЕНИЯ АТЛЕТА:
 «{user_feedback}»
 
+ОБЯЗАТЕЛЬНО: В ответе обязательно упомяни любые проблемы, которые пользователь указал в своём тексте (например, боль в спине, тяжело шла тяга, ощущение "забитости" и т.п.).
 ТВОЯ ЗАДАЧА:
 Проанализируй ощущения атлета, опираясь на спортивную физиологию, биомеханику и его реальные цифры из тренировки выше.
 Сформируй структурированный, дружелюбный, ободряющий и научно обоснованный ответ по следующим пунктам:
@@ -348,7 +352,12 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
         if GEMINI_KEY:
             try:
                 from google import genai
-                client = genai.Client(api_key=GEMINI_KEY)
+                from google.genai import types as genai_types
+                client = genai.Client(
+                    api_key=GEMINI_KEY,
+                    http_options={"timeout": 30_000}  # 30 sec timeout
+                )
+                print(f"[FEEDBACK] Prompt length: {len(prompt)} chars, user_feedback: {user_feedback[:100]}...")
                 for model_name in MODELS_CASCADE:
                     try:
                         resp = client.models.generate_content(
@@ -356,6 +365,7 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
                             contents=prompt
                         )
                         if resp and resp.text:
+                            print(f"[FEEDBACK] Model {model_name} responded OK, length: {len(resp.text)}")
                             return f"📋 *Анализ тренировки и самочувствия:*\n\n{resp.text}"
                     except Exception as model_err:
                         print(f"Model {model_name} failed for feedback analysis: {model_err}")
@@ -887,11 +897,16 @@ def start_bot():
                     not any(w in q_lower for w in ["болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "вес", "тренировк", "самочувств"])
                 )
                 if not is_pure_nutrition_query:
-                    pending["responded"] = True
-                    save_pending_checkin(pending)
                     with continuous_typing(bot, message.chat.id):
-                        feedback_report = analyze_post_workout_feedback(message.text, pending.get("workout_id"))
-                        safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+                        try:
+                            feedback_report = analyze_post_workout_feedback(message.text, pending.get("workout_id"))
+                            safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+                            # Mark as responded ONLY after successful send
+                            pending["responded"] = True
+                            save_pending_checkin(pending)
+                        except Exception as fb_err:
+                            print(f"Feedback analysis send error: {fb_err}")
+                            safe_send(message.chat.id, "⚠️ Произошла ошибка при анализе. Попробуй написать ещё раз!", reply_markup=get_main_keyboard())
                     return
 
         with continuous_typing(bot, message.chat.id):
