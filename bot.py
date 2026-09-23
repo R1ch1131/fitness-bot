@@ -281,8 +281,8 @@ def ask_gemini_ai(user_question: str) -> str:
         return coach.get_nutrition_report()
     if any(w in q_lower for w in ["вес", "профил", "рост", "похудел"]):
         return coach.get_profile_report()
-    if any(w in q_lower for w in ["недел", "отчет", "стат"]) and "пит" not in q_lower:
-        return coach.weekly_overview()
+    if any(w in q_lower for w in ["недел", "отчет", "стат", "итог", "таблиц"]) and "пит" not in q_lower:
+        return coach.get_sunday_weekly_table_report()
 
     # Query Gemini models with full fallback cascade
     if GEMINI_KEY:
@@ -724,6 +724,49 @@ def run_gym_reminder_scheduler(bot):
     t = threading.Thread(target=scheduler_worker, daemon=True)
     t.start()
 
+def run_sunday_report_scheduler(bot, safe_send_fn):
+    """Sends comprehensive weekly summary table every Sunday at 12:00 PM (GMT+6)."""
+    tz_gmt6 = timezone(timedelta(hours=6))
+    last_sent_date = None
+
+    def scheduler_worker():
+        nonlocal last_sent_date
+        time.sleep(20)
+        print("⏰ Планировщик воскресного отчета активен (каждое Вс в 12:00 GMT+6)")
+        while True:
+            try:
+                now_gmt6 = datetime.now(tz_gmt6)
+                # Sunday is 6
+                if now_gmt6.weekday() == 6 and now_gmt6.hour == 12 and now_gmt6.minute == 0:
+                    today_str = now_gmt6.strftime("%Y-%m-%d")
+                    if last_sent_date != today_str:
+                        subscribers = get_all_subscribers()
+                        if subscribers:
+                            try:
+                                coach.storage.sync_all(verbose=False)
+                                coach.reload(auto_sync=False)
+                            except Exception:
+                                pass
+                            report_text = coach.get_sunday_weekly_table_report()
+                            intro_text = (
+                                "📊🔔 *Твой воскресный отчет готов!*\n"
+                                "Подводим итоги недели: баланс питания, динамика веса и тренировочный тоннаж. 👇\n\n"
+                            )
+                            full_report = intro_text + report_text
+                            for cid in subscribers:
+                                try:
+                                    safe_send_fn(cid, full_report)
+                                    print(f"📊 Воскресный отчет отправлен пользователю {cid}")
+                                except Exception as err:
+                                    print(f"Не удалось отправить воскресный отчет в {cid}: {err}")
+                        last_sent_date = today_str
+            except Exception as e:
+                print(f"Sunday report scheduler loop error: {e}")
+            time.sleep(25)
+
+    t = threading.Thread(target=scheduler_worker, daemon=True)
+    t.start()
+
 def start_bot():
     if not TELEGRAM_TOKEN:
         print("⚠️ ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
@@ -764,6 +807,8 @@ def start_bot():
                     print(f"Failed to send message chunk: {e2}")
         return last_msg
 
+    run_sunday_report_scheduler(bot, safe_send)
+
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         register_subscriber(message.chat.id)
@@ -777,8 +822,9 @@ def start_bot():
                 f"🔥 *Что работает автоматически:*\n"
                 f"• 🔄 *Авто-синхронизация Hevy*: я каждые 90 сек отслеживаю завершение тренировок и сам обновляю базу.\n"
                 f"• 💬 *Опрос через 20 минут*: через ~20 мин после тренировки я напишу тебе, узнаю о самочувствии и сопоставлю твои ощущения с весами и тоннажем!\n"
-                f"• 🔔 *Напоминание в зал*: Пн–Пт в 10:40 утра (GMT+6).\n\n"
-                f"Используй кнопки внизу для быстрого доступа, команды `/test_checkin`, `/myid`, `/test_reminder` или просто напиши мне любой вопрос в чат!"
+                f"• 🔔 *Напоминание в зал*: Пн–Пт в 10:40 утра (GMT+6).\n"
+                f"• 📊 *Воскресный отчет*: каждое воскресенье в 12:00 дня (GMT+6) сводная таблица КБЖУ, тоннаж тренировок и динамика веса.\n\n"
+                f"Используй кнопки внизу для быстрого доступа, команды `/test_sunday_report`, `/test_checkin`, `/myid` или просто напиши мне любой вопрос в чат!"
             )
             safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
         dispatch_checkin_if_due(bot, message.chat.id)
@@ -895,11 +941,18 @@ def start_bot():
             res = coach.get_consumed_products_report()
             safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
+    @bot.message_handler(commands=['sunday_report', 'test_sunday_report'])
+    def handle_sunday_report_cmd(message):
+        register_subscriber(message.chat.id)
+        with continuous_typing(bot, message.chat.id):
+            res = coach.get_sunday_weekly_table_report()
+            safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
+
     @bot.message_handler(func=lambda msg: msg.text == "📈 Недельный отчет" or msg.text == "/weekly")
     def handle_weekly(message):
         register_subscriber(message.chat.id)
         with continuous_typing(bot, message.chat.id):
-            res = coach.weekly_overview()
+            res = coach.get_sunday_weekly_table_report()
             safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: msg.text == "👤 Мой профиль и вес" or msg.text == "/profile")

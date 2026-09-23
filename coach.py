@@ -559,6 +559,230 @@ class AIHevyCoach:
         ]
         return "\n".join(lines)
 
+    def get_sunday_weekly_table_report(self, target_date=None) -> str:
+        """Generates structured weekly Sunday summary with daily nutrition, workout tonnage, and weight dynamic."""
+        from datetime import datetime, date, timedelta, timezone
+        from analyzer import parse_iso
+
+        tz_gmt6 = timezone(timedelta(hours=6))
+        ref_date = target_date or datetime.now(tz_gmt6).date()
+
+        # Monday of current week
+        monday = ref_date - timedelta(days=ref_date.weekday())
+        sunday = monday + timedelta(days=6)
+        weekday_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+        # 1. Fetch weight range from YAZIO
+        weight_history = {}
+        if self.yazio.is_configured() and self.yazio.client:
+            try:
+                from yazio_exporter.export_body import fetch_weight_range
+                w_start_str = (monday - timedelta(days=7)).strftime("%Y-%m-%d")
+                w_end_str = (sunday + timedelta(days=1)).strftime("%Y-%m-%d")
+                weight_history = self.yazio._execute_with_retry(
+                    fetch_weight_range, self.yazio.client, w_start_str, w_end_str
+                ) or {}
+            except Exception as e:
+                print(f"Weight history fetch note: {e}")
+
+        # Map workouts by local date (GMT+6)
+        workouts_by_date = {}
+        for w in self.workouts:
+            iso_start = w.get("start_time")
+            if iso_start:
+                try:
+                    dt = parse_iso(iso_start)
+                    if dt:
+                        local_d = dt.astimezone(tz_gmt6).date()
+                        workouts_by_date.setdefault(local_d, []).append(w)
+                except Exception:
+                    pass
+
+        # 2. Collect daily data for Monday..Sunday
+        daily_rows = []
+        total_tonnage = 0.0
+        total_calories = 0.0
+        total_protein = 0.0
+        total_fat = 0.0
+        total_carbs = 0.0
+        logged_days_count = 0
+        workout_days_count = 0
+
+        first_weight = None
+        first_weight_date = None
+        last_weight = None
+        last_weight_date = None
+
+        for i in range(7):
+            day_d = monday + timedelta(days=i)
+            day_str = day_d.strftime("%Y-%m-%d")
+            w_name = weekday_names[i]
+            day_label = f"{w_name} {day_d.strftime('%d')}"
+
+            # Nutrition
+            cal = 0
+            prot = 0.0
+            fat = 0.0
+            carb = 0.0
+            has_nut = False
+
+            if self.yazio.is_configured() and day_d <= ref_date:
+                try:
+                    summary = self.yazio.get_daily_summary(day_d)
+                    if summary:
+                        cal = round(summary.get("calories", 0))
+                        prot = round(summary.get("protein", 0), 1)
+                        fat = round(summary.get("fat", 0), 1)
+                        carb = round(summary.get("carbs", 0), 1)
+                        if cal > 0 or prot > 0:
+                            has_nut = True
+                            total_calories += cal
+                            total_protein += prot
+                            total_fat += fat
+                            total_carbs += carb
+                            logged_days_count += 1
+                except Exception:
+                    pass
+
+            # Workout & Tonnage
+            day_workouts = workouts_by_date.get(day_d, [])
+            day_tonnage = 0.0
+            workout_label = "Отдых"
+            if day_workouts:
+                workout_days_count += len(day_workouts)
+                titles = []
+                for dw in day_workouts:
+                    an = self.analyzer.analyze_workout(dw)
+                    t_kg = an.get("total_tonnage_kg", 0.0)
+                    day_tonnage += t_kg
+                    titles.append(dw.get("title", "Тренировка"))
+                total_tonnage += day_tonnage
+                t_str = f"{day_tonnage / 1000:.1f}т" if day_tonnage >= 1000 else f"{int(day_tonnage)}кг"
+                w_title_short = titles[0][:9]
+                workout_label = f"{w_title_short} ({t_str})"
+
+            # Weight tracking for the week
+            day_w = weight_history.get(day_str)
+            if day_w:
+                if first_weight is None:
+                    first_weight = round(day_w, 1)
+                    first_weight_date = day_d.strftime("%d.%m")
+                last_weight = round(day_w, 1)
+                last_weight_date = day_d.strftime("%d.%m")
+
+            # Format row
+            cal_str = str(cal) if has_nut else "—"
+            macros_str = f"{int(prot)}/{int(fat)}/{int(carb)}" if has_nut else "—"
+
+            daily_rows.append({
+                "day_label": day_label,
+                "cal_str": cal_str,
+                "macros_str": macros_str,
+                "workout_label": workout_label,
+                "has_nut": has_nut,
+                "has_workout": bool(day_workouts)
+            })
+
+        # Fallback for start/end weight if none recorded on Monday-Sunday directly
+        if first_weight is None or last_weight is None:
+            try:
+                prof = self.yazio.get_user_profile() if self.yazio.is_configured() else {}
+                cur_w = prof.get("current_weight_kg")
+                if first_weight is None:
+                    past_weights = {k: v for k, v in weight_history.items() if k <= monday.strftime("%Y-%m-%d")}
+                    if past_weights:
+                        closest_k = max(past_weights.keys())
+                        first_weight = round(past_weights[closest_k], 1)
+                        first_weight_date = datetime.strptime(closest_k, "%Y-%m-%d").strftime("%d.%m")
+                    else:
+                        first_weight = cur_w
+                        first_weight_date = monday.strftime("%d.%m")
+                if last_weight is None:
+                    last_weight = cur_w
+                    last_weight_date = ref_date.strftime("%d.%m")
+            except Exception:
+                pass
+
+        # Build table
+        table_lines = [
+            " День | Ккал |   Б/Ж/У   | Тренировка (Тоннаж)",
+            "──────┼──────┼───────────┼────────────────────"
+        ]
+        for r in daily_rows:
+            d_col = r["day_label"].ljust(5)
+            c_col = r["cal_str"].rjust(5)
+            m_col = r["macros_str"].center(10)
+            w_col = r["workout_label"]
+            table_lines.append(f" {d_col}|{c_col} |{m_col} | {w_col}")
+
+        table_block = "```\n" + "\n".join(table_lines) + "\n```"
+
+        # Calculate averages
+        avg_cal = round(total_calories / logged_days_count) if logged_days_count > 0 else 0
+        avg_prot = round(total_protein / logged_days_count, 1) if logged_days_count > 0 else 0
+        avg_fat = round(total_fat / logged_days_count, 1) if logged_days_count > 0 else 0
+        avg_carb = round(total_carbs / logged_days_count, 1) if logged_days_count > 0 else 0
+
+        # Weight delta
+        w_delta_str = ""
+        if first_weight is not None and last_weight is not None:
+            delta = round(last_weight - first_weight, 2)
+            if delta < 0:
+                w_delta_str = f"*-{abs(delta):.1f} кг* 🔥 (отличный темп похудения!)"
+            elif delta > 0:
+                w_delta_str = f"*+{delta:.1f} кг* (возможна задержка воды или гликогена)"
+            else:
+                w_delta_str = "*0.0 кг* (стабильный вес)"
+
+        w_summary = (
+            f"⚖️ *Динамика веса за неделю:*\n"
+            f"• В начале недели ({first_weight_date or 'Пн'}): *{first_weight or '—'} кг*\n"
+            f"• В конце недели ({last_weight_date or 'Вс'}): *{last_weight or '—'} кг*\n"
+            f"• Изменение за неделю: {w_delta_str}"
+        )
+
+        nut_summary = (
+            f"🥗 *Питание за неделю (в среднем за {logged_days_count} дн.):*\n"
+            f"• Калораж: *{avg_cal:,} ккал/день*\n"
+            f"• Белки: *{avg_prot} г/день* (целевая норма: 158–198 г)\n"
+            f"• Жиры: *{avg_fat} г/день*  |  Углеводы: *{avg_carb} г/день*"
+        )
+
+        workout_summary = (
+            f"🏋️ *Тренировочный объем в Hevy:*\n"
+            f"• Проведено силовых сессий: *{workout_days_count}*\n"
+            f"• Суммарный тоннаж за неделю: *{total_tonnage:,.0f} кг* (~{total_tonnage/1000:.1f} тонн поднятого веса! 💪)"
+        )
+
+        # Coaching conclusion
+        coach_advice = []
+        if avg_prot >= 155:
+            coach_advice.append("✅ *Белок в идеале*: мышцы надёжно защищены от катаболизма во время дефицита.")
+        elif avg_prot > 0:
+            coach_advice.append("⚠️ *Белок чуть ниже нормы*: постарайся добавить 1–2 порции нежирного творога, филе или протеина.")
+
+        if 1700 <= avg_cal <= 2100:
+            coach_advice.append("🎯 *Калории*: дефицит выдержан оптимально, процесс жиросжигания идёт стабильно без стресса для ЦНС.")
+        elif avg_cal > 2100:
+            coach_advice.append("ℹ️ *Калории*: калораж близок к уровню поддержки, держи фокус на дефиците.")
+
+        if workout_days_count >= 3:
+            coach_advice.append(f"🔥 *Объем нагрузок*: суммарно поднято {total_tonnage:,.0f} кг — отличная дисциплина и прогресс!")
+
+        advice_block = "\n".join([f"• {a}" for a in coach_advice]) if coach_advice else "• Продолжай в том же духе, держим курс на 80 кг!"
+
+        report = (
+            f"📊 *ИТОГИ НЕДЕЛИ ({monday.strftime('%d.%m')} — {sunday.strftime('%d.%m.%Y')})*\n\n"
+            f"{table_block}\n\n"
+            f"{w_summary}\n\n"
+            f"{nut_summary}\n\n"
+            f"{workout_summary}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 *Резюме и рекомендации тренера:*\n"
+            f"{advice_block}"
+        )
+        return report
+
 
 def main():
     import argparse
