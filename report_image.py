@@ -17,7 +17,6 @@ def _get_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         except Exception:
             pass
 
-    # Windows fallbacks
     sys_fallbacks = [
         "C:/Windows/Fonts/segoeuib.ttf" if bold else "C:/Windows/Fonts/segoeui.ttf",
         "C:/Windows/Fonts/arialbd.ttf" if bold else "C:/Windows/Fonts/arial.ttf",
@@ -37,14 +36,14 @@ def _get_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
 
 
 def generate_weekly_report_image(coach, target_date=None) -> io.BytesIO:
-    """Renders a sleek, modern dark-mode weekly infographic image with KPIs, table, and coach insights."""
+    """Renders an elite, modern dark-mode weekly infographic image with Pro UI styling."""
     tz_gmt6 = timezone(timedelta(hours=6))
     ref_date = target_date or datetime.now(tz_gmt6).date()
 
     # Monday of current week
     monday = ref_date - timedelta(days=ref_date.weekday())
     sunday = monday + timedelta(days=6)
-    weekday_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    weekday_names = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
 
     # 1. Fetch weight range from YAZIO
     weight_history = {}
@@ -92,7 +91,6 @@ def generate_weekly_report_image(coach, target_date=None) -> io.BytesIO:
         day_d = monday + timedelta(days=i)
         day_str = day_d.strftime("%Y-%m-%d")
         w_name = weekday_names[i]
-        day_label = f"{w_name} {day_d.strftime('%d.%m')}"
 
         # Nutrition
         cal = 0
@@ -135,8 +133,8 @@ def generate_weekly_report_image(coach, target_date=None) -> io.BytesIO:
                 titles.append(dw.get("title", "Тренировка"))
             total_tonnage += day_tonnage
             t_str = f"{day_tonnage / 1000:.1f}т" if day_tonnage >= 1000 else f"{int(day_tonnage)}кг"
-            w_title_short = titles[0][:10]
-            workout_label = f"{w_title_short} ({t_str})"
+            w_title_short = titles[0][:11]
+            workout_label = f"{w_title_short} • {t_str}"
 
         # Weight tracking
         day_w = weight_history.get(day_str)
@@ -148,7 +146,8 @@ def generate_weekly_report_image(coach, target_date=None) -> io.BytesIO:
             last_weight_date = day_d.strftime("%d.%m")
 
         daily_rows.append({
-            "day_label": day_label,
+            "w_name": w_name,
+            "day_str": day_d.strftime("%d.%m"),
             "day_d": day_d,
             "cal": cal,
             "prot": prot,
@@ -185,168 +184,225 @@ def generate_weekly_report_image(coach, target_date=None) -> io.BytesIO:
     avg_fat = round(total_fat / logged_days_count, 1) if logged_days_count > 0 else 0
     avg_carb = round(total_carbs / logged_days_count, 1) if logged_days_count > 0 else 0
 
-    # 3. Canvas setup
-    W, H = 1080, 1480
-    img = Image.new("RGB", (W, H), color=(11, 15, 23))  # Deep Obsidian
+    # 3. Canvas setup (1080 x 1560)
+    W, H = 1080, 1560
+    img = Image.new("RGB", (W, H), color=(10, 14, 22))  # Sleek obsidian slate
     draw = ImageDraw.Draw(img)
 
     # Fonts
-    f_badge = _get_font(18, bold=True)
-    f_title = _get_font(42, bold=True)
-    f_subtitle = _get_font(20, bold=False)
-    f_card_label = _get_font(18, bold=False)
-    f_card_val = _get_font(32, bold=True)
-    f_card_sub = _get_font(18, bold=True)
-    f_th = _get_font(17, bold=True)
-    f_tb_main = _get_font(22, bold=True)
-    f_tb_sub = _get_font(18, bold=False)
-    f_coach_h = _get_font(20, bold=True)
-    f_coach_t = _get_font(19, bold=False)
-
-    # Decorative header glow
-    draw.ellipse([W//2 - 350, -100, W//2 + 350, 150], fill=(20, 35, 60))
+    f_badge = _get_font(15, bold=True)
+    f_title = _get_font(46, bold=True)
+    f_subtitle = _get_font(19, bold=False)
+    f_card_label = _get_font(16, bold=True)
+    f_card_val = _get_font(34, bold=True)
+    f_card_sub = _get_font(16, bold=True)
+    f_th = _get_font(16, bold=True)
+    f_day_name = _get_font(22, bold=True)
+    f_day_date = _get_font(14, bold=False)
+    f_cal_val = _get_font(21, bold=True)
+    f_macro_badge = _get_font(15, bold=True)
+    f_workout_badge = _get_font(17, bold=True)
+    f_coach_h = _get_font(18, bold=True)
+    f_coach_t = _get_font(17, bold=False)
 
     # --- Header ---
-    pill_text = "HEVY & YAZIO AI COACH"
-    draw.rounded_rectangle([W//2 - 160, 40, W//2 + 160, 76], radius=18, fill=(18, 30, 48), outline=(56, 189, 248), width=1)
-    draw.text((W//2, 58), pill_text, fill=(56, 189, 248), font=f_badge, anchor="mm")
+    top_pill_w = 320
+    top_pill_x = (W - top_pill_w) // 2
+    draw.rounded_rectangle([top_pill_x, 48, top_pill_x + top_pill_w, 86], radius=19, fill=(16, 24, 38), outline=(30, 48, 76), width=1)
+    # Glowing dot
+    draw.ellipse([top_pill_x + 18, 62, top_pill_x + 28, 72], fill=(56, 189, 248))
+    draw.text((top_pill_x + 40, 67), "HEVY & YAZIO  •  AI COACH", fill=(186, 230, 253), font=f_badge, anchor="lm")
 
-    # Title & Dates
-    draw.text((W//2, 115), "ИТОГИ НЕДЕЛИ", fill=(248, 250, 252), font=f_title, anchor="mm")
-    date_str = f"{monday.strftime('%d.%m')} — {sunday.strftime('%d.%m.%Y')}"
-    draw.text((W//2, 160), date_str, fill=(148, 163, 184), font=f_subtitle, anchor="mm")
+    # Main Title
+    draw.text((W // 2, 126), "ИТОГИ НЕДЕЛИ", fill=(255, 255, 255), font=f_title, anchor="mm")
+    
+    # Subtitle range
+    date_str = f"{monday.strftime('%d.%m')} — {sunday.strftime('%d.%m.%Y')}  |  Сводный дайджест"
+    draw.text((W // 2, 172), date_str, fill=(148, 163, 184), font=f_subtitle, anchor="mm")
 
     # --- 4 KPI Cards (2x2 Grid) ---
-    card_w = 480
-    card_h = 120
-    top_y = 195
-    spacing_x = 40
-    spacing_y = 20
+    card_w = 486
+    card_h = 130
+    top_y = 212
+    spacing_x = 28
+    spacing_y = 18
     left_x = (W - (card_w * 2 + spacing_x)) // 2
 
-    # Weight delta text
+    # Weight delta calculation
     w_delta = round((last_weight - first_weight), 2) if (first_weight and last_weight) else 0.0
-    w_delta_color = (34, 197, 94) if w_delta <= 0 else (244, 63, 94)  # green or rose
-    w_delta_str = f"-{abs(w_delta):.1f} кг за неделю (Сушка)" if w_delta < 0 else (f"+{w_delta:.1f} кг" if w_delta > 0 else "0.0 кг (Стабильно)")
+    if w_delta < 0:
+        w_pill_text = f"-{abs(w_delta):.1f} кг  (Сушка)"
+        w_pill_bg = (6, 78, 59)
+        w_pill_fg = (52, 211, 153)
+        w_border = (16, 185, 129)
+    elif w_delta > 0:
+        w_pill_text = f"+{w_delta:.1f} кг"
+        w_pill_bg = (76, 29, 39)
+        w_pill_fg = (251, 113, 133)
+        w_border = (244, 63, 94)
+    else:
+        w_pill_text = "0.0 кг  (Стабильно)"
+        w_pill_bg = (30, 41, 59)
+        w_pill_fg = (203, 213, 225)
+        w_border = (100, 116, 139)
 
-    cards_data = [
-        # (x, y, label, val, sub, sub_color, border_color)
-        (
-            left_x, top_y,
-            "ДИНАМИКА ВЕСА",
-            f"{first_weight or '—'} -> {last_weight or '—'} кг",
-            w_delta_str,
-            w_delta_color,
-            (34, 197, 94)
-        ),
-        (
-            left_x + card_w + spacing_x, top_y,
-            "СРЕДНИЕ КАЛОРИИ",
-            f"{avg_cal:,} ккал / день",
-            "Дефицит под контролем",
-            (245, 158, 11),
-            (245, 158, 11)
-        ),
-        (
-            left_x, top_y + card_h + spacing_y,
-            "СРЕДНИЙ БЕЛОК",
-            f"{avg_prot} г / день",
-            f"Норма: 158–198 г ({'В норме' if avg_prot >= 155 else 'Подтянуть'})",
-            (6, 182, 212) if avg_prot >= 155 else (245, 158, 11),
-            (6, 182, 212)
-        ),
-        (
-            left_x + card_w + spacing_x, top_y + card_h + spacing_y,
-            "ОБЩИЙ ТОННАЖ (HEVY)",
-            f"{total_tonnage:,.0f} кг",
-            f"{workout_days_count} силовых тренировок",
-            (168, 85, 247),
-            (168, 85, 247)
-        )
+    cards_config = [
+        {
+            "x": left_x,
+            "y": top_y,
+            "label": "ДИНАМИКА ВЕСА",
+            "val": f"{first_weight or '—'}  ->  {last_weight or '—'} кг",
+            "pill_text": w_pill_text,
+            "pill_bg": w_pill_bg,
+            "pill_fg": w_pill_fg,
+            "accent": w_border
+        },
+        {
+            "x": left_x + card_w + spacing_x,
+            "y": top_y,
+            "label": "СРЕДНИЕ КАЛОРИИ",
+            "val": f"{avg_cal:,} ккал",
+            "pill_text": "Дефицит в норме",
+            "pill_bg": (69, 38, 14),
+            "pill_fg": (251, 191, 36),
+            "accent": (245, 158, 11)
+        },
+        {
+            "x": left_x,
+            "y": top_y + card_h + spacing_y,
+            "label": "СРЕДНИЙ БЕЛОК",
+            "val": f"{avg_prot} г / день",
+            "pill_text": "Цель: 158–198 г (Норма)" if avg_prot >= 155 else "Цель: 158–198 г (Подтянуть)",
+            "pill_bg": (8, 51, 68) if avg_prot >= 155 else (69, 38, 14),
+            "pill_fg": (56, 189, 248) if avg_prot >= 155 else (251, 191, 36),
+            "accent": (6, 182, 212) if avg_prot >= 155 else (245, 158, 11)
+        },
+        {
+            "x": left_x + card_w + spacing_x,
+            "y": top_y + card_h + spacing_y,
+            "label": "ОБЩИЙ ТОННАЖ (HEVY)",
+            "val": f"{total_tonnage:,.0f} кг",
+            "pill_text": f"{workout_days_count} силовые сессии",
+            "pill_bg": (59, 7, 100),
+            "pill_fg": (216, 180, 254),
+            "accent": (168, 85, 247)
+        }
     ]
 
-    for cx, cy, label, val, sub, sub_color, border_color in cards_data:
-        draw.rounded_rectangle([cx, cy, cx + card_w, cy + card_h], radius=16, fill=(18, 25, 38), outline=(35, 48, 71), width=1)
-        draw.rounded_rectangle([cx, cy + 12, cx + 4, cy + card_h - 12], radius=2, fill=border_color)
-        draw.text((cx + 20, cy + 20), label, fill=(148, 163, 184), font=f_card_label)
-        draw.text((cx + 20, cy + 54), val, fill=(248, 250, 252), font=f_card_val)
-        draw.text((cx + 20, cy + 92), sub, fill=sub_color, font=f_card_sub)
+    for c in cards_config:
+        cx, cy = c["x"], c["y"]
+        draw.rounded_rectangle([cx, cy, cx + card_w, cy + card_h], radius=18, fill=(16, 22, 34), outline=(32, 44, 68), width=1)
+        draw.rounded_rectangle([cx + 16, cy + 2, cx + card_w - 16, cy + 4], radius=1, fill=c["accent"])
+        draw.text((cx + 22, cy + 22), c["label"], fill=(148, 163, 184), font=f_card_label)
+        draw.text((cx + 22, cy + 54), c["val"], fill=(255, 255, 255), font=f_card_val)
+        
+        # Status Pill Badge with mini circle
+        p_text = c["pill_text"]
+        p_w = draw.textlength(p_text, font=f_card_sub) + 36
+        draw.rounded_rectangle([cx + 20, cy + 92, cx + 20 + p_w, cy + 118], radius=13, fill=c["pill_bg"])
+        # Mini vector circle inside pill
+        draw.ellipse([cx + 32, cy + 102, cx + 38, cy + 108], fill=c["pill_fg"])
+        draw.text((cx + 46, cy + 105), p_text, fill=c["pill_fg"], font=f_card_sub, anchor="lm")
 
     # --- Weekly Breakdown Table ---
-    tbl_top_y = 490
+    tbl_top_y = top_y + card_h * 2 + spacing_y + 24
     tbl_w = card_w * 2 + spacing_x
     tbl_x = left_x
 
     # Table Header Bar
-    draw.rounded_rectangle([tbl_x, tbl_top_y, tbl_x + tbl_w, tbl_top_y + 44], radius=10, fill=(24, 34, 52))
-    draw.text((tbl_x + 24, tbl_top_y + 22), "ДЕНЬ", fill=(148, 163, 184), font=f_th, anchor="lm")
-    draw.text((tbl_x + 190, tbl_top_y + 22), "КАЛОРИИ", fill=(148, 163, 184), font=f_th, anchor="lm")
-    draw.text((tbl_x + 380, tbl_top_y + 22), "КБЖУ (Б / Ж / У)", fill=(148, 163, 184), font=f_th, anchor="lm")
-    draw.text((tbl_x + 690, tbl_top_y + 22), "ТРЕНИРОВКА И ТОННАЖ", fill=(148, 163, 184), font=f_th, anchor="lm")
+    draw.rounded_rectangle([tbl_x, tbl_top_y, tbl_x + tbl_w, tbl_top_y + 40], radius=10, fill=(20, 28, 44))
+    draw.text((tbl_x + 28, tbl_top_y + 20), "ДЕНЬ", fill=(148, 163, 184), font=f_th, anchor="lm")
+    draw.text((tbl_x + 185, tbl_top_y + 20), "КАЛОРИИ", fill=(148, 163, 184), font=f_th, anchor="lm")
+    draw.text((tbl_x + 360, tbl_top_y + 20), "КБЖУ (Б / Ж / У)", fill=(148, 163, 184), font=f_th, anchor="lm")
+    draw.text((tbl_x + 695, tbl_top_y + 20), "ТРЕНИРОВКА И ТОННАЖ", fill=(148, 163, 184), font=f_th, anchor="lm")
 
-    row_y = tbl_top_y + 54
-    row_h = 72
+    row_y = tbl_top_y + 50
+    row_h = 76
     row_gap = 10
 
     for r in daily_rows:
-        bg_col = (20, 28, 42) if not r["is_today"] else (26, 40, 62)
-        border_col = (45, 60, 88) if not r["is_today"] else (56, 189, 248)
-        border_w = 2 if r["is_today"] else 1
-
-        draw.rounded_rectangle([tbl_x, row_y, tbl_x + tbl_w, row_y + row_h], radius=12, fill=bg_col, outline=border_col, width=border_w)
-
-        # Day Pill
-        day_badge_bg = (30, 42, 64) if not r["is_today"] else (14, 116, 144)
-        draw.rounded_rectangle([tbl_x + 16, row_y + 14, tbl_x + 155, row_y + row_h - 14], radius=8, fill=day_badge_bg)
-        draw.text((tbl_x + 85, row_y + row_h // 2), r["day_label"], fill=(248, 250, 252), font=f_tb_main, anchor="mm")
-
-        # Calories
-        if r["has_nut"]:
-            draw.text((tbl_x + 190, row_y + row_h // 2 - 2), f"{r['cal']:,} ккал", fill=(248, 250, 252), font=f_tb_main, anchor="lm")
+        if r["is_today"]:
+            bg_col = (20, 32, 52)
+            border_col = (14, 165, 233)
+            border_w = 2
         else:
-            draw.text((tbl_x + 190, row_y + row_h // 2), "—", fill=(100, 116, 139), font=f_tb_main, anchor="lm")
+            bg_col = (15, 21, 33)
+            border_col = (28, 38, 58)
+            border_w = 1
 
-        # KBJU
+        draw.rounded_rectangle([tbl_x, row_y, tbl_x + tbl_w, row_y + row_h], radius=14, fill=bg_col, outline=border_col, width=border_w)
+
+        # 1. Day Column
+        day_box_w = 110
+        draw.rounded_rectangle([tbl_x + 14, row_y + 12, tbl_x + 14 + day_box_w, row_y + row_h - 12], radius=10, fill=(26, 36, 56) if not r["is_today"] else (3, 105, 161))
+        draw.text((tbl_x + 14 + day_box_w / 2, row_y + 26), r["w_name"], fill=(255, 255, 255), font=f_day_name, anchor="mm")
+        draw.text((tbl_x + 14 + day_box_w / 2, row_y + 48), r["day_str"], fill=(186, 230, 253) if r["is_today"] else (148, 163, 184), font=f_day_date, anchor="mm")
+
+        # 2. Calories Column
         if r["has_nut"]:
-            macros_line = f"Б: {int(r['prot'])}г   Ж: {int(r['fat'])}г   У: {int(r['carb'])}г"
-            draw.text((tbl_x + 380, row_y + row_h // 2 - 2), macros_line, fill=(203, 213, 225), font=f_tb_sub, anchor="lm")
+            draw.text((tbl_x + 185, row_y + 38), f"{r['cal']:,}", fill=(255, 255, 255), font=f_cal_val, anchor="lm")
+            draw.text((tbl_x + 185 + draw.textlength(f"{r['cal']:,}", font=f_cal_val) + 6, row_y + 39), "ккал", fill=(148, 163, 184), font=f_day_date, anchor="lm")
         else:
-            draw.text((tbl_x + 380, row_y + row_h // 2), "не записано", fill=(100, 116, 139), font=f_tb_sub, anchor="lm")
+            draw.text((tbl_x + 185, row_y + 38), "—", fill=(100, 116, 139), font=f_cal_val, anchor="lm")
 
-        # Workout badge
+        # 3. KBJU Column (3 Separate Micro-Pills)
+        if r["has_nut"]:
+            p_x = tbl_x + 360
+            m_items = [
+                (f"Б: {int(r['prot'])}г", (8, 51, 68), (56, 189, 248)),
+                (f"Ж: {int(r['fat'])}г", (69, 38, 14), (251, 191, 36)),
+                (f"У: {int(r['carb'])}г", (23, 37, 84), (147, 197, 253))
+            ]
+            for m_text, m_bg, m_fg in m_items:
+                m_w = draw.textlength(m_text, font=f_macro_badge) + 16
+                draw.rounded_rectangle([p_x, row_y + 23, p_x + m_w, row_y + row_h - 23], radius=8, fill=m_bg)
+                draw.text((p_x + m_w / 2, row_y + 38), m_text, fill=m_fg, font=f_macro_badge, anchor="mm")
+                p_x += m_w + 8
+        else:
+            draw.text((tbl_x + 360, row_y + 38), "данные не записаны", fill=(100, 116, 139), font=f_coach_t, anchor="lm")
+
+        # 4. Workout Column
+        w_pill_x = tbl_x + 695
+        w_pill_w = tbl_w - 710
         if r["is_workout"]:
-            w_badge_bg = (49, 24, 75)
-            w_border = (168, 85, 247)
-            w_text_col = (216, 180, 254)
-            draw.rounded_rectangle([tbl_x + 685, row_y + 14, tbl_x + tbl_w - 16, row_y + row_h - 14], radius=8, fill=w_badge_bg, outline=w_border, width=1)
-            draw.text((tbl_x + 685 + (tbl_w - 701) // 2, row_y + row_h // 2), r['workout_label'], fill=w_text_col, font=f_tb_main, anchor="mm")
+            draw.rounded_rectangle([w_pill_x, row_y + 14, w_pill_x + w_pill_w, row_y + row_h - 14], radius=10, fill=(46, 16, 101), outline=(139, 92, 246), width=1)
+            draw.text((w_pill_x + w_pill_w / 2, row_y + 38), r["workout_label"], fill=(233, 213, 255), font=f_workout_badge, anchor="mm")
         else:
-            draw.rounded_rectangle([tbl_x + 685, row_y + 14, tbl_x + tbl_w - 16, row_y + row_h - 14], radius=8, fill=(15, 23, 35))
-            draw.text((tbl_x + 685 + (tbl_w - 701) // 2, row_y + row_h // 2), "Отдых", fill=(100, 116, 139), font=f_tb_sub, anchor="mm")
+            draw.rounded_rectangle([w_pill_x, row_y + 14, w_pill_x + w_pill_w, row_y + row_h - 14], radius=10, fill=(19, 26, 40))
+            draw.text((w_pill_x + w_pill_w / 2, row_y + 38), "Отдых", fill=(100, 116, 139), font=f_workout_badge, anchor="mm")
 
         row_y += row_h + row_gap
 
-    # --- Bottom Coach Advice Card ---
-    coach_y = row_y + 15
+    # --- Bottom Coach Insight Card ---
+    coach_y = row_y + 16
     coach_h = 160
-    draw.rounded_rectangle([tbl_x, coach_y, tbl_x + tbl_w, coach_y + coach_h], radius=16, fill=(15, 26, 42), outline=(37, 99, 235), width=2)
+    draw.rounded_rectangle([tbl_x, coach_y, tbl_x + tbl_w, coach_y + coach_h], radius=18, fill=(16, 24, 38), outline=(37, 99, 235), width=1)
+    # Left vertical glow bar
+    draw.rounded_rectangle([tbl_x, coach_y + 16, tbl_x + 6, coach_y + coach_h - 16], radius=3, fill=(14, 165, 233))
+
     # Header
-    draw.text((tbl_x + 24, coach_y + 24), "РЕЗЮМЕ И СОВЕТЫ ТРЕНЕРА НА СЛЕДУЮЩУЮ НЕДЕЛЮ:", fill=(56, 189, 248), font=f_coach_h)
+    draw.text((tbl_x + 26, coach_y + 24), "СОВЕТЫ ТРЕНЕРА НА СЛЕДУЮЩУЮ НЕДЕЛЮ", fill=(56, 189, 248), font=f_coach_h)
 
-    # Bullet 1
-    b1 = f"• Вес: {w_delta_str}. Отличная динамика! Жировая прослойка уходит, форма улучшается."
-    draw.text((tbl_x + 24, coach_y + 60), b1, fill=(226, 232, 240), font=f_coach_t)
+    # Bullet 1: Weight
+    b1_label = "• Вес:"
+    b1_text = f" {w_pill_text}. Отличный темп сушки, жировая прослойка стабильно уходит."
+    draw.text((tbl_x + 26, coach_y + 58), b1_label, fill=(52, 211, 153), font=f_coach_h)
+    draw.text((tbl_x + 26 + draw.textlength(b1_label, font=f_coach_h), coach_y + 59), b1_text, fill=(226, 232, 240), font=f_coach_t)
 
-    # Bullet 2
+    # Bullet 2: Protein
+    b2_label = "• Белок:"
     if avg_prot >= 155:
-        b2 = f"• Белок: в среднем {avg_prot}г/день — целевая планка держится отлично, мышечная масса защищена."
+        b2_text = f" {avg_prot}г/день в среднем — планка держится отлично, мышечная масса защищена."
     else:
-        b2 = f"• Белок: в среднем {avg_prot}г/день. Рекомендуется подтянуть до 160г+ (добавь творог/грудку/протеин)."
-    draw.text((tbl_x + 24, coach_y + 92), b2, fill=(226, 232, 240), font=f_coach_t)
+        b2_text = f" {avg_prot}г/день. Рекомендуется подтянуть до 160г+ (добавь творог, куриное филе или протеин)."
+    draw.text((tbl_x + 26, coach_y + 88), b2_label, fill=(56, 189, 248), font=f_coach_h)
+    draw.text((tbl_x + 26 + draw.textlength(b2_label, font=f_coach_h), coach_y + 89), b2_text, fill=(226, 232, 240), font=f_coach_t)
 
-    # Bullet 3
-    b3 = f"• Нагрузка: {total_tonnage:,.0f} кг за неделю ({workout_days_count} сессии). Продолжай прогрессировать в рабочем сплите!"
-    draw.text((tbl_x + 24, coach_y + 124), b3, fill=(226, 232, 240), font=f_coach_t)
+    # Bullet 3: Workout
+    b3_label = "• Нагрузка:"
+    b3_text = f" {total_tonnage:,.0f} кг за неделю ({workout_days_count} сессии). Продолжай прогрессировать в рабочем сплите!"
+    draw.text((tbl_x + 26, coach_y + 118), b3_label, fill=(192, 132, 252), font=f_coach_h)
+    draw.text((tbl_x + 26 + draw.textlength(b3_label, font=f_coach_h), coach_y + 119), b3_text, fill=(226, 232, 240), font=f_coach_t)
 
     # Output to BytesIO
     buf = io.BytesIO()
