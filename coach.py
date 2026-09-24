@@ -783,6 +783,148 @@ class AIHevyCoach:
         )
         return report
 
+    def get_goal_eta_report(self) -> str:
+        """Calculates weight loss velocity, milestone timeline to 80kg, and visual progress bar."""
+        from datetime import datetime, date, timedelta, timezone
+
+        tz_gmt6 = timezone(timedelta(hours=6))
+        today = datetime.now(tz_gmt6).date()
+
+        # Biometrics
+        prof = self.yazio.get_user_profile() if self.yazio.is_configured() else {}
+        start_w = 103.0
+        cur_w = prof.get("current_weight_kg", 97.9)
+        goal_w = 80.0
+
+        total_to_lose = start_w - goal_w  # 23.0 kg
+        lost_so_far = max(0.0, start_w - cur_w)  # 5.1 kg
+        remaining_to_lose = max(0.0, cur_w - goal_w)  # 17.9 kg
+
+        pct = (lost_so_far / total_to_lose * 100) if total_to_lose > 0 else 0
+        pct = min(100.0, max(0.0, pct))
+
+        # Visual progress bar (10 blocks)
+        filled = int(round(pct / 10))
+        filled = min(10, max(0, filled))
+        bar = "█" * filled + "░" * (10 - filled)
+
+        # Real velocity calculation from YAZIO weights
+        rate_per_week = 0.70  # Default safe rate
+        if self.yazio.is_configured() and self.yazio.client:
+            try:
+                from yazio_exporter.export_body import fetch_weight_range
+                start_range = (today - timedelta(days=28)).strftime("%Y-%m-%d")
+                end_range = today.strftime("%Y-%m-%d")
+                weights = self.yazio._execute_with_retry(
+                    fetch_weight_range, self.yazio.client, start_range, end_range
+                ) or {}
+                if len(weights) >= 2:
+                    sorted_dates = sorted(weights.keys())
+                    first_d = datetime.strptime(sorted_dates[0], "%Y-%m-%d").date()
+                    last_d = datetime.strptime(sorted_dates[-1], "%Y-%m-%d").date()
+                    days_span = (last_d - first_d).days
+                    if days_span >= 7:
+                        w_loss = weights[sorted_dates[0]] - weights[sorted_dates[-1]]
+                        calculated_rate = (w_loss / days_span) * 7
+                        if 0.35 <= calculated_rate <= 1.4:
+                            rate_per_week = round(calculated_rate, 2)
+            except Exception as e:
+                print(f"Goal ETA rate note: {e}")
+
+        # Milestone calculations
+        ru_months = [
+            "", "января", "февраля", "марта", "апреля", "мая", "июня",
+            "июля", "августа", "сентября", "октября", "ноября", "декабря"
+        ]
+
+        def format_eta_date(weeks_ahead: float) -> str:
+            target_d = today + timedelta(days=round(weeks_ahead * 7))
+            return f"~{target_d.day} {ru_months[target_d.month]} {target_d.year}"
+
+        milestones = [95.0, 90.0, 85.0, 80.0]
+        milestone_lines = []
+
+        for m in milestones:
+            if cur_w <= m:
+                milestone_lines.append(f"• 🏁 *{m:.1f} кг*: ✅ Достигнут!")
+            else:
+                diff = cur_w - m
+                weeks_needed = diff / rate_per_week
+                eta_str = format_eta_date(weeks_needed)
+                weeks_str = f"~{weeks_needed:.1f} нед." if weeks_needed >= 1 else "< 1 нед."
+                flag = "🏆" if m == goal_w else "🏁"
+                tag = " (Финал цели!)" if m == goal_w else ""
+                milestone_lines.append(f"• {flag} *{m:.1f} кг{tag}*: *{eta_str}* ({weeks_str})")
+
+        milestones_text = "\n".join(milestone_lines)
+
+        return (
+            f"🎯 *ТАЙМЛАЙН И ПРОГНОЗ ДОСТИЖЕНИЯ ЦЕЛИ (80 КГ)*\n\n"
+            f"⚖️ *Текущий статус трансформации:*\n"
+            f"• Стартовый вес: *{start_w:.1f} кг*\n"
+            f"• Текущий вес: *{cur_w:.1f} кг*\n"
+            f"• Целевой вес: *{goal_w:.1f} кг*\n"
+            f"• Уже сброшено: *-{lost_so_far:.1f} кг* 🔥\n"
+            f"• Осталось сбросить: *{remaining_to_lose:.1f} кг*\n\n"
+            f"📊 *Прогресс цели:*\n"
+            f"`[{bar}]` *{pct:.1f}%* пути пройдено!\n\n"
+            f"⚡ *Скорость сушки:*\n"
+            f"• Средний темп: *~{rate_per_week:.2f} кг в неделю* (физиологичный темп без потери силовых и мышц!)\n\n"
+            f"📅 *Прогноз достижения рубежей:*\n"
+            f"{milestones_text}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 *Совет тренера:*\n"
+            f"При умеренном дефиците (~1,900–2,100 ккал) и белке 160г+ ты надежно защищаешь мышечную массу. Продолжай 5-дневный сплит Hevy и финишный бег 3–4 км — результат неизбежен! 🚀"
+        )
+
+    def get_evening_nutrition_checkin(self, target_date=None) -> str:
+        """Evaluates today's YAZIO log and generates smart bedtime macro recommendations at 23:00."""
+        from datetime import datetime, date, timedelta, timezone
+
+        tz_gmt6 = timezone(timedelta(hours=6))
+        today = target_date or datetime.now(tz_gmt6).date()
+
+        if not self.yazio.is_configured():
+            return "Дневник YAZIO не подключен."
+
+        summary = self.yazio.get_daily_summary(today)
+        cal = round(summary.get("calories", 0))
+        prot = round(summary.get("protein", 0), 1)
+        fat = round(summary.get("fat", 0), 1)
+        carb = round(summary.get("carbs", 0), 1)
+
+        target_cal = 2100
+        target_prot = 160.0
+
+        prot_rem = round(target_prot - prot, 1)
+        cal_rem = round(target_cal - cal)
+
+        if prot_rem > 18:
+            # Under protein target
+            return (
+                f"🌙 *Вечерний чек-ин питания (23:00)*\n\n"
+                f"📊 *Итоги тарелки за сегодня ({today.strftime('%d.%m')}):*\n"
+                f"• Калории: *{cal:,}* из ~{target_cal:,} ккал ({'остаток ~' + str(cal_rem) + ' ккал' if cal_rem > 0 else 'в норме'})\n"
+                f"• Белок: *{prot}г* из ~{target_prot:.0f}г (не хватает: *~{prot_rem:.0f}г*)\n"
+                f"• Жиры: *{fat}г*  |  Углеводы: *{carb}г*\n\n"
+                f"⚠️ *Мышцам нужен строительный материал на ночь!*\n"
+                f"Чтобы во сне не начался катаболизм мышечных волокон, рекомендую легкий белковый добор:\n\n"
+                f"1. 🧀 *Пачка творога 5% (200 г)* — ~34г медленного казеинового белка на всю ночь (~220 ккал).\n"
+                f"2. 🥩 *Филе индейки или тунец в с/с (140–150 г)* — ~35г чистого нежирного белка (~160 ккал).\n"
+                f"3. 🥛 *Скуп сывороточного протеина на воде + 2 вареных яйца* — ~36г белка (~230 ккал).\n\n"
+                f"💧 Выпей 200–300 мл чистой воды и настраивайся на 8 часов крепкого сна!"
+            )
+        else:
+            # Target met or very close
+            return (
+                f"🌙 *Вечерний чек-ин питания (23:00)*\n\n"
+                f"🎯 *План по питанию на сегодня ({today.strftime('%d.%m')}) закрыт на отлично!*\n\n"
+                f"• Калории: *{cal:,} ккал* (дефицит четко выдержан)\n"
+                f"• Белок: *{prot}г* (целевая норма надежно выполнена ✅)\n"
+                f"• Жиры: *{fat}г*  |  Углеводы: *{carb}г*\n\n"
+                f"💡 Мышцы полностью защищены аминокислотами. Сейчас главный фактор восстановления — глубокий 8-часовой сон. Отдыхай, чемпион! 😴"
+            )
+
 
 def main():
     import argparse

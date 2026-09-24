@@ -167,10 +167,11 @@ def get_main_keyboard():
     b_products = types.KeyboardButton("🍽 Что я ел (продукты)")
     b_weekly = types.KeyboardButton("📈 Недельный отчет")
     b_profile = types.KeyboardButton("👤 Мой профиль и вес")
+    b_eta = types.KeyboardButton("⏳ Прогноз к 80 кг")
     keyboard.add(b_last, b_next)
     keyboard.add(b_nut_today, b_nut_week)
     keyboard.add(b_products, b_weekly)
-    keyboard.add(b_profile)
+    keyboard.add(b_profile, b_eta)
     return keyboard
 
 def get_system_instruction() -> str:
@@ -276,6 +277,10 @@ def ask_gemini_ai(user_question: str) -> str:
         return coach.preview_next_workout()
     if any(w in q_lower for w in ["послед", "прошл", "тренировк", "как прошл", "тоннаж"]):
         return coach.review_last_workout()
+    if any(w in q_lower for w in ["прогноз", "когда 80", "рубеж", "таймлайн", "eta", "к 80"]):
+        return coach.get_goal_eta_report()
+    if any(w in q_lower for w in ["вечер", "добор", "на ночь", "перед сном", "вечерний"]):
+        return coach.get_evening_nutrition_checkin()
     if any(w in q_lower for w in ["пит", "ед", "калор", "бжу", "белок", "yazio"]) and "недел" not in q_lower:
         return coach.get_nutrition_report()
     if any(w in q_lower for w in ["вес", "профил", "рост", "похудел"]):
@@ -784,6 +789,43 @@ def run_sunday_report_scheduler(bot):
     t = threading.Thread(target=scheduler_worker, daemon=True)
     t.start()
 
+def run_evening_nutrition_scheduler(bot):
+    """Sends daily evening nutrition check-in and macro recommendations at 23:00 (GMT+6)."""
+    tz_gmt6 = timezone(timedelta(hours=6))
+    last_sent_date = None
+
+    def scheduler_worker():
+        nonlocal last_sent_date
+        time.sleep(25)
+        print("⏰ Планировщик вечернего добора питания активен (каждый день в 23:00 GMT+6)")
+        while True:
+            try:
+                now_gmt6 = datetime.now(tz_gmt6)
+                if now_gmt6.hour == 23 and now_gmt6.minute == 0:
+                    today_str = now_gmt6.strftime("%Y-%m-%d")
+                    if last_sent_date != today_str:
+                        subscribers = get_all_subscribers()
+                        if subscribers:
+                            report_text = coach.get_evening_nutrition_checkin()
+                            for cid in subscribers:
+                                try:
+                                    chunks = split_message(str(report_text), max_len=3900)
+                                    for chunk in chunks:
+                                        try:
+                                            bot.send_message(cid, chunk, parse_mode="Markdown")
+                                        except Exception:
+                                            bot.send_message(cid, chunk, parse_mode=None)
+                                    print(f"🌙 Вечерний чек-ин питания отправлен пользователю {cid}")
+                                except Exception as err:
+                                    print(f"Не удалось отправить вечерний чек-ин в {cid}: {err}")
+                        last_sent_date = today_str
+            except Exception as e:
+                print(f"Evening scheduler loop error: {e}")
+            time.sleep(25)
+
+    t = threading.Thread(target=scheduler_worker, daemon=True)
+    t.start()
+
 def start_bot():
     if not TELEGRAM_TOKEN:
         print("⚠️ ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
@@ -825,23 +867,26 @@ def start_bot():
         return last_msg
 
     run_sunday_report_scheduler(bot)
+    run_evening_nutrition_scheduler(bot)
 
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         register_subscriber(message.chat.id)
         with continuous_typing(bot, message.chat.id):
             prof = coach.yazio.get_user_profile() if coach.yazio.is_configured() else {}
-            w = prof.get("current_weight_kg", 98.8)
+            w = prof.get("current_weight_kg", 98.2)
             text = (
                 f"Привет, атлет! 🏋️‍♂️\n\n"
                 f"Я твой персональный ИИ-тренер, подключенный к твоим аккаунтам *Hevy* и *YAZIO*.\n\n"
                 f"Твои параметры: *{w} кг* | *182 см* | Цель: *80 кг*.\n\n"
                 f"🔥 *Что работает автоматически:*\n"
-                f"• 🔄 *Авто-синхронизация Hevy*: я каждые 90 сек отслеживаю завершение тренировок и сам обновляю базу.\n"
-                f"• 💬 *Опрос через 20 минут*: через ~20 мин после тренировки я напишу тебе, узнаю о самочувствии и сопоставлю твои ощущения с весами и тоннажем!\n"
+                f"• 🔄 *Авто-синхронизация Hevy*: каждые 90 сек отслеживаю завершение тренировок и сам обновляю базу.\n"
+                f"• 💬 *Опрос через 20 минут*: сопоставляю твои ощущения с весами и тоннажем!\n"
                 f"• 🔔 *Напоминание в зал*: Пн–Пт в 10:40 утра (GMT+6).\n"
-                f"• 📊 *Воскресный отчет*: каждое воскресенье в 12:00 дня (GMT+6) сводная таблица КБЖУ, тоннаж тренировок и динамика веса.\n\n"
-                f"Используй кнопки внизу для быстрого доступа, команды `/test_sunday_report`, `/test_checkin`, `/myid` или просто напиши мне любой вопрос в чат!"
+                f"• 🌙 *Вечерний чек-ин*: каждый день в 23:00 (GMT+6) умный добор калорий и белка на ночь.\n"
+                f"• 📊 *Воскресный отчет*: каждое воскресенье в 12:00 дня (GMT+6) дизайнерская инфографика недели.\n"
+                f"• 🎙 *Голосовые сообщения*: можешь надиктовывать вопросы и ощущения голосом!\n\n"
+                f"Используй кнопки внизу для быстрого доступа, команды `/test_evening`, `/test_sunday_report`, `/myid` или просто напиши мне любой вопрос в чат!"
             )
             safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
         dispatch_checkin_if_due(bot, message.chat.id)
@@ -977,7 +1022,21 @@ def start_bot():
             res = coach.get_profile_report()
             safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
 
-    @bot.message_handler(func=lambda msg: msg.text == "🔄 Синхронизация" or msg.text == "/sync")
+    @bot.message_handler(func=lambda msg: msg.text == "⏳ Прогноз к 80 кг" or msg.text in ["/goal_eta", "/progress", "/eta"])
+    def handle_goal_eta(message):
+        register_subscriber(message.chat.id)
+        with continuous_typing(bot, message.chat.id):
+            res = coach.get_goal_eta_report()
+            safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['evening_checkin', 'test_evening'])
+    def handle_evening_checkin_cmd(message):
+        register_subscriber(message.chat.id)
+        with continuous_typing(bot, message.chat.id):
+            res = coach.get_evening_nutrition_checkin()
+            safe_send(message.chat.id, res, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['sync'])
     def handle_sync(message):
         register_subscriber(message.chat.id)
         with continuous_typing(bot, message.chat.id):
@@ -989,6 +1048,87 @@ def start_bot():
             text = f"✅ *Данные синхронизированы!*\n\n• Загружено тренировок: *{sync_res['workouts_count']}*\n• Программ тренировок: *{sync_res['routines_count']}*"
             safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
         dispatch_checkin_if_due(bot, message.chat.id)
+
+    @bot.message_handler(content_types=['voice', 'audio'])
+    def handle_voice_message(message):
+        register_subscriber(message.chat.id)
+        with continuous_typing(bot, message.chat.id):
+            try:
+                # 1. Download voice audio bytes from Telegram
+                file_id = message.voice.file_id if message.voice else message.audio.file_id
+                file_info = bot.get_file(file_id)
+                downloaded_file = bot.download_file(file_info.file_path)
+
+                # 2. Transcribe using Gemini Audio Multimodal
+                if not GEMINI_KEY:
+                    safe_send(message.chat.id, "⚠️ Голосовые сообщения не поддерживаются без ключа Gemini API.", reply_markup=get_main_keyboard())
+                    return
+
+                from google import genai
+                from google.genai import types as genai_types
+                client = genai.Client(api_key=GEMINI_KEY, http_options={"timeout": 30_000})
+
+                audio_part = genai_types.Part.from_bytes(
+                    data=downloaded_file,
+                    mime_type="audio/ogg"
+                )
+
+                transcribe_prompt = (
+                    "Ты транскрибируешь голосовое сообщение от атлета в фитнес-боте. "
+                    "В точности расшифруй аудиозапись на русском языке. "
+                    "Верни ТОЛЬКО расшифрованный текст, без пояснений, кавычек и вводных слов."
+                )
+
+                transcribed_text = ""
+                for model_name in MODELS_CASCADE:
+                    try:
+                        resp = client.models.generate_content(
+                            model=model_name,
+                            contents=[audio_part, transcribe_prompt]
+                        )
+                        if resp and resp.text:
+                            transcribed_text = resp.text.strip()
+                            break
+                    except Exception as trans_err:
+                        print(f"Voice transcription with {model_name} failed: {trans_err}")
+                        continue
+
+                if not transcribed_text:
+                    safe_send(message.chat.id, "⚠️ Не удалось распознать голосовое сообщение. Попробуй наговорить чуть четче или напиши текстом!", reply_markup=get_main_keyboard())
+                    return
+
+                # Send transcript confirmation to athlete
+                safe_send(message.chat.id, f"🎙 *Вы сказали:*\n«_{transcribed_text}_»", reply_markup=get_main_keyboard())
+
+                # 3. Check if athlete is replying to pending post-workout checkin
+                pending = load_pending_checkin()
+                if pending and pending.get("prompt_sent") and not pending.get("responded"):
+                    prompt_sent_time = pending.get("prompt_sent_time", 0)
+                    if time.time() - prompt_sent_time < 8 * 3600:
+                        q_lower = transcribed_text.lower().strip()
+                        is_pure_nutrition_query = (
+                            any(w in q_lower for w in ["что ел", "что я ел", "меню", "сколько калор"]) and
+                            not any(w in q_lower for w in ["болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "вес", "тренировк", "самочувств"])
+                        )
+                        if not is_pure_nutrition_query:
+                            try:
+                                feedback_report = analyze_post_workout_feedback(transcribed_text, pending.get("workout_id"))
+                                safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+                                pending["responded"] = True
+                                pending["last_user_feedback"] = transcribed_text
+                                pending["last_feedback_time"] = time.time()
+                                save_pending_checkin(pending)
+                                return
+                            except Exception as fb_err:
+                                print(f"Voice feedback analysis error: {fb_err}")
+
+                # 4. Standard Gemini answer for transcribed text
+                reply = ask_gemini_ai(transcribed_text)
+                safe_send(message.chat.id, reply, reply_markup=get_main_keyboard())
+
+            except Exception as e:
+                print(f"Error handling voice message: {e}")
+                safe_send(message.chat.id, "⚠️ Произошла ошибка при обработке голосового сообщения. Попробуй ещё раз!", reply_markup=get_main_keyboard())
 
     @bot.message_handler(func=lambda msg: True)
     def handle_free_text(message):
