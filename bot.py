@@ -167,11 +167,10 @@ def get_main_keyboard():
     b_products = types.KeyboardButton("🍽 Что я ел (продукты)")
     b_weekly = types.KeyboardButton("📈 Недельный отчет")
     b_profile = types.KeyboardButton("👤 Мой профиль и вес")
-    b_sync = types.KeyboardButton("🔄 Синхронизация")
     keyboard.add(b_last, b_next)
     keyboard.add(b_nut_today, b_nut_week)
     keyboard.add(b_products, b_weekly)
-    keyboard.add(b_profile, b_sync)
+    keyboard.add(b_profile)
     return keyboard
 
 def get_system_instruction() -> str:
