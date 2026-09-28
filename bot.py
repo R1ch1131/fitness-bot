@@ -35,9 +35,9 @@ _context_cache = {
 
 # Reliable active Gemini models in priority order
 MODELS_CASCADE = [
-    "gemini-3.5-flash",
     "gemini-3.6-flash",
-    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
     "gemini-flash-latest"
 ]
 
@@ -283,8 +283,13 @@ def ask_gemini_ai(user_question: str) -> str:
         return coach.get_evening_nutrition_checkin()
     if any(w in q_lower for w in ["пит", "ед", "калор", "бжу", "белок", "yazio"]) and "недел" not in q_lower:
         return coach.get_nutrition_report()
-    if any(w in q_lower for w in ["вес", "профил", "рост", "похудел"]):
-        return coach.get_profile_report()
+
+    # Profile & body weight report (avoid false positive when athlete discusses exercise working weights "рабочие веса", "вес штанги")
+    is_exercise_weight_query = any(w in q_lower for w in ["рабоч", "штан", "гантел", "подход", "жим", "тяг", "присед", "снаряд", "повтор", "бабочк", "упражнен"])
+    if not is_exercise_weight_query:
+        if any(w in q_lower for w in ["профил", "рост", "похудел", "мой вес", "какой вес", "сколько вешу", "взвешив", "динамика веса", "текущий вес"]) or q_lower.strip() in ["вес", "мой профиль"]:
+            return coach.get_profile_report()
+
     if any(w in q_lower for w in ["недел", "отчет", "стат", "итог", "таблиц"]) and "пит" not in q_lower:
         return coach.get_sunday_weekly_table_report()
 
@@ -294,7 +299,7 @@ def ask_gemini_ai(user_question: str) -> str:
             from google import genai
             client = genai.Client(
                 api_key=GEMINI_KEY,
-                http_options={"timeout": 30_000}  # 30 sec timeout
+                http_options={"timeout": 30_000}  # 30 sec timeout per model
             )
             system_instruction = get_system_instruction()
 
@@ -1100,27 +1105,46 @@ def start_bot():
                 # Send transcript confirmation to athlete
                 safe_send(message.chat.id, f"🎙 *Вы сказали:*\n«_{transcribed_text}_»", reply_markup=get_main_keyboard())
 
-                # 3. Check if athlete is replying to pending post-workout checkin
+                # 3. Check if athlete is replying to pending post-workout checkin or sending follow-up
                 pending = load_pending_checkin()
-                if pending and pending.get("prompt_sent") and not pending.get("responded"):
+                is_voice_feedback = False
+                target_workout_id = None
+
+                if pending and pending.get("prompt_sent"):
                     prompt_sent_time = pending.get("prompt_sent_time", 0)
-                    if time.time() - prompt_sent_time < 8 * 3600:
-                        q_lower = transcribed_text.lower().strip()
-                        is_pure_nutrition_query = (
-                            any(w in q_lower for w in ["что ел", "что я ел", "меню", "сколько калор"]) and
-                            not any(w in q_lower for w in ["болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "вес", "тренировк", "самочувств"])
-                        )
-                        if not is_pure_nutrition_query:
-                            try:
-                                feedback_report = analyze_post_workout_feedback(transcribed_text, pending.get("workout_id"))
-                                safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
-                                pending["responded"] = True
-                                pending["last_user_feedback"] = transcribed_text
-                                pending["last_feedback_time"] = time.time()
-                                save_pending_checkin(pending)
-                                return
-                            except Exception as fb_err:
-                                print(f"Voice feedback analysis error: {fb_err}")
+                    age_sec = time.time() - prompt_sent_time
+                    q_lower = transcribed_text.lower().strip()
+
+                    is_pure_nutrition = (
+                        any(w in q_lower for w in ["что ел", "что я ел", "меню", "сколько калор"]) and
+                        not any(w in q_lower for w in ["болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "вес", "тренировк", "самочувств", "бабочк", "гантел", "подход"])
+                    )
+
+                    has_workout_words = any(w in q_lower for w in [
+                        "болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "веса",
+                        "тренировк", "самочувств", "бабочк", "гантел", "подход", "повтор", "тяг", "присед", "чувствова"
+                    ])
+
+                    if not is_pure_nutrition:
+                        if not pending.get("responded") and age_sec < 8 * 3600:
+                            is_voice_feedback = True
+                            target_workout_id = pending.get("workout_id")
+                        elif pending.get("responded") and age_sec < 3 * 3600 and has_workout_words:
+                            is_voice_feedback = True
+                            target_workout_id = pending.get("workout_id")
+
+                if is_voice_feedback:
+                    try:
+                        feedback_report = analyze_post_workout_feedback(transcribed_text, target_workout_id)
+                        sent_msg = safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+                        if sent_msg is not None and pending:
+                            pending["responded"] = True
+                            pending["last_user_feedback"] = transcribed_text
+                            pending["last_feedback_time"] = time.time()
+                            save_pending_checkin(pending)
+                        return
+                    except Exception as fb_err:
+                        print(f"Voice feedback analysis error: {fb_err}")
 
                 # 4. Standard Gemini answer for transcribed text
                 reply = ask_gemini_ai(transcribed_text)
@@ -1134,31 +1158,49 @@ def start_bot():
     def handle_free_text(message):
         register_subscriber(message.chat.id)
 
-        # Check if user is responding to pending post-workout check-in
+        # Check if user is responding to pending post-workout check-in OR sending follow-up workout feedback
         pending = load_pending_checkin()
-        if pending and pending.get("prompt_sent") and not pending.get("responded"):
+        is_workout_feedback = False
+        target_workout_id = None
+
+        if pending and pending.get("prompt_sent") and not message.text.startswith("/"):
             prompt_sent_time = pending.get("prompt_sent_time", 0)
-            # Accept within 8 hours of prompt
-            if time.time() - prompt_sent_time < 8 * 3600 and not message.text.startswith("/"):
-                q_lower = message.text.lower().strip()
-                is_pure_nutrition_query = (
-                    any(w in q_lower for w in ["что ел", "что я ел", "меню", "сколько калор"]) and
-                    not any(w in q_lower for w in ["болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "вес", "тренировк", "самочувств"])
-                )
-                if not is_pure_nutrition_query:
-                    with continuous_typing(bot, message.chat.id):
-                        try:
-                            feedback_report = analyze_post_workout_feedback(message.text, pending.get("workout_id"))
-                            safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
-                            # Mark as responded ONLY after successful send
-                            pending["responded"] = True
-                            pending["last_user_feedback"] = message.text
-                            pending["last_feedback_time"] = time.time()
-                            save_pending_checkin(pending)
-                        except Exception as fb_err:
-                            print(f"Feedback analysis send error: {fb_err}")
-                            safe_send(message.chat.id, "⚠️ Произошла ошибка при анализе. Попробуй написать ещё раз!", reply_markup=get_main_keyboard())
-                    return
+            age_sec = time.time() - prompt_sent_time
+            q_lower = message.text.lower().strip()
+
+            is_pure_nutrition = (
+                any(w in q_lower for w in ["что ел", "что я ел", "меню", "сколько калор"]) and
+                not any(w in q_lower for w in ["болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "вес", "тренировк", "самочувств", "бабочк", "гантел", "подход"])
+            )
+
+            has_workout_words = any(w in q_lower for w in [
+                "болит", "тяжел", "легк", "плеч", "спин", "мышц", "устал", "жим", "веса",
+                "тренировк", "самочувств", "бабочк", "гантел", "подход", "повтор", "тяг", "присед", "чувствова"
+            ])
+
+            if not is_pure_nutrition:
+                if not pending.get("responded") and age_sec < 8 * 3600:
+                    is_workout_feedback = True
+                    target_workout_id = pending.get("workout_id")
+                elif pending.get("responded") and age_sec < 3 * 3600 and has_workout_words:
+                    # User sends follow-up or re-sends feedback within 3 hours
+                    is_workout_feedback = True
+                    target_workout_id = pending.get("workout_id")
+
+        if is_workout_feedback:
+            with continuous_typing(bot, message.chat.id):
+                try:
+                    feedback_report = analyze_post_workout_feedback(message.text, target_workout_id)
+                    sent_msg = safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+                    if sent_msg is not None and pending:
+                        pending["responded"] = True
+                        pending["last_user_feedback"] = message.text
+                        pending["last_feedback_time"] = time.time()
+                        save_pending_checkin(pending)
+                except Exception as fb_err:
+                    print(f"Feedback analysis send error: {fb_err}")
+                    safe_send(message.chat.id, "⚠️ Произошла ошибка при анализе. Попробуй написать ещё раз!", reply_markup=get_main_keyboard())
+            return
 
         with continuous_typing(bot, message.chat.id):
             reply = ask_gemini_ai(message.text)
