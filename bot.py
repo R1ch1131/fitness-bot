@@ -33,12 +33,13 @@ _context_cache = {
     "instruction": ""
 }
 
-# Reliable active Gemini models in priority order
+# Reliable active Gemini models in priority order (Flash-Lite models are ultra-fast and not subject to 503 high demand)
 MODELS_CASCADE = [
+    "gemini-3.5-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3.1-flash-lite",
     "gemini-3.6-flash",
-    "gemini-3.8-flash",
-    "gemini-3.5-flash",
-    "gemini-flash-latest"
+    "gemini-3-flash-preview"
 ]
 
 def split_message(text: str, max_len: int = 3900) -> list:
@@ -420,11 +421,11 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
             f"📋 *Анализ тренировки: {w_title}*\n\n"
             f"⏱ Длительность: *{duration} мин* | Тоннаж: *{tonnage:,.0f} кг* ({sets_count} раб. подходов)\n\n"
             f"💬 *Твой отзыв:* «_{user_feedback}_»\n\n"
-            f"💡 *Разбор тренера:*\n"
-            f"1. *Нагрузка*: Суммарный тоннаж {tonnage:,.0f} кг — это солидный силовой объем. Ощущение утомления абсолютно физиологично при сушке и дефиците калорий.\n"
-            f"2. *Восстановление*: Закрой потребность в белке (~35–40 г) и выпей 0.7–1.0 л чистой воды с минералами/электролитами в течение ближайшего часа.\n"
-            f"3. *Суставы и связки*: При любых признаках дискомфорта удели время качественной разминке перед следующей тренировкой и держи под контролем негативную фазу (2-3 сек опускания снаряда).\n"
-            f"4. *Сон*: Не менее 8 часов сна для восстановления нервной системы и снижения кортизола."
+            f"⚠️ *Примечание:* Сервер нейросети временно перегружен, детальный ИИ-разбор не сгенерировался. Твой отзыв надёжно сохранён в памяти тренера!\n\n"
+            f"💡 *Базовые рекомендации тренера:*\n"
+            f"1. *Восстановление*: Закрой потребность в белке (~35–40 г) и выпей 0.7–1.0 л чистой воды с электролитами.\n"
+            f"2. *Суставы и связки*: Если есть мышечный спазм или дискомфорт в связках, сделай легкую растяжку и держи проблемную зону в тепле.\n"
+            f"3. *Сон*: Не менее 8 часов сна для восстановления ЦНС и снижения кортизола."
         )
     except Exception as err:
         print(f"Error in analyze_post_workout_feedback: {err}")
