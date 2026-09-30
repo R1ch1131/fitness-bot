@@ -144,13 +144,18 @@ def continuous_typing(bot, chat_id: int):
     stop_event = threading.Event()
 
     def typing_worker():
+        try:
+            bot.send_chat_action(chat_id, "typing")
+        except Exception:
+            pass
         while not stop_event.is_set():
+            stop_event.wait(4.0)
+            if stop_event.is_set():
+                break
             try:
                 bot.send_chat_action(chat_id, "typing")
             except Exception:
                 pass
-            # Telegram typing action expires after ~5 sec; re-trigger every 4 sec
-            stop_event.wait(4.0)
 
     t = threading.Thread(target=typing_worker, daemon=True)
     t.start()
@@ -158,6 +163,7 @@ def continuous_typing(bot, chat_id: int):
         yield
     finally:
         stop_event.set()
+        t.join(timeout=0.2)
 
 def get_main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -300,7 +306,7 @@ def ask_gemini_ai(user_question: str) -> str:
             from google import genai
             client = genai.Client(
                 api_key=GEMINI_KEY,
-                http_options={"timeout": 30_000}  # 30 sec timeout per model
+                http_options={"timeout": 12_000}  # 12 sec timeout per model
             )
             system_instruction = get_system_instruction()
 
@@ -398,7 +404,7 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
                 from google.genai import types as genai_types
                 client = genai.Client(
                     api_key=GEMINI_KEY,
-                    http_options={"timeout": 30_000}  # 30 sec timeout
+                    http_options={"timeout": 12_000}  # 12 sec timeout
                 )
                 print(f"[FEEDBACK] Prompt length: {len(prompt)} chars, user_feedback: {user_feedback[:100]}...")
                 for model_name in MODELS_CASCADE:
@@ -1189,23 +1195,28 @@ def start_bot():
                     target_workout_id = pending.get("workout_id")
 
         if is_workout_feedback:
+            feedback_report = ""
             with continuous_typing(bot, message.chat.id):
                 try:
                     feedback_report = analyze_post_workout_feedback(message.text, target_workout_id)
-                    sent_msg = safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
-                    if sent_msg is not None and pending:
-                        pending["responded"] = True
-                        pending["last_user_feedback"] = message.text
-                        pending["last_feedback_time"] = time.time()
-                        save_pending_checkin(pending)
                 except Exception as fb_err:
                     print(f"Feedback analysis send error: {fb_err}")
-                    safe_send(message.chat.id, "⚠️ Произошла ошибка при анализе. Попробуй написать ещё раз!", reply_markup=get_main_keyboard())
+
+            if feedback_report:
+                sent_msg = safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+                if sent_msg is not None and pending:
+                    pending["responded"] = True
+                    pending["last_user_feedback"] = message.text
+                    pending["last_feedback_time"] = time.time()
+                    save_pending_checkin(pending)
+            else:
+                safe_send(message.chat.id, "⚠️ Произошла ошибка при анализе. Попробуй написать ещё раз!", reply_markup=get_main_keyboard())
             return
 
+        reply = ""
         with continuous_typing(bot, message.chat.id):
             reply = ask_gemini_ai(message.text)
-            safe_send(message.chat.id, reply, reply_markup=get_main_keyboard())
+        safe_send(message.chat.id, reply, reply_markup=get_main_keyboard())
 
     print("🤖 Telegram бот запущен и слушает входящие сообщения...")
     bot.infinity_polling(timeout=20, long_polling_timeout=20)
