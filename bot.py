@@ -3,10 +3,35 @@ import sys
 import json
 import time
 import threading
+import collections
+from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 from datetime import datetime, date, timezone, timedelta
 import telebot
 from telebot import types
+
+# In-memory log buffer for real-time monitoring on Render via /logs
+RECENT_LOGS = collections.deque(maxlen=150)
+
+class LogInterceptor:
+    def __init__(self, original):
+        self.original = original
+    def write(self, s):
+        if s.strip():
+            timestamp = datetime.now(timezone(timedelta(hours=6))).strftime("%H:%M:%S")
+            RECENT_LOGS.append(f"[{timestamp}] {s.strip()}")
+        try:
+            self.original.write(s)
+        except Exception:
+            pass
+    def flush(self):
+        try:
+            self.original.flush()
+        except Exception:
+            pass
+
+sys.stdout = LogInterceptor(sys.stdout)
+sys.stderr = LogInterceptor(sys.stderr)
 
 if sys.platform == "win32":
     try:
@@ -140,20 +165,27 @@ def save_pending_checkin(data: dict):
 
 @contextmanager
 def continuous_typing(bot, chat_id: int):
-    """Maintains continuous 'typing...' status in Telegram until response is generated."""
+    """Maintains 'typing...' status in Telegram safely without touching telebot's shared socket."""
     stop_event = threading.Event()
 
+    # Immediate typing status via telebot
+    try:
+        bot.send_chat_action(chat_id, "typing")
+    except Exception:
+        pass
+
     def typing_worker():
-        try:
-            bot.send_chat_action(chat_id, "typing")
-        except Exception:
-            pass
+        token = getattr(bot, "token", "") or TELEGRAM_TOKEN
+        if not token:
+            return
+        url = f"https://api.telegram.org/bot{token}/sendChatAction"
         while not stop_event.is_set():
-            stop_event.wait(4.0)
-            if stop_event.is_set():
+            if stop_event.wait(4.5):
                 break
             try:
-                bot.send_chat_action(chat_id, "typing")
+                import requests
+                # Isolated HTTP call ensures telebot.apihelper._session is NEVER touched concurrently
+                requests.post(url, json={"chat_id": chat_id, "action": "typing"}, timeout=2.5)
             except Exception:
                 pass
 
@@ -163,7 +195,7 @@ def continuous_typing(bot, chat_id: int):
         yield
     finally:
         stop_event.set()
-        t.join(timeout=0.2)
+        t.join(timeout=0.5)
 
 def get_main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -659,6 +691,14 @@ def run_health_server(bot=None):
                     self.wfile.write(json.dumps({"error": str(err)}).encode("utf-8"))
                 return
 
+            if self.path == "/logs":
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain; charset=utf-8")
+                self.end_headers()
+                logs_text = "\n".join(list(RECENT_LOGS)) if RECENT_LOGS else "No logs recorded yet."
+                self.wfile.write(logs_text.encode("utf-8"))
+                return
+
             if self.path == "/sync_now" and bot:
                 self.send_response(200)
                 self.send_header("Content-type", "application/json; charset=utf-8")
@@ -868,14 +908,23 @@ def start_bot():
         last_msg = None
         for i, chunk in enumerate(chunks):
             markup = reply_markup if i == len(chunks) - 1 else None
-            try:
-                last_msg = bot.send_message(chat_id, chunk, parse_mode="Markdown", reply_markup=markup)
-            except Exception as e:
-                print(f"Markdown send fallback for chunk ({e}), sending as plain text...")
+            sent = False
+            for attempt in range(3):
                 try:
-                    last_msg = bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
-                except Exception as e2:
-                    print(f"Failed to send message chunk: {e2}")
+                    last_msg = bot.send_message(chat_id, chunk, parse_mode="Markdown", reply_markup=markup)
+                    sent = True
+                    break
+                except Exception as e:
+                    print(f"Markdown send error (attempt {attempt+1}): {e}")
+                    try:
+                        last_msg = bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
+                        sent = True
+                        break
+                    except Exception as e2:
+                        print(f"Plain text send error (attempt {attempt+1}): {e2}")
+                        time.sleep(0.5)
+            if not sent:
+                print(f"CRITICAL: Failed to send chunk to chat {chat_id} after 3 attempts!")
         return last_msg
 
     run_sunday_report_scheduler(bot)
@@ -1202,24 +1251,28 @@ def start_bot():
                 except Exception as fb_err:
                     print(f"Feedback analysis send error: {fb_err}")
 
-            if feedback_report:
-                sent_msg = safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
-                if sent_msg is not None and pending:
-                    pending["responded"] = True
-                    pending["last_user_feedback"] = message.text
-                    pending["last_feedback_time"] = time.time()
-                    save_pending_checkin(pending)
-            else:
-                safe_send(message.chat.id, "⚠️ Произошла ошибка при анализе. Попробуй написать ещё раз!", reply_markup=get_main_keyboard())
+            if not feedback_report:
+                feedback_report = "⚠️ Не удалось сформировать детальный отчет. Твой отзыв сохранен в памяти тренера!"
+
+            safe_send(message.chat.id, feedback_report, reply_markup=get_main_keyboard())
+            if pending:
+                pending["responded"] = True
+                pending["last_user_feedback"] = message.text
+                pending["last_feedback_time"] = time.time()
+                save_pending_checkin(pending)
             return
 
         reply = ""
         with continuous_typing(bot, message.chat.id):
-            reply = ask_gemini_ai(message.text)
+            try:
+                reply = ask_gemini_ai(message.text)
+            except Exception as e:
+                print(f"Error in ask_gemini_ai: {e}")
+                reply = "⚠️ Сервер ИИ временно перегружен. Пожалуйста, повтори вопрос через пару секунд."
         safe_send(message.chat.id, reply, reply_markup=get_main_keyboard())
 
     print("🤖 Telegram бот запущен и слушает входящие сообщения...")
-    bot.infinity_polling(timeout=20, long_polling_timeout=20)
+    bot.infinity_polling(timeout=60, long_polling_timeout=20)
 
 if __name__ == "__main__":
     start_bot()
