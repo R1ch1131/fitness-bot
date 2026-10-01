@@ -748,19 +748,19 @@ def run_keep_alive_pinger():
     print(f"⏰ Фоновый keep-alive пингер запущен (интервал 10 мин, цель: {public_url})")
 
 def run_gym_reminder_scheduler(bot):
-    """Sends gym reminder Monday to Friday at 10:40 AM (GMT+6)."""
+    """Sends gym reminder Monday to Friday at 08:30 AM (GMT+6)."""
     tz_gmt6 = timezone(timedelta(hours=6))
     last_sent_date = None
 
     def scheduler_worker():
         nonlocal last_sent_date
         time.sleep(15)
-        print("⏰ Планировщик напоминаний в зал активен (Пн–Пт в 10:40 GMT+6)")
+        print("⏰ Планировщик напоминаний в зал активен (Пн–Пт в 08:30 GMT+6)")
         while True:
             try:
                 now_gmt6 = datetime.now(tz_gmt6)
                 # Monday=0, Friday=4
-                if now_gmt6.weekday() < 5 and now_gmt6.hour == 10 and now_gmt6.minute == 40:
+                if now_gmt6.weekday() < 5 and now_gmt6.hour == 8 and now_gmt6.minute == 30:
                     today_str = now_gmt6.strftime("%Y-%m-%d")
                     if last_sent_date != today_str:
                         subscribers = get_all_subscribers()
@@ -775,6 +775,37 @@ def run_gym_reminder_scheduler(bot):
                         last_sent_date = today_str
             except Exception as e:
                 print(f"Scheduler loop error: {e}")
+            time.sleep(20)
+
+    t = threading.Thread(target=scheduler_worker, daemon=True)
+    t.start()
+
+def run_laundry_reminder_scheduler(bot):
+    """Sends laundry reminder every evening at 22:00 (GMT+6)."""
+    tz_gmt6 = timezone(timedelta(hours=6))
+    last_sent_date = None
+
+    def scheduler_worker():
+        nonlocal last_sent_date
+        time.sleep(15)
+        print("⏰ Планировщик напоминания о стирке активен (каждый день в 22:00 GMT+6)")
+        while True:
+            try:
+                now_gmt6 = datetime.now(tz_gmt6)
+                if now_gmt6.hour == 22 and now_gmt6.minute == 0:
+                    today_str = now_gmt6.strftime("%Y-%m-%d")
+                    if last_sent_date != today_str:
+                        subscribers = get_all_subscribers()
+                        reminder_text = "🧺 *Вещи постирал?*"
+                        for cid in subscribers:
+                            try:
+                                bot.send_message(cid, reminder_text, parse_mode="Markdown")
+                                print(f"🧺 Напоминание о стирке отправлено пользователю {cid}")
+                            except Exception as err:
+                                print(f"Не удалось отправить напоминание о стирке в {cid}: {err}")
+                        last_sent_date = today_str
+            except Exception as e:
+                print(f"Laundry scheduler loop error: {e}")
             time.sleep(20)
 
     t = threading.Thread(target=scheduler_worker, daemon=True)
@@ -929,6 +960,7 @@ def start_bot():
 
     run_sunday_report_scheduler(bot)
     run_evening_nutrition_scheduler(bot)
+    run_laundry_reminder_scheduler(bot)
 
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
@@ -943,11 +975,12 @@ def start_bot():
                 f"🔥 *Что работает автоматически:*\n"
                 f"• 🔄 *Авто-синхронизация Hevy*: каждые 90 сек отслеживаю завершение тренировок и сам обновляю базу.\n"
                 f"• 💬 *Опрос через 20 минут*: сопоставляю твои ощущения с весами и тоннажем!\n"
-                f"• 🔔 *Напоминание в зал*: Пн–Пт в 10:40 утра (GMT+6).\n"
+                f"• 🔔 *Напоминание в зал*: Пн–Пт в 08:30 утра (GMT+6).\n"
+                f"• 🧺 *Напоминание о стирке*: каждый день в 22:00 (GMT+6) «Вещи постирал?».\n"
                 f"• 🌙 *Вечерний чек-ин*: каждый день в 23:00 (GMT+6) умный добор калорий и белка на ночь.\n"
                 f"• 📊 *Воскресный отчет*: каждое воскресенье в 12:00 дня (GMT+6) дизайнерская инфографика недели.\n"
                 f"• 🎙 *Голосовые сообщения*: можешь надиктовывать вопросы и ощущения голосом!\n\n"
-                f"Используй кнопки внизу для быстрого доступа, команды `/test_evening`, `/test_sunday_report`, `/myid` или просто напиши мне любой вопрос в чат!"
+                f"Используй кнопки внизу для быстрого доступа, команды `/test_laundry`, `/test_evening`, `/test_reminder`, `/test_sunday_report`, `/myid` или просто напиши мне любой вопрос в чат!"
             )
             safe_send(message.chat.id, text, reply_markup=get_main_keyboard())
         dispatch_checkin_if_due(bot, message.chat.id)
@@ -973,7 +1006,17 @@ def start_bot():
         with continuous_typing(bot, message.chat.id):
             reminder_text = (
                 "👟🎒 *Не забудь сменные вещи в зал и тапочки!*\n\n"
-                "_(Это тестовая проверка напоминания. Автоматически оно будет приходить с понедельника по пятницу ровно в 10:40 утра по твоему времени GMT+6)_"
+                "_(Это тестовая проверка напоминания. Автоматически оно будет приходить с понедельника по пятницу ровно в 08:30 утра по твоему времени GMT+6)_"
+            )
+            safe_send(message.chat.id, reminder_text, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['test_laundry'])
+    def handle_test_laundry(message):
+        register_subscriber(message.chat.id)
+        with continuous_typing(bot, message.chat.id):
+            reminder_text = (
+                "🧺 *Вещи постирал?*\n\n"
+                "_(Это тестовая проверка напоминания. Автоматически оно будет приходить каждый день ровно в 22:00 по твоему времени GMT+6)_"
             )
             safe_send(message.chat.id, reminder_text, reply_markup=get_main_keyboard())
 
