@@ -277,8 +277,15 @@ def get_system_instruction() -> str:
         except Exception:
             pass
 
+        now_gmt6 = datetime.now(timezone(timedelta(hours=6)))
+        today_date_str = now_gmt6.strftime("%Y-%m-%d")
+        weekdays_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+        today_weekday = weekdays_ru[now_gmt6.weekday()]
+        current_time_str = now_gmt6.strftime("%H:%M")
+
         instruction = f"""
 Ты — персональный спортивный тренер и нутрициолог для атлета со следующими параметрами:
+Текущая дата и время: {today_date_str} ({today_weekday}), {current_time_str} GMT+6.
 - Атлет: Мужчина, Возраст: {age} года (30.06.2004), Рост: {h_cur} см.
 - Вес: {w_cur} кг (начальный вес: {start_w} кг, сброшено: {abs(w_cur - start_w):.1f} кг, цель: 80 кг). Идет сушка/похудение с сохранением мышц.
 - Тренировочные программы атлета в Hevy (5-дневный сплит):
@@ -920,7 +927,7 @@ def start_bot():
     except Exception as e:
         print(f"Initial coach load warning: {e}")
 
-    bot = telebot.TeleBot(TELEGRAM_TOKEN, parse_mode="Markdown")
+    bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
     run_health_server(bot)
     run_keep_alive_pinger()

@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from config import BASE_DIR, DATA_DIR
@@ -97,12 +97,12 @@ class YazioManager:
             age = 0
             if dob_str:
                 dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
-                today = date.today()
+                today = datetime.now(timezone(timedelta(hours=6))).date()
                 age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
             # Fetch recent weight
-            start_d = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
-            end_d = date.today().strftime("%Y-%m-%d")
+            start_d = (datetime.now(timezone(timedelta(hours=6))).date() - timedelta(days=30)).strftime("%Y-%m-%d")
+            end_d = datetime.now(timezone(timedelta(hours=6))).date().strftime("%Y-%m-%d")
             weights = self._execute_with_retry(fetch_weight_range, self.client, start_d, end_d)
 
             latest_weight = user.get("start_weight", 97.9)
@@ -143,7 +143,7 @@ class YazioManager:
             else:
                 return {}
 
-        d = target_date or date.today()
+        d = target_date or datetime.now(timezone(timedelta(hours=6))).date()
         from yazio_exporter.export_days import fetch_daily_summary
 
         try:
@@ -236,7 +236,7 @@ class YazioManager:
         from yazio_exporter.export_days import fetch_consumed
         from yazio_exporter.export_products import fetch_product
 
-        d = target_date or date.today()
+        d = target_date or datetime.now(timezone(timedelta(hours=6))).date()
         consumed = self._execute_with_retry(fetch_consumed, self.client, d)
         if not consumed or not getattr(consumed, "products", None):
             return {"date": d.strftime("%d.%m.%Y"), "meals": {}}
@@ -304,7 +304,7 @@ class YazioManager:
         if not self.client or not self.token:
             raise RuntimeError("YAZIO не авторизован.")
 
-        today = date.today()
+        today = datetime.now(timezone(timedelta(hours=6))).date()
         weekday_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
         days_list = []

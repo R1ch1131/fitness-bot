@@ -6,3 +6,4 @@ data/
 .DS_Store
 proxy_git.py
 push.py
+get_week_summary.py

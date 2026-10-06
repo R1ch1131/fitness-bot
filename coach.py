@@ -347,7 +347,7 @@ class AIHevyCoach:
             if target_date_str:
                 d = datetime.strptime(target_date_str, "%Y-%m-%d").date()
             else:
-                d = date.today()
+                d = datetime.now(timezone(timedelta(hours=6))).date()
 
             summary = self.yazio.get_daily_summary(d)
 
@@ -486,7 +486,7 @@ class AIHevyCoach:
             if target_date_str:
                 d = datetime.strptime(target_date_str, "%Y-%m-%d").date()
             else:
-                d = date.today()
+                d = datetime.now(timezone(timedelta(hours=6))).date()
 
             data = self.yazio.get_consumed_products(d)
 
