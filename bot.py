@@ -726,13 +726,22 @@ def run_health_server(bot=None):
         def log_message(self, format, *args):
             pass
 
-    try:
-        server = HTTPServer(("0.0.0.0", port), HealthHandler)
-        t = threading.Thread(target=server.serve_forever, daemon=True)
-        t.start()
-        print(f"🌐 Health-check HTTP сервер запущен на порту {port}")
-    except Exception as e:
-        print(f"Health-check server note: {e}")
+    def start_server():
+        try:
+            import uvicorn
+            from api import app
+            print(f"🌐 Запуск FastAPI PWA веб-сервера на порту {port}...")
+            uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+        except Exception as e:
+            print(f"FastAPI server note ({e}), falling back to basic HTTP...")
+            try:
+                server = HTTPServer(("0.0.0.0", port), HealthHandler)
+                server.serve_forever()
+            except Exception as e2:
+                print(f"Fallback HTTP server error: {e2}")
+
+    t = threading.Thread(target=start_server, daemon=True)
+    t.start()
 
 def run_keep_alive_pinger():
     """Background loop sending HTTP request to public URL every 10 minutes to prevent Render free-tier sleep."""

@@ -7,3 +7,5 @@ data/
 proxy_git.py
 push.py
 get_week_summary.py
+patch.py
+frontend/node_modules/
