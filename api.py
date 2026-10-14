@@ -84,6 +84,12 @@ def logs_endpoint():
 @app.get("/api/dashboard")
 def get_dashboard():
     """Returns today's nutrition, next workout, weight status and recent weight trend."""
+    # Auto-sync habits from Hevy and YAZIO
+    try:
+        habits_mgr.sync_with_hevy_and_yazio(coach)
+    except Exception as e:
+        print(f"Habit auto-sync in dashboard note: {e}")
+
     now_gmt6 = datetime.now(TZ_GMT6)
     today_date = now_gmt6.date()
     weekdays_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
@@ -256,6 +262,7 @@ def sync_data():
     try:
         res = coach.storage.sync_all(verbose=False)
         coach.reload(auto_sync=False)
+        habits_mgr.sync_with_hevy_and_yazio(coach)
         return {"status": "ok", "synced": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -263,8 +270,13 @@ def sync_data():
 @app.get("/api/habits")
 def get_habits():
     """Returns active habits with dynamic consecutive streaks and history."""
+    try:
+        habits = habits_mgr.sync_with_hevy_and_yazio(coach)
+    except Exception as e:
+        print(f"Habits sync error: {e}")
+        habits = habits_mgr.get_habits()
     return {
-        "habits": habits_mgr.get_habits(),
+        "habits": habits,
         "today_summary": habits_mgr.get_habits_ai_summary()
     }
 
@@ -308,32 +320,15 @@ def chat_with_coach(req: ChatRequest):
     if not user_msg:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    now_gmt6 = datetime.now(TZ_GMT6)
-    today_str = now_gmt6.strftime("%Y-%m-%d")
-    weekdays_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-    today_weekday = weekdays_ru[now_gmt6.weekday()]
-    time_str = now_gmt6.strftime("%H:%M")
-
-    # Build context prompt
+    # Refresh habits sync so AI has 100% up-to-date state
     try:
-        from bot import get_system_instruction
-        instruction = get_system_instruction()
+        habits_mgr.sync_with_hevy_and_yazio(coach)
     except Exception as e:
-        instruction = f"Ты — персональный спортивный тренер и нутрициолог. Текущая дата: {today_str} ({today_weekday}), {time_str} GMT+6."
-
-    habits_context = habits_mgr.get_habits_ai_summary()
-    full_prompt = (
-        f"{instruction}\n\n"
-        f"📊 ТЕКУЩИЙ СТАТУС ПРИВЫЧЕК И ЦЕЛЕЙ АТЛЕТА:\n"
-        f"{habits_context}\n\n"
-        f"Пользователь в веб-приложении пишет: {user_msg}\n\n"
-        f"У тебя есть полный доступ ко всем привычкам, тренировкам Hevy и питанию YAZIO. "
-        f"Отвечай структурированно, энергично, поддерживай стрики, тактично напоминай о незакрытых целях дня и давай полезные советы."
-    )
+        print(f"Habit sync in chat note: {e}")
 
     try:
-        # Generate response using Gemini client
-        ai_reply = coach.gemini.ask(full_prompt)
+        from bot import ask_gemini_ai
+        ai_reply = ask_gemini_ai(user_msg, force_llm=True)
         return {"reply": ai_reply}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")

@@ -64,10 +64,10 @@ _context_cache = {
 
 # Reliable active Gemini models in priority order (Flash-Lite models are ultra-fast and not subject to 503 high demand)
 MODELS_CASCADE = [
-    "gemini-3.5-flash-lite",
     "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
     "gemini-3.1-flash-lite",
-    "gemini-3.6-flash",
     "gemini-3-flash-preview"
 ]
 
@@ -287,21 +287,24 @@ def get_system_instruction() -> str:
         today_weekday = weekdays_ru[now_gmt6.weekday()]
         current_time_str = now_gmt6.strftime("%H:%M")
         habits_summary = ""
+        habits_summary = ""
         try:
             from habits_manager import HabitsManager
-            habits_summary = HabitsManager().get_habits_ai_summary()
+            hm = HabitsManager()
+            hm.sync_with_hevy_and_yazio(coach)
+            habits_summary = hm.get_habits_ai_summary()
         except Exception as he:
             habits_summary = f"Данные привычек временно недоступны: {he}"
 
         instruction = f"""
-Ты — персональный спортивный тренер и нутрициолог для атлета со следующими параметрами:
+Ты — универсальный персональный AI-наставник, элитный спортивный тренер, нутрициолог, кулинарный шеф и ментор по саморазвитию и программированию для атлета.
 Текущая дата и время: {today_date_str} ({today_weekday}), {current_time_str} GMT+6.
 - Атлет: Мужчина, Возраст: {age} года (30.06.2004), Рост: {h_cur} см.
-- Вес: {w_cur} кг (начальный вес: {start_w} кг, сброшено: {abs(w_cur - start_w):.1f} кг, цель: 80 кг). Идет сушка/похудение с сохранением мышц.
-- Тренировочные программы атлета в Hevy (5-дневный сплит):
+- Вес: {w_cur} кг (начальный вес: {start_w} кг, сброшено: {abs(w_cur - start_w):.1f} кг, цель: 80 кг). Текущий режим: качественная сушка/похудение с сохранением сухой мышечной массы, дефицит калорий (~1900-2000 ккал/день), белок 160-200 г/день.
+- Тренировочные программы в Hevy (5-дневный сплит):
 {routines_context}
 - Последняя проведенная тренировка: {last_w_str}.
-{recent_feedback_context}- Кардио: бег 3-4 км в темпе ~10 км/ч (в день ног рекомендована ходьба в гору для защиты коленей).
+{recent_feedback_context}- Кардио: бег 3-4 км в темпе ~10 км/ч (в день ног — ходьба в гору для защиты коленей).
 - Питание атлета (YAZIO):
   * Недельный рацион и средние значения:
 {weekly_nut_text}
@@ -310,10 +313,22 @@ def get_system_instruction() -> str:
 - Трекер привычек и целей атлета:
 {habits_summary}
 
-Отвечай четко, профессионально, с мотивацией, дружелюбно и строго научно (спортивная биомеханика, гипертрофия, восстановление, подсчет КБЖУ, доказательная база спортивного питания и добавок).
-Если атлет спрашивает про средние калории за неделю или что он ел, используй точные реальные цифры и названия продуктов из данных выше.
-Если атлет спрашивает про спортивное питание или добавки (креатин, протеин, омега-3, витамин D3, магний, цинк и т.д.), дай развернутый, практичный, безопасный и доказательный совет с учетом его тренировок и похудения.
-Отвечай на русском языке.
+ТВОИ КЛЮЧЕВЫЕ КОМПЕТЕНЦИИ И ПРАВИЛА ОБЩЕНИЯ:
+1. СПОРТ И ТРЕНИРОВКИ: техника упражнений, прогрессивная перегрузка, периодизация, разминка/заминка, биомеханика, выбор рабочих весов, профилактика травм.
+2. ПИТАНИЕ, РЕЦЕПТЫ И ДОБАВКИ:
+   - Если атлет спрашивает: "Что съесть?", "Рецепт", "Варианты ужина/обеда на X ккал" — ВСЕГДА предлагай конкретные, аппетитные, легкодоступные блюда с точным расчетом граммовок, калорий и БЖУ (например: 180г запеченной куриной грудки, 200г брокколи на пару с 5г оливкового масла, 100г нежирного творога 5% с щепоткой корицы = 390 ккал, 48г белка).
+   - Если спрашивает про БАДы (креатин, сывороточный протеин, омега-3, витамин D3, цинк, магний и др.) — давай научно обоснованные советы по таймингу приема и дозировкам.
+3. ПРОГРАММИРОВАНИЕ И IT (одна из ключевых привычек атлета — кодинг от 30 мин/день):
+   - Если атлет спрашивает про программирование (Python, бэкенд, алгоритмы, базы данных, веб-разработку, чистый код или планирование учебной сессии) — отвечай на уровне опытного Senior разработчика: давай лаконичные, работающие примеры кода, архитектурные советы и понятные аналогии.
+4. КНИГИ И САМОРАЗВИТИЕ (привычка — чтение от 10 страниц/день):
+   - Советуй сильные книги по продуктивности, дисциплине, психологии, биохакингу, бизнесу и IT. Если атлет упоминает прочитанную главу — обсуждай и задавай глубокие вопросы.
+5. ТРЕКЕР ПРИВЫЧЕК И ДИСЦИПЛИНА:
+   - Поддерживай стрики атлета, подбадривай, хвали за регулярность.
+   - Если атлет пишет во второй половине дня, а важные привычки (зал, чтение, кодинг, питание) еще не отмечены — дружески и ненавязчиво напомни закрыть их.
+6. ИНТЕЛЛЕКТ И ТОН ДИАЛОГА:
+   - Общайся как умный, надежный старший товарищ и персональный коуч: с уважением, драйвом, легким юмором, без душности и без сухих роботизированных шаблонов.
+   - Отвечай прямо на поставленный вопрос, избегай шаблонных отписок о текущем дефиците, если вопрос был про рецепт, код или книгу.
+   - Язык: русский.
 """
         _context_cache["instruction"] = instruction
         _context_cache["timestamp"] = now
@@ -322,34 +337,41 @@ def get_system_instruction() -> str:
         print(f"Error building system instruction: {e}")
         return _context_cache["instruction"] or "Ты — персональный спортивный тренер атлета."
 
-def ask_gemini_ai(user_question: str) -> str:
+def ask_gemini_ai(user_question: str, force_llm: bool = False) -> str:
     """Uses Gemini API with cascaded model fallbacks and robust error handling."""
     q_lower = user_question.lower().strip()
 
-    # Fast-path direct handlers for exact button/keyword matches
-    if any(w in q_lower for w in ["продукт", "что ел", "что я ел", "меню", "съел"]):
-        return coach.get_consumed_products_report()
-    if any(w in q_lower for w in ["средн", "недел", "неделя"]) and any(w in q_lower for w in ["калор", "пит", "ед", "бжу", "белок"]):
-        return coach.get_weekly_nutrition_report()
-    if any(w in q_lower for w in ["план", "след", "что дела"]):
-        return coach.preview_next_workout()
-    if any(w in q_lower for w in ["послед", "прошл", "тренировк", "как прошл", "тоннаж"]):
-        return coach.review_last_workout()
-    if any(w in q_lower for w in ["прогноз", "когда 80", "рубеж", "таймлайн", "eta", "к 80"]):
-        return coach.get_goal_eta_report()
-    if any(w in q_lower for w in ["вечер", "добор", "на ночь", "перед сном", "вечерний"]):
-        return coach.get_evening_nutrition_checkin()
-    if any(w in q_lower for w in ["пит", "ед", "калор", "бжу", "белок", "yazio"]) and "недел" not in q_lower:
-        return coach.get_nutrition_report()
+    # If force_llm is True or if the user asks a real question/conversational prompt, skip fast-path shortcuts!
+    is_conversational = (
+        force_llm or
+        "?" in user_question or
+        any(q_lower.startswith(p) for p in [
+            "что ", "как ", "почему ", "сколько ", "посоветуй", "подскажи", "какой ", "какая ", "какие ",
+            "рецепт", "приготов", "вариант", "идеи", "можно ли", "стоит ли", "код", "прог", "книг", "напиши"
+        ]) or
+        any(w in q_lower for w in ["рецепт", "приготовить", "что съесть", "посоветуй", "python", "питон", "программир", "книг", "прочита"])
+    )
 
-    # Profile & body weight report (avoid false positive when athlete discusses exercise working weights "рабочие веса", "вес штанги")
-    is_exercise_weight_query = any(w in q_lower for w in ["рабоч", "штан", "гантел", "подход", "жим", "тяг", "присед", "снаряд", "повтор", "бабочк", "упражнен"])
-    if not is_exercise_weight_query:
-        if any(w in q_lower for w in ["профил", "рост", "похудел", "мой вес", "какой вес", "сколько вешу", "взвешив", "динамика веса", "текущий вес"]) or q_lower.strip() in ["вес", "мой профиль"]:
+    if not is_conversational:
+        # Fast-path direct handlers ONLY for exact button clicks or exact command phrases
+        if q_lower in ["🍽 что я ел (продукты)", "что я ел", "мои продукты", "продукты", "/products"]:
+            return coach.get_consumed_products_report()
+        if q_lower in ["📊 питание за неделю", "питание за неделю", "/week_nutrition"]:
+            return coach.get_weekly_nutrition_report()
+        if q_lower in ["📋 план на тренировку", "план на тренировку", "/next"]:
+            return coach.preview_next_workout()
+        if q_lower in ["🏋️ последняя тренировка", "последняя тренировка", "/last"]:
+            return coach.review_last_workout()
+        if q_lower in ["⏳ прогноз к 80 кг", "прогноз к 80 кг", "/eta"]:
+            return coach.get_goal_eta_report()
+        if q_lower in ["🌙 вечерний чек-ин", "вечерний чек-ин", "/evening"]:
+            return coach.get_evening_nutrition_checkin()
+        if q_lower in ["🥗 питание (сегодня)", "питание сегодня", "питание (yazio)", "/today", "/nutrition"]:
+            return coach.get_nutrition_report()
+        if q_lower in ["👤 мой профиль и вес", "мой профиль", "мой вес", "профиль", "/profile", "вес"]:
             return coach.get_profile_report()
-
-    if any(w in q_lower for w in ["недел", "отчет", "стат", "итог", "таблиц"]) and "пит" not in q_lower:
-        return coach.get_sunday_weekly_table_report()
+        if q_lower in ["📈 недельный отчет", "недельный отчет", "/weekly"]:
+            return coach.get_sunday_weekly_table_report()
 
     # Query Gemini models with full fallback cascade
     if GEMINI_KEY:
@@ -357,7 +379,7 @@ def ask_gemini_ai(user_question: str) -> str:
             from google import genai
             client = genai.Client(
                 api_key=GEMINI_KEY,
-                http_options={"timeout": 12_000}  # 12 sec timeout per model
+                http_options={"timeout": 15_000}  # 15 sec timeout per model
             )
             system_instruction = get_system_instruction()
 

@@ -20,9 +20,12 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({ onSendMessage }) => 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const quickPrompts = [
-    '🥗 Разбери рацион за сегодня',
-    '🏋️ Какая тренировка следующая?',
     '🍳 Что съесть на ужин (400 ккал)?',
+    '🥗 Разбери рацион за сегодня',
+    '💻 План на 30 мин кодинга по Python',
+    '📚 Какую книгу почитать по саморазвитию?',
+    '🏋️ Какая тренировка следующая?',
+    '🔥 Мои стрики привычек',
     '💧 Креатин и задержка воды',
   ];
 

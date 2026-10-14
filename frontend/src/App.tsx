@@ -189,9 +189,11 @@ export const App: React.FC = () => {
         const data = await res.json();
         return data.reply;
       }
-      throw new Error('Server error');
-    } catch (err) {
-      return 'С питанием и тренировками всё отлично! Ты в дефиците калорий (~1950 ккал), белок закрыт на 168г. Небольшой скачок веса до 96 кг — это нормальная задержка воды от креатина и углеводов. Через 2-3 дня весы покажут новый рекорд!';
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || 'Server error');
+    } catch (err: any) {
+      console.error('Chat error:', err);
+      return '⚠️ Не удалось получить ответ от AI-тренера. Пожалуйста, попробуй задать вопрос ещё раз через пару секунд.';
     }
   };
 

@@ -53,6 +53,91 @@ class HabitsManager:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_HABITS, f, ensure_ascii=False, indent=2)
 
+    def sync_with_hevy_and_yazio(self, coach) -> List[Dict[str, Any]]:
+        """Automatically marks habit progress:
+        - 'calories': marked True for dates where YAZIO has logged food (breakfast, meals, calories > 100).
+        - 'gym': marked True for dates where Hevy has a completed workout.
+        """
+        try:
+            with open(self.file_path, "r", encoding="utf-8") as f:
+                habits = json.load(f)
+        except Exception:
+            habits = DEFAULT_HABITS
+
+        changed = False
+
+        # 1. Sync Gym from Hevy workouts
+        gym_habit = None
+        for h in habits:
+            if h.get("id") == "gym" or "зал" in h.get("title", "").lower() or "спорт" in h.get("category", "").lower():
+                gym_habit = h
+                break
+
+        if gym_habit and coach and getattr(coach, "workouts", None):
+            h_history = gym_habit.setdefault("history", {})
+            for w in coach.workouts:
+                start_time = w.get("start_time", "")
+                if start_time and len(start_time) >= 10:
+                    w_date = start_time[:10]
+                    if not h_history.get(w_date):
+                        h_history[w_date] = True
+                        changed = True
+
+        # 2. Sync Nutrition / Calorie tracking from YAZIO
+        cal_habit = None
+        for h in habits:
+            if h.get("id") == "calories" or "калор" in h.get("title", "").lower() or "питан" in h.get("category", "").lower():
+                cal_habit = h
+                break
+
+        if cal_habit and coach and getattr(coach, "yazio", None) and coach.yazio.is_configured():
+            cal_history = cal_habit.setdefault("history", {})
+            now_gmt6 = datetime.now(TZ_GMT6)
+            today_date = now_gmt6.date()
+            today_str = today_date.strftime("%Y-%m-%d")
+
+            # Check today's food logging
+            try:
+                consumed = coach.yazio.get_consumed_products(today_date)
+                meals = consumed.get("meals", {}) if consumed else {}
+                has_meals = any(len(items) > 0 for items in meals.values())
+
+                if not has_meals:
+                    summary = coach.yazio.get_daily_summary(today_date)
+                    if summary and summary.get("calories", 0) > 50:
+                        has_meals = True
+
+                if has_meals and not cal_history.get(today_str):
+                    cal_history[today_str] = True
+                    changed = True
+            except Exception as e:
+                print(f"Auto-sync today YAZIO error: {e}")
+
+            # Check past 7 days from weekly nutrition
+            try:
+                wn = coach.yazio.get_weekly_nutrition(days_count=7)
+                if wn and wn.get("days"):
+                    year = today_date.year
+                    for d in wn["days"]:
+                        if d.get("is_logged") and d.get("calories", 0) > 100:
+                            d_str = d.get("date", "")
+                            if "." in d_str and len(d_str) == 5:
+                                day, month = map(int, d_str.split("."))
+                                full_date_str = f"{year}-{month:02d}-{day:02d}"
+                            else:
+                                full_date_str = d_str
+                            
+                            if not cal_history.get(full_date_str):
+                                cal_history[full_date_str] = True
+                                changed = True
+            except Exception as e:
+                print(f"Auto-sync weekly YAZIO error: {e}")
+
+        if changed:
+            self._save(habits)
+
+        return self.get_habits()
+
     def get_habits(self) -> List[Dict[str, Any]]:
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
