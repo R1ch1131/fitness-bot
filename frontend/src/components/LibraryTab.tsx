@@ -69,7 +69,18 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   const books = data?.books || [];
   const stats = data?.stats || { total: 0, finished: 0, reading: 0, planned: 0, total_pages_read: 0, library_total_pages: 0 };
 
-  const filteredBooks = books.filter((b) => {
+  // Always prioritize currently reading books at the top of the list
+  const sortedBooks = [...books].sort((a, b) => {
+    const priority: Record<string, number> = { reading: 0, finished: 1, planned: 2 };
+    const pA = priority[a.status] ?? 99;
+    const pB = priority[b.status] ?? 99;
+    if (pA !== pB) return pA - pB;
+    const dateA = a.finished_date || a.created_at || '';
+    const dateB = b.finished_date || b.created_at || '';
+    return dateB.localeCompare(dateA);
+  });
+
+  const filteredBooks = sortedBooks.filter((b) => {
     if (filter === 'all') return true;
     return b.status === filter;
   });

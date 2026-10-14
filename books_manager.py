@@ -93,13 +93,17 @@ class BooksManager:
             else:
                 b["current_page"] = max(0, int(b.get("current_page") or 0))
 
-        if needs_save:
-            try:
-                self._save(books)
-            except Exception:
-                pass
+        # Always keep currently reading books at the top of the list
+        reading = [b for b in books if b.get("status") == "reading"]
+        finished = [b for b in books if b.get("status") == "finished"]
+        planned = [b for b in books if b.get("status") == "planned"]
+        other = [b for b in books if b.get("status") not in ("reading", "finished", "planned")]
 
-        return books
+        reading.sort(key=lambda b: b.get("created_at") or "", reverse=True)
+        finished.sort(key=lambda b: b.get("finished_date") or b.get("created_at") or "", reverse=True)
+        planned.sort(key=lambda b: b.get("created_at") or "", reverse=True)
+
+        return reading + finished + planned + other
 
     def get_stats(self) -> Dict[str, Any]:
         books = self.get_books()
