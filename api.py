@@ -61,7 +61,7 @@ class CreateBookRequest(BaseModel):
     total_pages: Optional[int] = 300
     status: Optional[str] = "reading"
     current_page: Optional[int] = 0
-    rating: Optional[int] = None
+    rating: Optional[float] = None
     notes: Optional[str] = None
 
 class UpdateBookRequest(BaseModel):
@@ -71,7 +71,7 @@ class UpdateBookRequest(BaseModel):
     status: Optional[str] = None
     current_page: Optional[int] = None
     total_pages: Optional[int] = None
-    rating: Optional[int] = None
+    rating: Optional[float] = None
     notes: Optional[str] = None
 
 class ReadingSessionRequest(BaseModel):

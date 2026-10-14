@@ -36,7 +36,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [finishingBook, setFinishingBook] = useState<BookItem | null>(null);
   const [editingBook, setEditingBook] = useState<BookItem | null>(null);
-  const [rating, setRating] = useState<number>(5);
+  const [rating, setRating] = useState<number>(8.5);
   const [insightNote, setInsightNote] = useState<string>('');
   const [justMarkedHabit, setJustMarkedHabit] = useState(false);
 
@@ -53,7 +53,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   const [newTotalPages, setNewTotalPages] = useState('300');
   const [newCurrentPage, setNewCurrentPage] = useState('0');
   const [newStatus, setNewStatus] = useState<'reading' | 'finished' | 'planned'>('reading');
-  const [newRating, setNewRating] = useState<number>(5);
+  const [newRating, setNewRating] = useState<number>(8.5);
   const [newNotes, setNewNotes] = useState('');
 
   // Edit book form state
@@ -63,7 +63,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   const [editTotalPages, setEditTotalPages] = useState('300');
   const [editCurrentPage, setEditCurrentPage] = useState('0');
   const [editStatus, setEditStatus] = useState<'reading' | 'finished' | 'planned'>('reading');
-  const [editRating, setEditRating] = useState<number>(5);
+  const [editRating, setEditRating] = useState<number>(8.5);
   const [editNotes, setEditNotes] = useState('');
 
   const books = data?.books || [];
@@ -413,11 +413,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 
                   {/* Actions & Rating */}
                   <div className="flex items-center space-x-1.5 shrink-0">
-                    {isFinished && book.rating && (
-                      <div className="flex items-center space-x-0.5 mr-1 bg-[#f59e0b]/10 border border-[#f59e0b]/20 px-2 py-1 rounded-xl">
-                        {[...Array(book.rating)].map((_, i) => (
-                          <Star key={i} className="w-3.5 h-3.5 fill-[#f59e0b] text-[#f59e0b]" />
-                        ))}
+                    {book.rating !== undefined && book.rating !== null && (
+                      <div className="flex items-center space-x-1.5 mr-1 bg-[#f59e0b]/15 border border-[#f59e0b]/30 px-2.5 py-1 rounded-xl text-xs font-bold text-[#f59e0b]">
+                        <Star className="w-3.5 h-3.5 fill-[#f59e0b] text-[#f59e0b]" />
+                        <span>{book.rating} / 10</span>
                       </div>
                     )}
 
@@ -779,27 +778,59 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-semibold text-[#94a3b8] mb-1">
-                      Оценка книги
-                    </label>
-                    <div className="flex items-center space-x-1">
-                      {[1, 2, 3, 4, 5].map((star) => (
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[10px] font-semibold text-[#94a3b8]">
+                        Оценка (по 10-балльной шкале, можно дробные: 5.5, 8.5)
+                      </label>
+                      <span className="text-xs font-bold text-[#f59e0b] flex items-center space-x-1">
+                        <Star className="w-3.5 h-3.5 fill-[#f59e0b]" />
+                        <span>{newRating} / 10</span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-3 bg-[#0b0f19] p-2.5 rounded-2xl border border-[#1e293b]">
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        step="0.5"
+                        value={newRating}
+                        onChange={(e) => setNewRating(parseFloat(e.target.value))}
+                        className="w-full accent-[#f59e0b] cursor-pointer"
+                      />
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          step="0.1"
+                          value={newRating}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!isNaN(val)) setNewRating(Math.max(1, Math.min(10, val)));
+                          }}
+                          className="w-14 bg-[#111726] border border-[#1e293b] rounded-xl px-2 py-1 text-xs text-center font-bold text-[#f59e0b] focus:outline-none focus:border-[#f59e0b]"
+                        />
+                        <span className="text-xs text-[#64748b]">/10</span>
+                      </div>
+                    </div>
+
+                    {/* Quick Preset Pills */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      {[5, 5.5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((val) => (
                         <button
-                          key={star}
+                          key={val}
                           type="button"
-                          onClick={() => setNewRating(star)}
-                          className="p-1 hover:scale-110 transition-transform"
+                          onClick={() => setNewRating(val)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-all ${
+                            newRating === val
+                              ? 'bg-[#f59e0b]/20 border-[#f59e0b] text-[#f59e0b]'
+                              : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8] hover:text-white'
+                          }`}
                         >
-                          <Star
-                            className={`w-5 h-5 ${
-                              star <= newRating
-                                ? 'fill-[#f59e0b] text-[#f59e0b]'
-                                : 'text-zinc-600'
-                            }`}
-                          />
+                          {val}
                         </button>
                       ))}
-                      <span className="text-xs font-bold text-[#f59e0b] ml-1.5">{newRating}/5</span>
                     </div>
                   </div>
                 </div>
@@ -973,27 +1004,59 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 
               {editStatus === 'finished' && (
                 <div>
-                  <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
-                    Оценка (1-5 звезд)
-                  </label>
-                  <div className="flex items-center space-x-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-semibold text-[#94a3b8]">
+                      Оценка книги (по 10-балльной шкале, например 5.5, 9.0)
+                    </label>
+                    <span className="text-xs font-bold text-[#f59e0b] flex items-center space-x-1">
+                      <Star className="w-3.5 h-3.5 fill-[#f59e0b]" />
+                      <span>{editRating} / 10</span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-3 bg-[#0b0f19] p-2.5 rounded-2xl border border-[#1e293b]">
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="0.5"
+                      value={editRating}
+                      onChange={(e) => setEditRating(parseFloat(e.target.value))}
+                      className="w-full accent-[#f59e0b] cursor-pointer"
+                    />
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        step="0.1"
+                        value={editRating}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (!isNaN(val)) setEditRating(Math.max(1, Math.min(10, val)));
+                        }}
+                        className="w-14 bg-[#111726] border border-[#1e293b] rounded-xl px-2 py-1 text-xs text-center font-bold text-[#f59e0b] focus:outline-none focus:border-[#f59e0b]"
+                      />
+                      <span className="text-xs text-[#64748b]">/10</span>
+                    </div>
+                  </div>
+
+                  {/* Quick Preset Pills */}
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {[5, 5.5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((val) => (
                       <button
-                        key={star}
+                        key={val}
                         type="button"
-                        onClick={() => setEditRating(star)}
-                        className="p-1 hover:scale-110 transition-transform"
+                        onClick={() => setEditRating(val)}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-all ${
+                          editRating === val
+                            ? 'bg-[#f59e0b]/20 border-[#f59e0b] text-[#f59e0b]'
+                            : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8] hover:text-white'
+                        }`}
                       >
-                        <Star
-                          className={`w-5 h-5 ${
-                            star <= editRating
-                              ? 'fill-[#f59e0b] text-[#f59e0b]'
-                              : 'text-zinc-600'
-                          }`}
-                        />
+                        {val}
                       </button>
                     ))}
-                    <span className="text-xs font-bold text-[#f59e0b] ml-1.5">{editRating}/5</span>
                   </div>
                 </div>
               )}
@@ -1053,27 +1116,59 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 
             <form onSubmit={handleFinishSubmit} className="space-y-4">
               <div>
-                <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1.5">
-                  Твоя оценка
-                </label>
-                <div className="flex items-center space-x-2">
-                  {[1, 2, 3, 4, 5].map((star) => (
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-semibold text-[#94a3b8]">
+                    Твоя оценка (по 10-балльной шкале, например 5.5, 9.5)
+                  </label>
+                  <span className="text-xs font-bold text-[#f59e0b] flex items-center space-x-1">
+                    <Star className="w-3.5 h-3.5 fill-[#f59e0b]" />
+                    <span>{rating} / 10</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center space-x-3 bg-[#0b0f19] p-2.5 rounded-2xl border border-[#1e293b]">
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    step="0.5"
+                    value={rating}
+                    onChange={(e) => setRating(parseFloat(e.target.value))}
+                    className="w-full accent-[#f59e0b] cursor-pointer"
+                  />
+                  <div className="flex items-center space-x-1 shrink-0">
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="0.1"
+                      value={rating}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val)) setRating(Math.max(1, Math.min(10, val)));
+                      }}
+                      className="w-14 bg-[#111726] border border-[#1e293b] rounded-xl px-2 py-1 text-xs text-center font-bold text-[#f59e0b] focus:outline-none focus:border-[#f59e0b]"
+                    />
+                    <span className="text-xs text-[#64748b]">/10</span>
+                  </div>
+                </div>
+
+                {/* Quick Preset Pills */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {[5, 5.5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((val) => (
                     <button
-                      key={star}
+                      key={val}
                       type="button"
-                      onClick={() => setRating(star)}
-                      className="p-1.5 rounded-xl hover:scale-110 transition-transform"
+                      onClick={() => setRating(val)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-all ${
+                        rating === val
+                          ? 'bg-[#f59e0b]/20 border-[#f59e0b] text-[#f59e0b]'
+                          : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8] hover:text-white'
+                      }`}
                     >
-                      <Star
-                        className={`w-6 h-6 ${
-                          star <= rating
-                            ? 'fill-[#f59e0b] text-[#f59e0b]'
-                            : 'text-zinc-600'
-                        }`}
-                      />
+                      {val}
                     </button>
                   ))}
-                  <span className="text-xs font-bold text-[#f59e0b] ml-2">{rating} из 5</span>
                 </div>
               </div>
 

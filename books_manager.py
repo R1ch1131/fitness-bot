@@ -18,7 +18,7 @@ DEFAULT_BOOKS = [
         "status": "finished",
         "current_page": 304,
         "total_pages": 304,
-        "rating": 5,
+        "rating": 9.5,
         "notes": "Маленькие изменения на 1% каждый день дают феноменальный кумулятивный результат. Фокус на системе, а не на сиюминутной цели.",
         "finished_date": "2026-09-20",
         "created_at": "2026-09-01"
@@ -31,7 +31,7 @@ DEFAULT_BOOKS = [
         "status": "finished",
         "current_page": 288,
         "total_pages": 288,
-        "rating": 5,
+        "rating": 9.0,
         "notes": "Наглядное понимание алгоритмической сложности Big O, бинарного поиска, рекурсии и графов с алгоритмом Дейкстры.",
         "finished_date": "2026-10-02",
         "created_at": "2026-09-15"
@@ -44,7 +44,7 @@ DEFAULT_BOOKS = [
         "status": "reading",
         "current_page": 155,
         "total_pages": 350,
-        "rating": 5,
+        "rating": 8.5,
         "notes": "Самоконтроль — это не лишение себя радостей, а фундамент подлинной свободы и уверенности.",
         "finished_date": None,
         "created_at": "2026-10-05"
@@ -132,7 +132,7 @@ class BooksManager:
         total_pages: int = 300,
         status: str = "reading",
         current_page: Optional[int] = None,
-        rating: Optional[int] = None,
+        rating: Optional[float] = None,
         notes: Optional[str] = None
     ) -> Dict[str, Any]:
         books = self.get_books()
@@ -140,6 +140,13 @@ class BooksManager:
         
         valid_total_pages = max(1, int(total_pages or 300))
         
+        parsed_rating = None
+        if rating is not None:
+            try:
+                parsed_rating = max(1.0, min(10.0, round(float(rating), 1)))
+            except (ValueError, TypeError):
+                parsed_rating = None
+
         if status == "finished":
             final_current_page = valid_total_pages
             final_finished_date = now_str
@@ -163,7 +170,7 @@ class BooksManager:
             "status": status,
             "current_page": final_current_page,
             "total_pages": valid_total_pages,
-            "rating": rating,
+            "rating": parsed_rating,
             "notes": notes.strip() if notes else None,
             "finished_date": final_finished_date,
             "created_at": now_str
@@ -181,7 +188,7 @@ class BooksManager:
         status: Optional[str] = None,
         current_page: Optional[int] = None,
         total_pages: Optional[int] = None,
-        rating: Optional[int] = None,
+        rating: Optional[float] = None,
         notes: Optional[str] = None
     ) -> Dict[str, Any]:
         books = self.get_books()
@@ -206,7 +213,10 @@ class BooksManager:
         if total_pages is not None:
             target["total_pages"] = max(1, int(total_pages))
         if rating is not None:
-            target["rating"] = rating
+            try:
+                target["rating"] = max(1.0, min(10.0, round(float(rating), 1)))
+            except (ValueError, TypeError):
+                pass
         if notes is not None:
             target["notes"] = notes.strip() if notes else None
 
@@ -324,7 +334,7 @@ class BooksManager:
         if finished:
             lines.append("🏆 ПРОЧИТАННЫЕ КНИГИ:")
             for b in finished:
-                rate_str = f" ⭐ {b['rating']}/5" if b.get('rating') else ""
+                rate_str = f" ⭐ {b['rating']}/10" if b.get('rating') else ""
                 note_str = f" | Инсайт: «{b['notes']}»" if b.get('notes') else ""
                 lines.append(f"  • «{b['title']}» ({b['author']}) ({b.get('total_pages', 0)} стр.){rate_str}{note_str}")
 
