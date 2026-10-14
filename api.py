@@ -252,8 +252,11 @@ def get_workouts():
     for r in coach.routines:
         exercises = []
         for ex in r.get("exercises", []):
+            raw_title = ex.get("title", "")
+            tid = ex.get("exercise_template_id")
+            ru_title = coach.translate_exercise_title(raw_title, template_id=tid)
             exercises.append({
-                "title": ex.get("title", ""),
+                "title": ru_title,
                 "sets_count": len(ex.get("sets", []))
             })
         routines.append({

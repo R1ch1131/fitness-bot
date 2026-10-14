@@ -78,10 +78,10 @@ export const WorkoutsTab: React.FC<WorkoutsTabProps> = ({ data, isLoading }) => 
                         key={idx}
                         className="flex items-center justify-between text-xs py-1 border-b border-[#1b2338] last:border-none"
                       >
-                        <span className="text-zinc-300 font-medium truncate max-w-[220px]">
+                        <span className="text-zinc-200 font-medium text-xs leading-snug flex-1 pr-3">
                           {ex.title}
                         </span>
-                        <span className="text-[#a5b4fc] font-mono text-[11px]">
+                        <span className="text-[#a5b4fc] font-mono text-[11px] shrink-0 bg-[#161f36] px-2 py-0.5 rounded-lg border border-[#1e293b]">
                           {ex.sets_count} подходов
                         </span>
                       </div>
