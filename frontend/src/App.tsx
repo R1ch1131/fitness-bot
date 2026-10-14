@@ -98,14 +98,45 @@ export const App: React.FC = () => {
     }
   };
 
-  // 5. Fetch Books & Library
+  // 5. Fetch Books & Library with LocalStorage backup & auto-recovery
   const loadBooks = async () => {
     setIsBooksLoading(true);
     try {
       const res = await fetch('/api/books');
       if (res.ok) {
         const data = await res.json();
+        const serverBooks = data.books || [];
+
+        // Check if browser has local backup that survived server container restart
+        const localCachedStr = localStorage.getItem('athlete_books_backup');
+        if (localCachedStr) {
+          try {
+            const localBooks = JSON.parse(localCachedStr);
+            const serverBookIds = new Set(serverBooks.map((b: any) => b.id));
+            const hasCustomLocalBooks = localBooks.some((b: any) => !serverBookIds.has(b.id));
+
+            if (hasCustomLocalBooks && localBooks.length > 0) {
+              console.log('Restoring athlete library from browser storage...');
+              const syncRes = await fetch('/api/books/sync_all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ books: localBooks }),
+              });
+              if (syncRes.ok) {
+                const syncData = await syncRes.json();
+                setBooksData(syncData);
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('LocalStorage backup parse note', e);
+          }
+        }
+
         setBooksData(data);
+        if (serverBooks.length > 0) {
+          localStorage.setItem('athlete_books_backup', JSON.stringify(serverBooks));
+        }
       }
     } catch (err) {
       console.warn('Books fetch note', err);
@@ -198,6 +229,13 @@ export const App: React.FC = () => {
     }
   };
 
+  const updateBooksState = (data: BooksResponse) => {
+    setBooksData(data);
+    if (data.books) {
+      localStorage.setItem('athlete_books_backup', JSON.stringify(data.books));
+    }
+  };
+
   // Book Actions
   const handleAddBook = async (book: {
     title: string;
@@ -218,7 +256,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.books) {
-          setBooksData({ books: data.books, stats: data.stats });
+          updateBooksState({ books: data.books, stats: data.stats });
         }
       }
     } catch (err) {
@@ -236,7 +274,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.books) {
-          setBooksData({ books: data.books, stats: data.stats });
+          updateBooksState({ books: data.books, stats: data.stats });
         }
         if (data.habits) {
           setHabits(data.habits);
@@ -257,7 +295,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.books) {
-          setBooksData({ books: data.books, stats: data.stats });
+          updateBooksState({ books: data.books, stats: data.stats });
         }
         if (data.habits) {
           setHabits(data.habits);
@@ -274,7 +312,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.books) {
-          setBooksData({ books: data.books, stats: data.stats });
+          updateBooksState({ books: data.books, stats: data.stats });
         }
       }
     } catch (err) {

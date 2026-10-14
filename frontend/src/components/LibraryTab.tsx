@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   BookOpen, Plus, CheckCircle2, Star, Trash2, 
   Sparkles, X, BookMarked, Award, Loader2,
-  Pencil, Hash, Check
+  Pencil, Hash, Check, Download, Upload
 } from 'lucide-react';
 import type { BookItem, BooksResponse } from '../types';
 
@@ -198,6 +198,41 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
     setInlineDirectPageBookId(null);
   };
 
+  const handleExportBackup = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(books, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `athlete_books_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileReader = new FileReader();
+    if (e.target.files && e.target.files[0]) {
+      fileReader.readAsText(e.target.files[0], "UTF-8");
+      fileReader.onload = async (event) => {
+        try {
+          const parsed = JSON.parse(event.target?.result as string);
+          const booksToRestore = Array.isArray(parsed) ? parsed : (parsed.books || []);
+          if (booksToRestore.length > 0) {
+            const res = await fetch('/api/books/sync_all', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ books: booksToRestore }),
+            });
+            if (res.ok) {
+              window.location.reload();
+            }
+          }
+        } catch (err) {
+          alert('Ошибка чтения файла резервной копии');
+        }
+      };
+    }
+  };
+
   const libTotalPages = stats.library_total_pages || 0;
   const pagesReadPct = libTotalPages > 0 ? Math.min(100, Math.round((stats.total_pages_read / libTotalPages) * 100)) : 0;
 
@@ -228,13 +263,31 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
             </p>
           </div>
 
-          <button
-            onClick={handleOpenAddModal}
-            className="flex items-center justify-center space-x-2 bg-[#00d084] hover:bg-[#00b573] active:scale-95 text-[#0b0f19] font-bold text-xs px-4 py-2.5 rounded-2xl shadow-lg shadow-[#00d084]/20 transition-all shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Добавить книгу</span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={handleExportBackup}
+              className="w-9 h-9 rounded-2xl bg-[#0b0f19] hover:bg-[#1e293b] text-[#94a3b8] hover:text-white border border-[#1e293b] flex items-center justify-center transition-all"
+              title="Скачать резервную копию библиотеки (.json)"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+
+            <label
+              className="w-9 h-9 rounded-2xl bg-[#0b0f19] hover:bg-[#1e293b] text-[#94a3b8] hover:text-white border border-[#1e293b] flex items-center justify-center cursor-pointer transition-all"
+              title="Восстановить библиотеку из файла (.json)"
+            >
+              <Upload className="w-4 h-4" />
+              <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
+            </label>
+
+            <button
+              onClick={handleOpenAddModal}
+              className="flex items-center justify-center space-x-2 bg-[#00d084] hover:bg-[#00b573] active:scale-95 text-[#0b0f19] font-bold text-xs px-4 py-2.5 rounded-2xl shadow-lg shadow-[#00d084]/20 transition-all shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Добавить книгу</span>
+            </button>
+          </div>
         </div>
 
         {/* KPI Counter Pills */}

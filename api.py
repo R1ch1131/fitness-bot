@@ -432,6 +432,46 @@ def delete_book(book_id: str):
     books_mgr.delete_book(book_id)
     return {"status": "ok", "books": books_mgr.get_books(), "stats": books_mgr.get_stats()}
 
+class SyncBooksPayload(BaseModel):
+    books: List[Dict[str, Any]]
+
+class RestoreBackupPayload(BaseModel):
+    books: Optional[List[Dict[str, Any]]] = None
+    habits: Optional[List[Dict[str, Any]]] = None
+
+@app.post("/api/books/sync_all")
+def sync_all_books(req: SyncBooksPayload):
+    """Syncs/restores full library from client-side persistent storage."""
+    try:
+        if req.books:
+            books_mgr._save(req.books)
+        return {"status": "ok", "books": books_mgr.get_books(), "stats": books_mgr.get_stats()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/backup")
+def get_backup():
+    """Exports full JSON backup of athlete's library and habits."""
+    return {
+        "timestamp": datetime.now(TZ_GMT6).isoformat(),
+        "books": books_mgr.get_books(),
+        "habits": habits_mgr.get_habits()
+    }
+
+@app.post("/api/restore")
+def restore_backup(req: RestoreBackupPayload):
+    """Restores library and habits from JSON backup."""
+    if req.books is not None:
+        books_mgr._save(req.books)
+    if req.habits is not None:
+        habits_mgr._save(req.habits)
+    return {
+        "status": "ok",
+        "books": books_mgr.get_books(),
+        "stats": books_mgr.get_stats(),
+        "habits": habits_mgr.get_habits()
+    }
+
 # Mount static frontend files if built
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
 if frontend_dist.exists():

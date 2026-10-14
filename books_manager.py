@@ -57,6 +57,16 @@ class BooksManager:
         self._ensure_file()
 
     def _ensure_file(self):
+        try:
+            from cloud_storage import get_cloud_data
+            cloud_books = get_cloud_data("athlete_books")
+            if cloud_books and isinstance(cloud_books, list):
+                with open(self.file_path, "w", encoding="utf-8") as f:
+                    json.dump(cloud_books, f, ensure_ascii=False, indent=2)
+                return
+        except Exception as ce:
+            print(f"Cloud check note in books_manager: {ce}")
+
         if not self.file_path.exists():
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_BOOKS, f, ensure_ascii=False, indent=2)
@@ -280,6 +290,11 @@ class BooksManager:
     def _save(self, books: List[Dict[str, Any]]):
         with open(self.file_path, "w", encoding="utf-8") as f:
             json.dump(books, f, ensure_ascii=False, indent=2)
+        try:
+            from cloud_storage import set_cloud_data
+            set_cloud_data("athlete_books", books)
+        except Exception:
+            pass
 
     def get_library_ai_summary(self) -> str:
         """Formats library contents into clean summary for Gemini context."""

@@ -49,6 +49,16 @@ class HabitsManager:
         self._ensure_file()
 
     def _ensure_file(self):
+        try:
+            from cloud_storage import get_cloud_data
+            cloud_habits = get_cloud_data("athlete_habits")
+            if cloud_habits and isinstance(cloud_habits, list):
+                with open(self.file_path, "w", encoding="utf-8") as f:
+                    json.dump(cloud_habits, f, ensure_ascii=False, indent=2)
+                return
+        except Exception as ce:
+            print(f"Cloud check note in habits_manager: {ce}")
+
         if not self.file_path.exists():
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_HABITS, f, ensure_ascii=False, indent=2)
@@ -278,6 +288,11 @@ class HabitsManager:
             to_save.append(h_copy)
         with open(self.file_path, "w", encoding="utf-8") as f:
             json.dump(to_save, f, ensure_ascii=False, indent=2)
+        try:
+            from cloud_storage import set_cloud_data
+            set_cloud_data("athlete_habits", to_save)
+        except Exception:
+            pass
 
     def get_habits_ai_summary(self, target_date: Optional[date] = None) -> str:
         """Formats habits status into clear text for Gemini AI prompt."""
