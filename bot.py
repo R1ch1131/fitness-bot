@@ -62,10 +62,10 @@ _context_cache = {
     "instruction": ""
 }
 
-# Reliable active Gemini models in priority order (Flash-Lite models are ultra-fast and not subject to 503 high demand)
+# Reliable active Gemini models in priority order (3.5-flash-lite has best uptime and zero 503 errors)
 MODELS_CASCADE = [
-    "gemini-flash-lite-latest",
     "gemini-3.5-flash-lite",
+    "gemini-flash-lite-latest",
     "gemini-3.8-flash",
     "gemini-3.1-flash-lite",
     "gemini-3-flash-preview"
@@ -220,7 +220,7 @@ def get_main_keyboard():
 def get_system_instruction() -> str:
     """Builds and caches detailed coaching context for Gemini for 10 minutes."""
     now = time.time()
-    if _context_cache["instruction"] and (now - _context_cache["timestamp"] < 600):
+    if _context_cache["instruction"] and (now - _context_cache["timestamp"] < 60):
         return _context_cache["instruction"]
 
     try:
@@ -296,6 +296,13 @@ def get_system_instruction() -> str:
         except Exception as he:
             habits_summary = f"Данные привычек временно недоступны: {he}"
 
+        library_summary = ""
+        try:
+            from books_manager import BooksManager
+            library_summary = BooksManager().get_library_ai_summary()
+        except Exception as be:
+            library_summary = f"Библиотека временно недоступна: {be}"
+
         instruction = f"""
 Ты — универсальный персональный AI-наставник, элитный спортивный тренер, нутрициолог, кулинарный шеф и ментор по саморазвитию и программированию для атлета.
 Текущая дата и время: {today_date_str} ({today_weekday}), {current_time_str} GMT+6.
@@ -312,6 +319,8 @@ def get_system_instruction() -> str:
 {products_text}
 - Трекер привычек и целей атлета:
 {habits_summary}
+- Библиотека и прочитанные книги атлета:
+{library_summary}
 
 ТВОИ КЛЮЧЕВЫЕ КОМПЕТЕНЦИИ И ПРАВИЛА ОБЩЕНИЯ:
 1. СПОРТ И ТРЕНИРОВКИ: техника упражнений, прогрессивная перегрузка, периодизация, разминка/заминка, биомеханика, выбор рабочих весов, профилактика травм.
@@ -379,7 +388,7 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False) -> str:
             from google import genai
             client = genai.Client(
                 api_key=GEMINI_KEY,
-                http_options={"timeout": 15_000}  # 15 sec timeout per model
+                http_options={"timeout": 18_000}  # 18 sec timeout
             )
             system_instruction = get_system_instruction()
 

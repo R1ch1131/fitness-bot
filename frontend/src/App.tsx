@@ -6,7 +6,8 @@ import { DashboardTab } from './components/DashboardTab';
 import { CoachChatTab } from './components/CoachChatTab';
 import { WorkoutsTab } from './components/WorkoutsTab';
 import { WeeklyTab } from './components/WeeklyTab';
-import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem } from './types';
+import { LibraryTab } from './components/LibraryTab';
+import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem, BookItem, BooksResponse } from './types';
 
 // Compute current week's Monday - Sunday dates (YYYY-MM-DD)
 function getWeekDates(): Record<string, string> {
@@ -38,6 +39,8 @@ export const App: React.FC = () => {
   const [workoutsData, setWorkoutsData] = useState<WorkoutsResponse | null>(null);
   const [weeklyData, setWeeklyData] = useState<WeeklyResponse | null>(null);
   const [habits, setHabits] = useState<HabitItem[]>([]);
+  const [booksData, setBooksData] = useState<BooksResponse | null>(null);
+  const [isBooksLoading, setIsBooksLoading] = useState<boolean>(false);
 
   const weekDates = getWeekDates();
 
@@ -95,11 +98,28 @@ export const App: React.FC = () => {
     }
   };
 
+  // 5. Fetch Books & Library
+  const loadBooks = async () => {
+    setIsBooksLoading(true);
+    try {
+      const res = await fetch('/api/books');
+      if (res.ok) {
+        const data = await res.json();
+        setBooksData(data);
+      }
+    } catch (err) {
+      console.warn('Books fetch note', err);
+    } finally {
+      setIsBooksLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadDashboard();
     loadWorkouts();
     loadWeekly();
     loadHabits();
+    loadBooks();
   }, []);
 
   // Habit Actions
@@ -170,11 +190,93 @@ export const App: React.FC = () => {
     setIsSyncing(true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadDashboard(), loadWorkouts(), loadWeekly(), loadHabits()]);
+      await Promise.all([loadDashboard(), loadWorkouts(), loadWeekly(), loadHabits(), loadBooks()]);
     } catch (err) {
       console.error('Sync failed', err);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  // Book Actions
+  const handleAddBook = async (book: {
+    title: string;
+    author: string;
+    category: string;
+    total_pages: number;
+    status: 'reading' | 'finished' | 'planned';
+    notes?: string;
+  }) => {
+    try {
+      const res = await fetch('/api/books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(book),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.books) {
+          setBooksData({ books: data.books, stats: data.stats });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to add book', err);
+    }
+  };
+
+  const handleUpdateBook = async (bookId: string, updates: Partial<BookItem>) => {
+    try {
+      const res = await fetch(`/api/books/${bookId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.books) {
+          setBooksData({ books: data.books, stats: data.stats });
+        }
+        if (data.habits) {
+          setHabits(data.habits);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update book', err);
+    }
+  };
+
+  const handleRecordProgress = async (bookId: string, pagesRead: number) => {
+    try {
+      const res = await fetch(`/api/books/${bookId}/progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pages_read: pagesRead }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.books) {
+          setBooksData({ books: data.books, stats: data.stats });
+        }
+        if (data.habits) {
+          setHabits(data.habits);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to record reading progress', err);
+    }
+  };
+
+  const handleDeleteBook = async (bookId: string) => {
+    try {
+      const res = await fetch(`/api/books/${bookId}`, { method: 'DELETE' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.books) {
+          setBooksData({ books: data.books, stats: data.stats });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete book', err);
     }
   };
 
@@ -229,6 +331,17 @@ export const App: React.FC = () => {
           <WorkoutsTab
             data={workoutsData}
             isLoading={!workoutsData}
+          />
+        )}
+
+        {currentTab === 'library' && (
+          <LibraryTab
+            data={booksData}
+            isLoading={isBooksLoading}
+            onAddBook={handleAddBook}
+            onUpdateBook={handleUpdateBook}
+            onRecordProgress={handleRecordProgress}
+            onDeleteBook={handleDeleteBook}
           />
         )}
 

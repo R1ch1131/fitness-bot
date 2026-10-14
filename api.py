@@ -16,10 +16,12 @@ from analyzer import WorkoutAnalyzer
 from config import BASE_DIR, DATA_DIR, WORKOUTS_CACHE_FILE, ROUTINES_CACHE_FILE
 
 from habits_manager import HabitsManager
+from books_manager import BooksManager
 
 # Initialize Coach singleton
 coach = AIHevyCoach(auto_sync=False)
 habits_mgr = HabitsManager()
+books_mgr = BooksManager()
 
 app = FastAPI(title="Hevy & YAZIO AI Coach PWA", version="1.0.0")
 
@@ -51,6 +53,29 @@ class EditHabitRequest(BaseModel):
     title: Optional[str] = None
     category: Optional[str] = None
     target_days: Optional[int] = None
+
+class CreateBookRequest(BaseModel):
+    title: str
+    author: str
+    category: Optional[str] = "Саморазвитие"
+    total_pages: Optional[int] = 300
+    status: Optional[str] = "reading"
+    current_page: Optional[int] = 0
+    rating: Optional[int] = None
+    notes: Optional[str] = None
+
+class UpdateBookRequest(BaseModel):
+    title: Optional[str] = None
+    author: Optional[str] = None
+    category: Optional[str] = None
+    status: Optional[str] = None
+    current_page: Optional[int] = None
+    total_pages: Optional[int] = None
+    rating: Optional[int] = None
+    notes: Optional[str] = None
+
+class ReadingSessionRequest(BaseModel):
+    pages_read: int
 
 @app.get("/api/health")
 @app.get("/health")
@@ -332,6 +357,80 @@ def chat_with_coach(req: ChatRequest):
         return {"reply": ai_reply}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
+
+# ==================== BOOKS / LIBRARY ENDPOINTS ====================
+
+@app.get("/api/books")
+def get_books():
+    """Returns library books and reading stats."""
+    return {
+        "books": books_mgr.get_books(),
+        "stats": books_mgr.get_stats()
+    }
+
+@app.post("/api/books")
+def create_book(req: CreateBookRequest):
+    """Creates a new book in athlete's library."""
+    try:
+        b = books_mgr.add_book(
+            title=req.title,
+            author=req.author,
+            category=req.category or "Саморазвитие",
+            total_pages=req.total_pages or 300,
+            status=req.status or "reading",
+            current_page=req.current_page or 0,
+            rating=req.rating,
+            notes=req.notes
+        )
+        return {"status": "ok", "book": b, "books": books_mgr.get_books(), "stats": books_mgr.get_stats()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/api/books/{book_id}")
+def update_book(book_id: str, req: UpdateBookRequest):
+    """Updates book progress, rating, notes, or reading status."""
+    try:
+        b = books_mgr.update_book(
+            book_id=book_id,
+            title=req.title,
+            author=req.author,
+            category=req.category,
+            status=req.status,
+            current_page=req.current_page,
+            total_pages=req.total_pages,
+            rating=req.rating,
+            notes=req.notes
+        )
+        return {
+            "status": "ok",
+            "book": b,
+            "books": books_mgr.get_books(),
+            "stats": books_mgr.get_stats(),
+            "habits": habits_mgr.get_habits()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/books/{book_id}/progress")
+def record_reading_session(book_id: str, req: ReadingSessionRequest):
+    """Logs pages read today, updates book, and auto-marks reading habit."""
+    try:
+        b = books_mgr.record_reading_session(book_id, req.pages_read)
+        return {
+            "status": "ok",
+            "book": b,
+            "books": books_mgr.get_books(),
+            "stats": books_mgr.get_stats(),
+            "habits": habits_mgr.get_habits()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/books/{book_id}")
+def delete_book(book_id: str):
+    """Removes a book from the library."""
+    books_mgr.delete_book(book_id)
+    return {"status": "ok", "books": books_mgr.get_books(), "stats": books_mgr.get_stats()}
 
 # Mount static frontend files if built
 frontend_dist = Path(__file__).parent / "frontend" / "dist"

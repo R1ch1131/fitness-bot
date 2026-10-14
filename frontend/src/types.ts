@@ -130,3 +130,28 @@ export interface HabitsResponse {
   habits: HabitItem[];
   today_summary: string;
 }
+
+export interface BookItem {
+  id: string;
+  title: string;
+  author: string;
+  category: string;
+  status: 'reading' | 'finished' | 'planned';
+  current_page?: number;
+  total_pages?: number;
+  rating?: number;
+  notes?: string;
+  finished_date?: string;
+  created_at: string;
+}
+
+export interface BooksResponse {
+  books: BookItem[];
+  stats: {
+    total: number;
+    finished: number;
+    reading: number;
+    planned: number;
+    total_pages_read: number;
+  };
+}
