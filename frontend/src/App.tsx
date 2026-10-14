@@ -204,7 +204,9 @@ export const App: React.FC = () => {
     author: string;
     category: string;
     total_pages: number;
+    current_page?: number;
     status: 'reading' | 'finished' | 'planned';
+    rating?: number;
     notes?: string;
   }) => {
     try {

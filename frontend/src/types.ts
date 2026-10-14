@@ -153,5 +153,6 @@ export interface BooksResponse {
     reading: number;
     planned: number;
     total_pages_read: number;
+    library_total_pages?: number;
   };
 }

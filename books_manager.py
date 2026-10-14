@@ -42,7 +42,7 @@ DEFAULT_BOOKS = [
         "author": "Райан Холидей",
         "category": "Саморазвитие",
         "status": "reading",
-        "current_page": 140,
+        "current_page": 155,
         "total_pages": 350,
         "rating": 5,
         "notes": "Самоконтроль — это не лишение себя радостей, а фундамент подлинной свободы и уверенности.",
@@ -62,11 +62,34 @@ class BooksManager:
                 json.dump(DEFAULT_BOOKS, f, ensure_ascii=False, indent=2)
 
     def get_books(self) -> List[Dict[str, Any]]:
+        needs_save = False
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                books = json.load(f)
         except Exception:
-            return DEFAULT_BOOKS
+            books = DEFAULT_BOOKS
+            needs_save = True
+
+        # Data integrity / repair pass
+        for b in books:
+            b["total_pages"] = max(1, int(b.get("total_pages") or 300))
+            if b.get("status") == "finished":
+                # Finished book has read 100% of pages
+                if b.get("current_page", 0) < b["total_pages"]:
+                    b["current_page"] = b["total_pages"]
+                    needs_save = True
+            elif b.get("status") == "planned":
+                b["current_page"] = 0
+            else:
+                b["current_page"] = max(0, int(b.get("current_page") or 0))
+
+        if needs_save:
+            try:
+                self._save(books)
+            except Exception:
+                pass
+
+        return books
 
     def get_stats(self) -> Dict[str, Any]:
         books = self.get_books()
@@ -74,13 +97,21 @@ class BooksManager:
         reading = [b for b in books if b.get("status") == "reading"]
         planned = [b for b in books if b.get("status") == "planned"]
         
-        total_pages = sum(b.get("current_page", 0) for b in books)
+        # Accurately compute pages read: finished books count full total_pages, reading books count current_page
+        total_pages_read = sum(
+            b.get("total_pages", 0) if b.get("status") == "finished"
+            else b.get("current_page", 0)
+            for b in books
+        )
+        library_total_pages = sum(b.get("total_pages", 0) for b in books)
+
         return {
             "total": len(books),
             "finished": len(finished),
             "reading": len(reading),
             "planned": len(planned),
-            "total_pages_read": total_pages
+            "total_pages_read": total_pages_read,
+            "library_total_pages": library_total_pages
         }
 
     def add_book(
@@ -90,24 +121,41 @@ class BooksManager:
         category: str = "Саморазвитие",
         total_pages: int = 300,
         status: str = "reading",
-        current_page: int = 0,
+        current_page: Optional[int] = None,
         rating: Optional[int] = None,
         notes: Optional[str] = None
     ) -> Dict[str, Any]:
         books = self.get_books()
         now_str = datetime.now(TZ_GMT6).strftime("%Y-%m-%d")
         
+        valid_total_pages = max(1, int(total_pages or 300))
+        
+        if status == "finished":
+            final_current_page = valid_total_pages
+            final_finished_date = now_str
+        elif status == "planned":
+            final_current_page = 0
+            final_finished_date = None
+        else:
+            # reading
+            parsed_cur = int(current_page) if current_page is not None else 0
+            final_current_page = min(valid_total_pages, max(0, parsed_cur))
+            final_finished_date = None
+            if final_current_page >= valid_total_pages and valid_total_pages > 0:
+                status = "finished"
+                final_finished_date = now_str
+
         new_book = {
             "id": f"book-{str(uuid.uuid4())[:8]}",
             "title": title.strip(),
             "author": author.strip(),
             "category": category.strip() or "Саморазвитие",
             "status": status,
-            "current_page": current_page,
-            "total_pages": max(1, total_pages),
+            "current_page": final_current_page,
+            "total_pages": valid_total_pages,
             "rating": rating,
             "notes": notes.strip() if notes else None,
-            "finished_date": now_str if status == "finished" else None,
+            "finished_date": final_finished_date,
             "created_at": now_str
         }
         books.append(new_book)
@@ -137,7 +185,7 @@ class BooksManager:
             raise ValueError(f"Book with id {book_id} not found")
 
         old_page = target.get("current_page", 0)
-        old_status = target.get("status")
+        now_str = datetime.now(TZ_GMT6).strftime("%Y-%m-%d")
 
         if title is not None:
             target["title"] = title.strip()
@@ -146,26 +194,36 @@ class BooksManager:
         if category is not None:
             target["category"] = category.strip()
         if total_pages is not None:
-            target["total_pages"] = max(1, total_pages)
+            target["total_pages"] = max(1, int(total_pages))
         if rating is not None:
             target["rating"] = rating
         if notes is not None:
-            target["notes"] = notes.strip()
+            target["notes"] = notes.strip() if notes else None
 
-        now_str = datetime.now(TZ_GMT6).strftime("%Y-%m-%d")
+        tot = target.get("total_pages", 300)
 
         if current_page is not None:
-            target["current_page"] = min(target.get("total_pages", 9999), max(0, current_page))
-            # Auto-mark habit if reading progress increased
+            parsed_cur = max(0, int(current_page))
+            target["current_page"] = min(tot, parsed_cur)
+            # Auto-mark habit if reading progress increased by >= 10 pages
             if target["current_page"] - old_page >= 10:
                 self._mark_reading_habit_for_today()
 
         if status is not None:
             target["status"] = status
-            if status == "finished" and old_status != "finished":
-                target["finished_date"] = now_str
-                target["current_page"] = target.get("total_pages", target.get("current_page", 0))
+            if status == "finished":
+                target["finished_date"] = target.get("finished_date") or now_str
+                target["current_page"] = tot
                 self._mark_reading_habit_for_today()
+            elif status == "planned":
+                target["finished_date"] = None
+                target["current_page"] = 0
+
+        # Auto-complete if current page reached total pages
+        if target.get("current_page", 0) >= tot and target.get("status") == "reading":
+            target["status"] = "finished"
+            target["finished_date"] = now_str
+            self._mark_reading_habit_for_today()
 
         self._save(books)
         return target
@@ -184,7 +242,7 @@ class BooksManager:
 
         cur = target.get("current_page", 0)
         tot = target.get("total_pages", 300)
-        new_page = min(tot, cur + pages_read)
+        new_page = min(tot, max(0, cur + pages_read))
         target["current_page"] = new_page
 
         if new_page >= tot:
@@ -233,7 +291,14 @@ class BooksManager:
         reading = [b for b in books if b.get("status") == "reading"]
         planned = [b for b in books if b.get("status") == "planned"]
 
-        lines = [f"📚 Библиотека атлета (Всего: {len(books)}, Прочитано: {len(finished)}):"]
+        total_pages_read = sum(
+            b.get("total_pages", 0) if b.get("status") == "finished"
+            else b.get("current_page", 0)
+            for b in books
+        )
+        total_lib_pages = sum(b.get("total_pages", 0) for b in books)
+
+        lines = [f"📚 Библиотека атлета (Всего книг: {len(books)}, Прочитано: {len(finished)}, Всего прочитано страниц: {total_pages_read} из {total_lib_pages} стр.):"]
         
         if reading:
             lines.append("📖 СЕЙЧАС ЧИТАЕТ:")
@@ -246,11 +311,11 @@ class BooksManager:
             for b in finished:
                 rate_str = f" ⭐ {b['rating']}/5" if b.get('rating') else ""
                 note_str = f" | Инсайт: «{b['notes']}»" if b.get('notes') else ""
-                lines.append(f"  • «{b['title']}» ({b['author']}){rate_str}{note_str}")
+                lines.append(f"  • «{b['title']}» ({b['author']}) ({b.get('total_pages', 0)} стр.){rate_str}{note_str}")
 
         if planned:
             lines.append("📌 В ПЛАНАХ НА ЧТЕНИЕ:")
             for b in planned:
-                lines.append(f"  • «{b['title']}» ({b['author']}) — {b.get('category')}")
+                lines.append(f"  • «{b['title']}» ({b['author']}) — {b.get('category')} (~{b.get('total_pages', 0)} стр.)")
 
         return "\n".join(lines)
