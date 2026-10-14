@@ -73,7 +73,9 @@ class YazioManager:
                 print("🔄 YAZIO токен истек, выполняю автоматический повторный вход...")
                 try:
                     self.authenticate(self.email, self.password)
-                    return func(*args, **kwargs)
+                    from yazio_exporter.client import YazioClient
+                    new_args = [self.client if isinstance(a, YazioClient) else a for a in args]
+                    return func(*new_args, **kwargs)
                 except Exception as auth_err:
                     print(f"Ошибка повторной авторизации YAZIO: {auth_err}")
             raise
