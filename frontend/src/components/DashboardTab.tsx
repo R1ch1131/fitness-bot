@@ -10,14 +10,18 @@ import {
   BookOpen, 
   Moon, 
   Plus, 
-  Edit3, 
   Trash2
 } from 'lucide-react';
-import type { DashboardData } from '../types';
+import type { DashboardData, HabitItem } from '../types';
 
 interface DashboardTabProps {
   data: DashboardData | null;
   selectedDay: string;
+  habits: HabitItem[];
+  weekDates: Record<string, string>;
+  onToggleHabit: (habitId: string, dateStr: string) => void;
+  onAddHabit: (title: string, category: string) => void;
+  onDeleteHabit: (habitId: string) => void;
   onOpenChat: (query?: string) => void;
   onOpenWorkouts: () => void;
 }
@@ -25,6 +29,11 @@ interface DashboardTabProps {
 export const DashboardTab: React.FC<DashboardTabProps> = ({
   data,
   selectedDay,
+  habits,
+  weekDates,
+  onToggleHabit,
+  onAddHabit,
+  onDeleteHabit,
   onOpenChat,
   onOpenWorkouts,
 }) => {
@@ -32,95 +41,80 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   const [newHabitTitle, setNewHabitTitle] = useState('');
   const [newHabitCategory, setNewHabitCategory] = useState('Спорт');
 
-  // Interactive habit matrix state
-  const [habits, setHabits] = useState([
-    {
-      id: '1',
-      title: 'Силовая тренировка (Hevy сплит)',
-      category: 'Спорт',
-      plan: '3/5 дн.',
-      streak: 9,
-      record: 14,
-      days: { Пн: true, Вт: true, Ср: true, Чт: false, Пт: false, Сб: false, Вс: false },
-    },
-    {
-      id: '2',
-      title: 'Контроль КБЖУ и норма белка (160г+)',
-      category: 'Питание',
-      plan: '3/7 дн.',
-      streak: 15,
-      record: 21,
-      days: { Пн: true, Вт: true, Ср: true, Чт: false, Пт: false, Сб: false, Вс: false },
-    },
-    {
-      id: '3',
-      title: 'Овсяноблин & Клетчатка (ЖКТ баланс)',
-      category: 'Питание',
-      plan: '3/6 дн.',
-      streak: 7,
-      record: 10,
-      days: { Пн: true, Вт: true, Ср: true, Чт: false, Пт: false, Сб: false, Вс: false },
-    },
-    {
-      id: '4',
-      title: 'Креатин + Водный баланс (2.5л+)',
-      category: 'Режим',
-      plan: '2/7 дн.',
-      streak: 6,
-      record: 12,
-      days: { Пн: true, Вт: true, Ср: false, Чт: false, Пт: false, Сб: false, Вс: false },
-    },
-  ]);
+  const selectedDateStr = weekDates[selectedDay] || '';
 
-  const toggleHabitDay = (habitId: string, dayKey: string) => {
-    setHabits(prev =>
-      prev.map(h => {
-        if (h.id === habitId) {
-          const newDays = { ...h.days, [dayKey]: !h.days[dayKey as keyof typeof h.days] };
-          return { ...h, days: newDays };
-        }
-        return h;
-      })
-    );
-  };
+  // 1. Calculate today's / selected day's habit metrics
+  const totalHabits = habits.length;
+  const completedToday = habits.filter(h => !!h.history[selectedDateStr]).length;
+  const todayPercent = totalHabits > 0 ? Math.round((completedToday / totalHabits) * 100) : 0;
 
-  const handleAddHabit = () => {
+  // 2. Calculate Weekly Execution % across all habits
+  let totalOpportunities = 0;
+  let totalDoneThisWeek = 0;
+  Object.values(weekDates).forEach(dStr => {
+    habits.forEach(h => {
+      totalOpportunities += 1;
+      if (h.history[dStr]) {
+        totalDoneThisWeek += 1;
+      }
+    });
+  });
+  const weeklyExecutionPercent = totalOpportunities > 0 
+    ? Math.round((totalDoneThisWeek / totalOpportunities) * 100) 
+    : 0;
+
+  // 3. Find highest active streak habit
+  const topStreakHabit = habits.reduce((top, h) => {
+    return h.current_streak > (top?.current_streak || 0) ? h : top;
+  }, habits[0] || null);
+
+  // 4. Calculate balance by spheres for this week
+  const spheres = [
+    { key: 'Спорт', label: 'Спорт', icon: Dumbbell, color: '#00d084' },
+    { key: 'Питание', label: 'Питание', icon: Utensils, color: '#f59e0b' },
+    { key: 'Учеба / Код', label: 'Учеба / Код', icon: Code, color: '#a855f7' },
+    { key: 'Чтение', label: 'Чтение', icon: BookOpen, color: '#06b6d4' },
+    { key: 'Режим', label: 'Режим', icon: Moon, color: '#f43f5e' },
+  ];
+
+  const sphereStats = spheres.map(sph => {
+    const sphHabits = habits.filter(h => h.category === sph.key);
+    let done = 0;
+    let total = sphHabits.length * 7;
+    Object.values(weekDates).forEach(dStr => {
+      sphHabits.forEach(h => {
+        if (h.history[dStr]) done += 1;
+      });
+    });
+    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+    return { ...sph, done, total: total || 7, percent };
+  });
+
+  const handleAddHabitSubmit = () => {
     if (!newHabitTitle.trim()) return;
-    setHabits(prev => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        title: newHabitTitle.trim(),
-        category: newHabitCategory,
-        plan: '0/7 дн.',
-        streak: 1,
-        record: 1,
-        days: { Пн: false, Вт: false, Ср: false, Чт: false, Пт: false, Сб: false, Вс: false },
-      },
-    ]);
+    onAddHabit(newHabitTitle.trim(), newHabitCategory);
     setNewHabitTitle('');
   };
 
-  const nutrition = data?.nutrition || {
-    calories: 1950,
-    calories_goal: 2000,
-    protein: 168,
-    protein_goal: 160,
-    fat: 55,
-    carbs: 185,
-    water_ml: 2200,
-    meals: {},
-  };
+  const allDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-  const calPercent = Math.min(100, Math.round((nutrition.calories / nutrition.calories_goal) * 100));
+  // Days completion counts for the chart
+  const dayStats = allDays.map(dKey => {
+    const dStr = weekDates[dKey];
+    const done = habits.filter(h => !!h.history[dStr]).length;
+    const pct = totalHabits > 0 ? Math.round((done / totalHabits) * 100) : 0;
+    return { day: dKey, date: dStr, done, pct };
+  });
+
+  const bestDay = dayStats.reduce((best, cur) => cur.pct > best.pct ? cur : best, dayStats[0]);
 
   return (
     <div className="space-y-4 pb-28 px-3 pt-3 max-w-5xl mx-auto">
-      {/* 1. TOP 4 KPI CARDS (Matches Screenshot 2) */}
+      {/* 1. TOP 4 KPI METRIC CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Card 1: Сегодня */}
         <div 
-          onClick={() => onOpenChat("Разбери мой рацион за сегодня")}
+          onClick={() => onOpenChat(`Как успехи по целям на сегодня (${selectedDay})?`)}
           className="bg-[#111726] border border-[#1e293b] hover:border-[#00d084]/40 cursor-pointer rounded-3xl p-4 flex flex-col justify-between shadow-lg relative overflow-hidden transition-all"
         >
           <div className="flex items-center justify-between">
@@ -133,15 +127,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
           <div className="my-3">
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-extrabold text-white tracking-tight">{calPercent}%</span>
+              <span className="text-3xl font-extrabold text-white tracking-tight">{todayPercent}%</span>
               <span className="text-xs text-[#94a3b8] font-medium">
-                ({Math.round(nutrition.calories)} / {nutrition.calories_goal} ккал)
+                ({completedToday} из {totalHabits})
               </span>
             </div>
             <div className="h-2 w-full bg-[#1b2338] rounded-full mt-2.5 overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-[#00d084] to-[#06b6d4] rounded-full transition-all duration-500"
-                style={{ width: `${calPercent}%` }}
+                style={{ width: `${todayPercent}%` }}
               />
             </div>
           </div>
@@ -159,15 +153,17 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
           <div className="my-3">
             <div className="flex items-center space-x-2">
-              <span className="text-3xl font-extrabold text-white tracking-tight">88%</span>
+              <span className="text-3xl font-extrabold text-white tracking-tight">
+                {weeklyExecutionPercent}%
+              </span>
               <span className="text-[11px] font-bold bg-[#f59e0b]/20 text-[#f59e0b] border border-[#f59e0b]/30 px-2 py-0.5 rounded-lg">
-                В дефиците!
+                {weeklyExecutionPercent >= 80 ? 'В топе! 🔥' : 'Поднажать до 85%'}
               </span>
             </div>
             <div className="h-2 w-full bg-[#1b2338] rounded-full mt-2.5 overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-[#6366f1] to-[#a855f7] rounded-full transition-all duration-500"
-                style={{ width: `88%` }}
+                style={{ width: `${weeklyExecutionPercent}%` }}
               />
             </div>
           </div>
@@ -188,11 +184,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
           <div className="my-3">
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-extrabold text-white tracking-tight">15 дней</span>
-              <span className="text-xs text-[#94a3b8] font-medium">Рекорд: 21 дн.</span>
+              <span className="text-3xl font-extrabold text-white tracking-tight">
+                {topStreakHabit ? `${topStreakHabit.current_streak} дн.` : '0 дней'}
+              </span>
+              <span className="text-xs text-[#94a3b8] font-medium">
+                Рекорд: {topStreakHabit?.record_streak || 0} дн.
+              </span>
             </div>
             <p className="text-[11px] text-[#94a3b8] mt-1 truncate">
-              Лидер: <strong className="text-zinc-200">Контроль КБЖУ и норма белка</strong>
+              Лидер: <strong className="text-zinc-200">{topStreakHabit?.title || 'Привычки'}</strong>
             </p>
           </div>
         </div>
@@ -204,7 +204,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-[#94a3b8] uppercase tracking-wider">
-              🏋️ Объем за неделю
+              🏋️ Объем в Hevy
             </span>
             <div className="w-8 h-8 rounded-xl bg-[#06b6d4]/10 border border-[#06b6d4]/20 flex items-center justify-center text-[#06b6d4]">
               <Layers className="w-4 h-4" />
@@ -212,8 +212,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
           <div className="my-3">
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-extrabold text-white tracking-tight">14.0 т</span>
-              <span className="text-xs text-[#94a3b8] font-medium">из 45т по плану</span>
+              <span className="text-3xl font-extrabold text-white tracking-tight">
+                {data?.workout?.today_workout ? (data.workout.today_workout.total_tonnage_kg / 1000).toFixed(1) : '14.0'} т
+              </span>
+              <span className="text-xs text-[#94a3b8] font-medium">за 2 дня</span>
             </div>
             <p className="text-[11px] text-[#94a3b8] mt-1">
               Активных тренировок в сплите: <strong className="text-zinc-200">5</strong>
@@ -222,24 +224,23 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
       </div>
 
-      {/* 2. DYNAMIC TREND CHART (Matches Screenshot 2) */}
+      {/* 2. DYNAMIC TREND CHART */}
       <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <div className="flex items-center space-x-2">
               <h2 className="text-base font-bold text-white tracking-tight">
-                Динамика серий и калорий за неделю
+                Динамика серий и целей за неделю
               </h2>
               <span className="text-[10px] font-bold bg-[#00d084]/20 text-[#00d084] border border-[#00d084]/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
                 Live
               </span>
             </div>
             <p className="text-xs text-[#94a3b8] mt-0.5">
-              Процент выполнения по дням с целевым ориентиром 85% (калории & тренировки)
+              Процент выполнения по дням с целевым ориентиром 85% (метод 12-Week Year)
             </p>
           </div>
 
-          {/* Toggle buttons */}
           <div className="flex items-center space-x-1 bg-[#0b0f19] border border-[#1e293b] p-1 rounded-2xl self-start sm:self-auto">
             <button
               onClick={() => setChartMode('combo')}
@@ -268,10 +269,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
         </div>
 
-        {/* SVG Chart Visualization */}
         <div className="relative pt-6 pb-2">
           {/* Target line: 85% */}
-          <div className="absolute top-[35%] left-0 right-0 flex items-center">
+          <div className="absolute top-[32%] left-0 right-0 flex items-center">
             <div className="w-full border-b border-dashed border-[#6366f1]/40" />
             <span className="bg-[#1e1b4b] text-[#c7d2fe] border border-[#6366f1]/40 text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 shrink-0">
               Цель 85%
@@ -280,74 +280,73 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
           <svg viewBox="0 0 700 200" className="w-full h-44 overflow-visible">
             <defs>
-              <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
-              </linearGradient>
-              <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#00d084" stopOpacity="0.8" />
-                <stop offset="100%" stopColor="#00d084" stopOpacity="0.1" />
-              </linearGradient>
-              <linearGradient id="purpleBarGradient" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="purpleBar" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#6366f1" stopOpacity="0.8" />
                 <stop offset="100%" stopColor="#6366f1" stopOpacity="0.1" />
               </linearGradient>
+              <linearGradient id="mintBar" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#00d084" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="#00d084" stopOpacity="0.1" />
+              </linearGradient>
             </defs>
 
-            {/* Bars */}
-            {chartMode !== 'curve' && (
-              <>
-                <rect x="50" y="30" width="36" height="170" rx="8" fill="url(#purpleBarGradient)" />
-                <rect x="150" y="60" width="36" height="140" rx="8" fill="url(#purpleBarGradient)" />
-                <rect x="250" y="90" width="36" height="110" rx="8" fill="url(#barGradient)" />
-                <rect x="350" y="195" width="36" height="5" rx="2" fill="#1e293b" />
-                <rect x="450" y="195" width="36" height="5" rx="2" fill="#1e293b" />
-                <rect x="550" y="195" width="36" height="5" rx="2" fill="#1e293b" />
-                <rect x="650" y="195" width="36" height="5" rx="2" fill="#1e293b" />
-              </>
-            )}
+            {/* Dynamic Bars for all 7 days */}
+            {dayStats.map((st, idx) => {
+              const x = 50 + idx * 95;
+              const barHeight = Math.max(6, (st.pct / 100) * 160);
+              const y = 195 - barHeight;
+              const isSelected = selectedDay === st.day;
 
-            {/* Curve path */}
-            {chartMode !== 'bars' && (
-              <>
-                <path
-                  d="M 68 30 C 110 30, 130 60, 168 60 C 210 60, 230 95, 268 95 C 310 95, 330 195, 368 195 L 668 195"
-                  fill="none"
-                  stroke="#38bdf8"
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                />
-                {/* Dots with labels */}
-                {/* Day 1: 100% */}
-                <circle cx="68" cy="30" r="6" fill="#00d084" stroke="#0b0f19" strokeWidth="2.5" />
-                <text x="68" y="16" fill="#ffffff" fontSize="11" fontWeight="bold" textAnchor="middle">
-                  100%
-                </text>
-
-                {/* Day 2: 80% */}
-                <circle cx="168" cy="60" r="6" fill="#818cf8" stroke="#0b0f19" strokeWidth="2.5" />
-                <text x="168" y="46" fill="#ffffff" fontSize="11" fontWeight="bold" textAnchor="middle">
-                  80%
-                </text>
-
-                {/* Day 3 (Selected today): 60% */}
-                <circle cx="268" cy="95" r="7" fill="#00d084" stroke="#ffffff" strokeWidth="2.5" />
-                <text x="268" y="80" fill="#00d084" fontSize="11" fontWeight="bold" textAnchor="middle">
-                  60%
-                </text>
-              </>
-            )}
+              return (
+                <g key={st.day}>
+                  {chartMode !== 'curve' && (
+                    <rect
+                      x={x}
+                      y={y}
+                      width="38"
+                      height={barHeight}
+                      rx="8"
+                      fill={isSelected ? 'url(#mintBar)' : 'url(#purpleBar)'}
+                      className="transition-all duration-300"
+                    />
+                  )}
+                  {chartMode !== 'bars' && (
+                    <>
+                      <circle
+                        cx={x + 19}
+                        cy={y}
+                        r={isSelected ? 7 : 5}
+                        fill={isSelected ? '#00d084' : '#818cf8'}
+                        stroke="#0b0f19"
+                        strokeWidth="2"
+                      />
+                      <text
+                        x={x + 19}
+                        y={Math.max(14, y - 8)}
+                        fill={isSelected ? '#00d084' : '#ffffff'}
+                        fontSize="11"
+                        fontWeight="bold"
+                        textAnchor="middle"
+                      >
+                        {st.pct}%
+                      </text>
+                    </>
+                  )}
+                </g>
+              );
+            })}
           </svg>
 
           {/* Days axis labels */}
           <div className="flex justify-between px-6 text-xs text-[#94a3b8] font-bold pt-2">
-            <span className="text-zinc-200">Пн (5/5)</span>
-            <span className="text-zinc-200">Вт (4/5)</span>
-            <span className="text-[#00d084]">Ср (3/5)</span>
-            <span>Чт (0/5)</span>
-            <span>Пт (0/5)</span>
-            <span>Сб (0/5)</span>
-            <span>Вс (0/5)</span>
+            {dayStats.map((st) => (
+              <span
+                key={st.day}
+                className={selectedDay === st.day ? 'text-[#00d084]' : 'text-zinc-300'}
+              >
+                {st.day} ({st.done}/{totalHabits})
+              </span>
+            ))}
           </div>
         </div>
 
@@ -365,26 +364,27 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
           <div>
             <span>Пик продуктивности: </span>
-            <strong className="text-[#00d084]">Понедельник (100%)</strong>
+            <strong className="text-[#00d084]">
+              {bestDay?.day || 'Пн'} ({bestDay?.pct || 0}%)
+            </strong>
           </div>
         </div>
       </div>
 
-      {/* 3. CIRCULAR RING & SPHERES BALANCE (Matches Screenshot 1 & 4) */}
+      {/* 3. CIRCULAR RING & SPHERES BALANCE */}
       <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-5">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold text-white tracking-tight">
-              Фокус: Среда
+              Фокус: {selectedDay} ({selectedDateStr})
             </h2>
             <p className="text-xs text-[#94a3b8]">Кольцо закрытия дня и баланс сфер</p>
           </div>
           <span className="text-xs font-bold bg-[#1e293b] text-white px-3 py-1 rounded-xl">
-            3/5 целей
+            {completedToday}/{totalHabits} целей
           </span>
         </div>
 
-        {/* Big Circular Progress Ring */}
         <div className="flex justify-center py-2">
           <div className="relative w-44 h-44 flex items-center justify-center">
             <svg className="w-full h-full transform -rotate-90" viewBox="0 0 160 160">
@@ -400,16 +400,16 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 cx="80"
                 cy="80"
                 r="64"
-                stroke="url(#ringGradient)"
+                stroke="url(#ringGradientDynamic)"
                 strokeWidth="12"
                 strokeDasharray={402}
-                strokeDashoffset={402 * (1 - 0.6)}
+                strokeDashoffset={402 * (1 - todayPercent / 100)}
                 strokeLinecap="round"
                 fill="transparent"
-                className="transition-all duration-1000 ease-out"
+                className="transition-all duration-700 ease-out"
               />
               <defs>
-                <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <linearGradient id="ringGradientDynamic" x1="0%" y1="0%" x2="100%" y2="100%">
                   <stop offset="0%" stopColor="#00d084" />
                   <stop offset="50%" stopColor="#06b6d4" />
                   <stop offset="100%" stopColor="#818cf8" />
@@ -417,7 +417,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               </defs>
             </svg>
             <div className="absolute flex flex-col items-center justify-center text-center">
-              <span className="text-3xl font-black text-white tracking-tight">60%</span>
+              <span className="text-3xl font-black text-white tracking-tight">{todayPercent}%</span>
               <span className="text-[11px] text-[#94a3b8] font-semibold uppercase tracking-wider">
                 Выполнено
               </span>
@@ -425,85 +425,38 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
         </div>
 
-        {/* Balance by Spheres */}
+        {/* Dynamic Balance by Spheres */}
         <div className="space-y-3 pt-2">
           <span className="text-[11px] font-bold text-[#94a3b8] uppercase tracking-wider block">
             БАЛАНС ПО СФЕРАМ ЗА НЕДЕЛЮ
           </span>
 
-          {/* 1. Спорт */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-2 text-zinc-200 font-semibold">
-                <Dumbbell className="w-4 h-4 text-[#00d084]" />
-                <span>Спорт</span>
+          {sphereStats.map(sph => {
+            const Icon = sph.icon;
+            return (
+              <div key={sph.key} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center space-x-2 text-zinc-200 font-semibold">
+                    <Icon className="w-4 h-4" style={{ color: sph.color }} />
+                    <span>{sph.label}</span>
+                  </div>
+                  <span className="text-zinc-400 font-medium text-xs">
+                    {sph.done}/{sph.total} ({sph.percent}%)
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-[#1b2338] rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${sph.percent}%`, backgroundColor: sph.color }}
+                  />
+                </div>
               </div>
-              <span className="text-zinc-400 font-medium text-xs">3/5 (60%)</span>
-            </div>
-            <div className="h-2 w-full bg-[#1b2338] rounded-full overflow-hidden">
-              <div className="h-full bg-[#00d084] rounded-full w-[60%]" />
-            </div>
-          </div>
-
-          {/* 2. Питание */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-2 text-zinc-200 font-semibold">
-                <Utensils className="w-4 h-4 text-[#f59e0b]" />
-                <span>Питание</span>
-              </div>
-              <span className="text-zinc-400 font-medium text-xs">3/7 (43%)</span>
-            </div>
-            <div className="h-2 w-full bg-[#1b2338] rounded-full overflow-hidden">
-              <div className="h-full bg-[#f59e0b] rounded-full w-[43%]" />
-            </div>
-          </div>
-
-          {/* 3. Учеба / Код */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-2 text-zinc-200 font-semibold">
-                <Code className="w-4 h-4 text-[#a855f7]" />
-                <span>Учеба / Код</span>
-              </div>
-              <span className="text-zinc-400 font-medium text-xs">3/6 (50%)</span>
-            </div>
-            <div className="h-2 w-full bg-[#1b2338] rounded-full overflow-hidden">
-              <div className="h-full bg-[#a855f7] rounded-full w-[50%]" />
-            </div>
-          </div>
-
-          {/* 4. Чтение */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-2 text-zinc-200 font-semibold">
-                <BookOpen className="w-4 h-4 text-[#06b6d4]" />
-                <span>Чтение</span>
-              </div>
-              <span className="text-zinc-400 font-medium text-xs">1/7 (14%)</span>
-            </div>
-            <div className="h-2 w-full bg-[#1b2338] rounded-full overflow-hidden">
-              <div className="h-full bg-[#06b6d4] rounded-full w-[14%]" />
-            </div>
-          </div>
-
-          {/* 5. Режим */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-2 text-zinc-200 font-semibold">
-                <Moon className="w-4 h-4 text-[#f43f5e]" />
-                <span>Режим</span>
-              </div>
-              <span className="text-zinc-400 font-medium text-xs">2/7 (29%)</span>
-            </div>
-            <div className="h-2 w-full bg-[#1b2338] rounded-full overflow-hidden">
-              <div className="h-full bg-[#f43f5e] rounded-full w-[29%]" />
-            </div>
-          </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* 4. HABIT & TARGET MATRIX (Matches Screenshot 3) */}
+      {/* 4. REAL DYNAMIC HABIT MATRIX */}
       <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-4">
         <div>
           <div className="flex items-center space-x-2">
@@ -524,7 +477,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             placeholder="Новая цель / тренировка (напр. Растяжка 15 мин)"
             value={newHabitTitle}
             onChange={(e) => setNewHabitTitle(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddHabit()}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddHabitSubmit()}
             className="flex-1 bg-[#0b0f19] border border-[#1e293b] rounded-2xl px-3.5 py-2 text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#00d084]"
           />
           <select
@@ -539,7 +492,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             <option value="Режим">Режим</option>
           </select>
           <button
-            onClick={handleAddHabit}
+            onClick={handleAddHabitSubmit}
             className="bg-[#00d084] hover:bg-[#00b572] active:scale-95 text-[#0b0f19] font-bold text-xs px-4 py-2 rounded-2xl transition-all flex items-center justify-center space-x-1.5 shadow-md shadow-[#00d084]/20"
           >
             <Plus className="w-4 h-4" />
@@ -547,10 +500,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </button>
         </div>
 
-        {/* Habits List (Matches Screenshot 3) */}
+        {/* Habits List */}
         <div className="space-y-3 pt-2">
           {habits.map((habit) => {
-            const allDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+            const isCheckedForSelectedDay = !!habit.history[selectedDateStr];
 
             return (
               <div
@@ -561,9 +514,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <button
-                      onClick={() => toggleHabitDay(habit.id, selectedDay)}
+                      onClick={() => onToggleHabit(habit.id, selectedDateStr)}
                       className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
-                        habit.days[selectedDay as keyof typeof habit.days]
+                        isCheckedForSelectedDay
                           ? 'bg-[#00d084] text-[#0b0f19] shadow-md shadow-[#00d084]/30'
                           : 'bg-[#1b2338] text-zinc-500 hover:text-white'
                       }`}
@@ -576,18 +529,16 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                         <span className="bg-[#1e293b] text-zinc-300 px-2 py-0.5 rounded-md font-medium">
                           {habit.category}
                         </span>
-                        <span>План: {habit.plan}</span>
+                        <span>План: {habit.target_days || 7} дн./нед</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-1.5 text-zinc-500">
-                    <button className="p-1 hover:text-white transition-colors">
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
                     <button
-                      onClick={() => setHabits(prev => prev.filter(h => h.id !== habit.id))}
+                      onClick={() => onDeleteHabit(habit.id)}
                       className="p-1 hover:text-[#f43f5e] transition-colors"
+                      title="Удалить"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -597,13 +548,14 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 {/* Day Buttons Grid (7 Days) */}
                 <div className="grid grid-cols-7 gap-1.5">
                   {allDays.map((d) => {
-                    const isChecked = !!habit.days[d as keyof typeof habit.days];
+                    const dateForDay = weekDates[d];
+                    const isChecked = !!habit.history[dateForDay];
                     const isSelectedDay = selectedDay === d;
 
                     return (
                       <button
                         key={d}
-                        onClick={() => toggleHabitDay(habit.id, d)}
+                        onClick={() => onToggleHabit(habit.id, dateForDay)}
                         className={`h-9 rounded-xl flex flex-col items-center justify-center text-xs font-bold transition-all ${
                           isChecked && isSelectedDay
                             ? 'bg-[#00d084] text-[#0b0f19] shadow-md shadow-[#00d084]/25 scale-[1.02]'
@@ -627,9 +579,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 <div className="flex items-center justify-between text-xs pt-1">
                   <div className="flex items-center space-x-1.5 bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/30 px-2.5 py-1 rounded-xl font-bold">
                     <Flame className="w-3.5 h-3.5 fill-[#f59e0b]" />
-                    <span>{habit.streak} дней</span>
+                    <span>
+                      {habit.current_streak > 0 ? `${habit.current_streak} дней` : '0 дней (старт)'}
+                    </span>
                   </div>
-                  <span className="text-[11px] text-[#64748b]">Рекорд: {habit.record} дн.</span>
+                  <span className="text-[11px] text-[#64748b]">
+                    Рекорд: {habit.record_streak || 0} дн.
+                  </span>
                 </div>
               </div>
             );

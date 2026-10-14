@@ -286,6 +286,12 @@ def get_system_instruction() -> str:
         weekdays_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
         today_weekday = weekdays_ru[now_gmt6.weekday()]
         current_time_str = now_gmt6.strftime("%H:%M")
+        habits_summary = ""
+        try:
+            from habits_manager import HabitsManager
+            habits_summary = HabitsManager().get_habits_ai_summary()
+        except Exception as he:
+            habits_summary = f"Данные привычек временно недоступны: {he}"
 
         instruction = f"""
 Ты — персональный спортивный тренер и нутрициолог для атлета со следующими параметрами:
@@ -301,6 +307,8 @@ def get_system_instruction() -> str:
 {weekly_nut_text}
   * Продукты, съеденные сегодня:
 {products_text}
+- Трекер привычек и целей атлета:
+{habits_summary}
 
 Отвечай четко, профессионально, с мотивацией, дружелюбно и строго научно (спортивная биомеханика, гипертрофия, восстановление, подсчет КБЖУ, доказательная база спортивного питания и добавок).
 Если атлет спрашивает про средние калории за неделю или что он ел, используй точные реальные цифры и названия продуктов из данных выше.

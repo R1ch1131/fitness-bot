@@ -114,3 +114,19 @@ export interface WeeklyResponse {
     tracked_days: number;
   };
 }
+
+export interface HabitItem {
+  id: string;
+  title: string;
+  category: string;
+  target_days: number;
+  history: Record<string, boolean>;
+  created_at: string;
+  current_streak: number;
+  record_streak: number;
+}
+
+export interface HabitsResponse {
+  habits: HabitItem[];
+  today_summary: string;
+}

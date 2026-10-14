@@ -15,8 +15,11 @@ from storage import Storage
 from analyzer import WorkoutAnalyzer
 from config import BASE_DIR, DATA_DIR, WORKOUTS_CACHE_FILE, ROUTINES_CACHE_FILE
 
+from habits_manager import HabitsManager
+
 # Initialize Coach singleton
 coach = AIHevyCoach(auto_sync=False)
+habits_mgr = HabitsManager()
 
 app = FastAPI(title="Hevy & YAZIO AI Coach PWA", version="1.0.0")
 
@@ -34,6 +37,20 @@ TZ_GMT6 = timezone(timedelta(hours=6))
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[Dict[str, str]]] = []
+
+class ToggleHabitRequest(BaseModel):
+    habit_id: str
+    date: str
+
+class CreateHabitRequest(BaseModel):
+    title: str
+    category: str
+    target_days: Optional[int] = 7
+
+class EditHabitRequest(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = None
+    target_days: Optional[int] = None
 
 @app.get("/api/health")
 @app.get("/health")
@@ -243,9 +260,50 @@ def sync_data():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/habits")
+def get_habits():
+    """Returns active habits with dynamic consecutive streaks and history."""
+    return {
+        "habits": habits_mgr.get_habits(),
+        "today_summary": habits_mgr.get_habits_ai_summary()
+    }
+
+@app.post("/api/habits/toggle")
+def toggle_habit(req: ToggleHabitRequest):
+    """Toggles completion of habit for given date and updates streak."""
+    try:
+        updated = habits_mgr.toggle_day(req.habit_id, req.date)
+        return {"status": "ok", "habit": updated, "habits": habits_mgr.get_habits()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/habits")
+def create_habit(req: CreateHabitRequest):
+    """Creates a new habit in tracker."""
+    try:
+        h = habits_mgr.add_habit(req.title, req.category, req.target_days or 7)
+        return {"status": "ok", "habit": h, "habits": habits_mgr.get_habits()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/habits/{habit_id}")
+def delete_habit(habit_id: str):
+    """Deletes habit from tracker."""
+    habits_mgr.delete_habit(habit_id)
+    return {"status": "ok", "habits": habits_mgr.get_habits()}
+
+@app.put("/api/habits/{habit_id}")
+def edit_habit(habit_id: str, req: EditHabitRequest):
+    """Edits habit details."""
+    try:
+        h = habits_mgr.edit_habit(habit_id, req.title, req.category, req.target_days)
+        return {"status": "ok", "habit": h, "habits": habits_mgr.get_habits()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.post("/api/chat")
 def chat_with_coach(req: ChatRequest):
-    """Processes messages to AI coach with full real-time athlete context."""
+    """Processes messages to AI coach with full real-time athlete context and habits."""
     user_msg = req.message.strip()
     if not user_msg:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
@@ -263,9 +321,18 @@ def chat_with_coach(req: ChatRequest):
     except Exception as e:
         instruction = f"Ты — персональный спортивный тренер и нутрициолог. Текущая дата: {today_str} ({today_weekday}), {time_str} GMT+6."
 
+    habits_context = habits_mgr.get_habits_ai_summary()
+    full_prompt = (
+        f"{instruction}\n\n"
+        f"📊 ТЕКУЩИЙ СТАТУС ПРИВЫЧЕК И ЦЕЛЕЙ АТЛЕТА:\n"
+        f"{habits_context}\n\n"
+        f"Пользователь в веб-приложении пишет: {user_msg}\n\n"
+        f"У тебя есть полный доступ ко всем привычкам, тренировкам Hevy и питанию YAZIO. "
+        f"Отвечай структурированно, энергично, поддерживай стрики, тактично напоминай о незакрытых целях дня и давай полезные советы."
+    )
+
     try:
         # Generate response using Gemini client
-        full_prompt = f"{instruction}\n\nПользователь в веб-приложении спрашивает: {user_msg}\n\nОтветь четко, структурированно, дружелюбно, по-спортивному."
         ai_reply = coach.gemini.ask(full_prompt)
         return {"reply": ai_reply}
     except Exception as e:
