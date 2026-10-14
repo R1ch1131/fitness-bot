@@ -29,6 +29,10 @@ class LogInterceptor:
             self.original.flush()
         except Exception:
             pass
+    def isatty(self):
+        return getattr(self.original, "isatty", lambda: False)()
+    def __getattr__(self, name):
+        return getattr(self.original, name)
 
 sys.stdout = LogInterceptor(sys.stdout)
 sys.stderr = LogInterceptor(sys.stderr)
@@ -731,7 +735,7 @@ def run_health_server(bot=None):
             import uvicorn
             from api import app
             print(f"🌐 Запуск FastAPI PWA веб-сервера на порту {port}...")
-            uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+            uvicorn.run(app, host="0.0.0.0", port=port, log_config=None)
         except Exception as e:
             print(f"FastAPI server note ({e}), falling back to basic HTTP...")
             try:
