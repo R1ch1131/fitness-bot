@@ -12,7 +12,7 @@ export interface CheckinNotificationData {
 
 interface WorkoutCheckinToastProps {
   notification: CheckinNotificationData | null;
-  onOpenChat: (prompt: string) => void;
+  onOpenChat: () => void;
   onDismiss: () => void;
 }
 
@@ -65,7 +65,7 @@ export const WorkoutCheckinToast: React.FC<WorkoutCheckinToastProps> = ({
 
         <div className="flex items-center space-x-2 pt-1 relative z-10">
           <button
-            onClick={() => onOpenChat(notification.prompt)}
+            onClick={onOpenChat}
             className="flex-1 bg-[#00d084] hover:bg-[#00b572] active:scale-95 text-[#0b0f19] font-bold text-xs px-4 py-2.5 rounded-2xl transition-all flex items-center justify-center space-x-2 shadow-lg shadow-[#00d084]/20"
           >
             <Flame className="w-4 h-4 fill-[#0b0f19]" />

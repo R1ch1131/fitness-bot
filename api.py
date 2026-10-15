@@ -419,10 +419,53 @@ def chat_with_coach(req: ChatRequest):
 
     try:
         from bot import ask_gemini_ai
-        ai_reply = ask_gemini_ai(user_msg, force_llm=True)
+        ai_reply = ask_gemini_ai(user_msg, force_llm=True, history=req.history)
         return {"reply": ai_reply}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
+
+CHAT_HISTORY_FILE = "chat_history.json"
+
+@app.get("/api/chat/history")
+def get_chat_history():
+    """Returns stored chat messages from Upstash Redis or local storage."""
+    try:
+        from cloud_storage import get_cloud_data, is_cloud_configured
+        if is_cloud_configured():
+            cloud_h = get_cloud_data("athlete_chat_history")
+            if cloud_h is not None and isinstance(cloud_h, list):
+                return {"messages": cloud_h}
+    except Exception as ce:
+        print(f"Cloud chat history read note: {ce}")
+
+    if os.path.exists(CHAT_HISTORY_FILE):
+        try:
+            with open(CHAT_HISTORY_FILE, "r", encoding="utf-8") as f:
+                return {"messages": json.load(f)}
+        except Exception:
+            pass
+    return {"messages": []}
+
+@app.post("/api/chat/history")
+def save_chat_history(req: Dict[str, Any]):
+    """Saves updated chat history to Upstash Redis and local file."""
+    messages = req.get("messages", [])
+    if isinstance(messages, list):
+        # Keep last 100 messages to prevent excessive storage
+        trimmed = messages[-100:]
+        try:
+            from cloud_storage import set_cloud_data, is_cloud_configured
+            if is_cloud_configured():
+                set_cloud_data("athlete_chat_history", trimmed)
+        except Exception as ce:
+            print(f"Cloud chat history write note: {ce}")
+
+        try:
+            with open(CHAT_HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(trimmed, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Save local chat history note: {e}")
+    return {"status": "ok"}
 
 # ==================== NOTIFICATIONS ENDPOINTS ====================
 

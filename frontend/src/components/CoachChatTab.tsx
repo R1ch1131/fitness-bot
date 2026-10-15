@@ -1,29 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Zap, User } from 'lucide-react';
+import { Send, Zap, User, Trash2 } from 'lucide-react';
 import type { ChatMessage } from '../types';
 
 interface CoachChatTabProps {
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onSendMessage: (msg: string) => Promise<string>;
+  onClearHistory: () => void;
   initialPrompt?: string | null;
   onClearInitialPrompt?: () => void;
 }
 
 export const CoachChatTab: React.FC<CoachChatTabProps> = ({
+  messages,
+  setMessages,
   onSendMessage,
+  onClearHistory,
   initialPrompt,
   onClearInitialPrompt,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: '1',
-      sender: 'coach',
-      text: 'Привет, бро! 💪 Я твой персональный AI-тренер и нутрициолог. Вижу все твои подходы в Hevy и каждый грамм в YAZIO. Спрашивай что угодно: разбор рациона, технику упражнений, восстановление или рецепты!',
-      timestamp: 'Сейчас',
-    },
-  ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const quickPrompts = [
     '🍳 Что съесть на ужин (400 ккал)?',
@@ -45,8 +44,9 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
 
   useEffect(() => {
     if (initialPrompt && initialPrompt.trim()) {
-      handleSend(initialPrompt.trim());
+      setInput(initialPrompt.trim());
       onClearInitialPrompt?.();
+      inputRef.current?.focus();
     }
   }, [initialPrompt]);
 
@@ -89,6 +89,27 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 w-full max-w-4xl mx-auto px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))]">
+      {/* Top Header Bar for Chat */}
+      <div className="flex items-center justify-between px-1 py-1.5 border-b border-[#1e293b]/60 shrink-0">
+        <div className="flex items-center space-x-2">
+          <span className="w-2 h-2 rounded-full bg-[#00d084] animate-pulse" />
+          <span className="text-xs font-semibold text-zinc-300">Диалог с тренером</span>
+          {messages.length > 1 && (
+            <span className="text-[10px] text-[#64748b]">({messages.length} сообщ.)</span>
+          )}
+        </div>
+        {messages.length > 1 && (
+          <button
+            onClick={onClearHistory}
+            title="Очистить историю сообщений"
+            className="flex items-center space-x-1 text-[11px] text-[#64748b] hover:text-rose-400 active:scale-95 transition-all px-2 py-0.5 rounded-lg hover:bg-rose-500/10"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Очистить</span>
+          </button>
+        )}
+      </div>
+
       {/* Messages Scroll Area */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-2 overscroll-contain">
         {messages.map((m) => {
@@ -141,7 +162,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
       </div>
 
       {/* Quick Prompts Chips */}
-      <div className="flex items-center space-x-2 overflow-x-auto py-2 no-scrollbar">
+      <div className="flex items-center space-x-2 overflow-x-auto py-2 no-scrollbar shrink-0">
         {quickPrompts.map((q, idx) => (
           <button
             key={idx}
@@ -155,7 +176,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
       </div>
 
       {/* Input Bar */}
-      <div className="pt-1">
+      <div className="pt-1 shrink-0">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -164,6 +185,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
           className="flex items-center space-x-2 bg-[#111726] border border-[#1e293b] p-1.5 rounded-2xl focus-within:border-[#00d084] transition-all"
         >
           <input
+            ref={inputRef}
             type="text"
             placeholder="Спроси тренера о питании или тренировках..."
             value={input}

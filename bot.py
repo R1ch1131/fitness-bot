@@ -349,8 +349,8 @@ def get_system_instruction() -> str:
         print(f"Error building system instruction: {e}")
         return _context_cache["instruction"] or "Ты — персональный спортивный тренер атлета."
 
-def ask_gemini_ai(user_question: str, force_llm: bool = False) -> str:
-    """Uses Gemini API with cascaded model fallbacks and robust error handling."""
+def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """Uses Gemini API with cascaded model fallbacks, multi-turn history context, and robust error handling."""
     q_lower = user_question.lower().strip()
 
     # If force_llm is True or if the user asks a real question/conversational prompt, skip fast-path shortcuts!
@@ -395,11 +395,23 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False) -> str:
             )
             system_instruction = get_system_instruction()
 
+            contents_text = f"Вопрос атлета: {user_question}"
+            if history and isinstance(history, list):
+                valid_turns = []
+                for t in history[-6:]:
+                    role = "Атлет" if t.get("role") in ["user", "athlete"] or t.get("sender") == "user" else "Тренер"
+                    text_val = (t.get("text") or "").strip()
+                    if text_val:
+                        valid_turns.append(f"{role}: {text_val}")
+                if valid_turns:
+                    history_context = "\n".join(valid_turns)
+                    contents_text = f"Контекст последних сообщений диалога:\n{history_context}\n\nНовый вопрос атлета: {user_question}"
+
             for model_name in MODELS_CASCADE:
                 try:
                     response = client.models.generate_content(
                         model=model_name,
-                        contents=f"Вопрос атлета: {user_question}",
+                        contents=contents_text,
                         config={"system_instruction": system_instruction}
                     )
                     if response and response.text:

@@ -9,7 +9,7 @@ import { WeeklyTab } from './components/WeeklyTab';
 import { LibraryTab } from './components/LibraryTab';
 import { WorkoutCheckinToast } from './components/WorkoutCheckinToast';
 import type { CheckinNotificationData } from './components/WorkoutCheckinToast';
-import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem, BookItem, BooksResponse } from './types';
+import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem, BookItem, BooksResponse, ChatMessage } from './types';
 
 // Compute accurate GMT+6 (UTC+6) date, day of week key ('Пн'..'Вс'), and Monday-Sunday week dates
 function getGMT6Info(): { dateStr: string; dateFormatted: string; dayKey: string; weekdayLong: string; weekDates: Record<string, string> } {
@@ -70,6 +70,84 @@ export const App: React.FC = () => {
   );
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | null>(null);
+
+  const DEFAULT_COACH_GREETING: ChatMessage = {
+    id: '1',
+    sender: 'coach',
+    text: 'Привет, бро! 💪 Я твой персональный AI-тренер и нутрициолог. Вижу все твои подходы в Hevy и каждый грамм в YAZIO. Спрашивай что угодно: разбор рациона, технику упражнений, восстановление или рецепты!',
+    timestamp: 'Сейчас',
+  };
+  const CHAT_STORAGE_KEY = 'fitpulse_coach_chat_history_v1';
+
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {
+        console.warn('Load chat history error:', e);
+      }
+    }
+    return [DEFAULT_COACH_GREETING];
+  });
+
+  const handleOpenCheckinChat = () => {
+    setCheckinToast(null);
+    setChatInitialPrompt(null);
+    setCurrentTab('chat');
+  };
+
+  const handleClearChatHistory = () => {
+    setChatMessages([DEFAULT_COACH_GREETING]);
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([DEFAULT_COACH_GREETING]));
+      fetch('/api/chat/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [DEFAULT_COACH_GREETING] }),
+      }).catch(() => {});
+    } catch (e) {}
+  };
+
+  // Sync chat messages to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages));
+      } catch (e) {
+        console.warn('Save chat history error:', e);
+      }
+    }
+  }, [chatMessages]);
+
+  // Load chat history from cloud/backend if local only has default greeting
+  useEffect(() => {
+    fetch('/api/chat/history')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+          setChatMessages((prev) => (prev.length <= 1 ? data.messages : prev));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Debounced backup of chat history to cloud
+  useEffect(() => {
+    if (chatMessages.length > 1) {
+      const timer = setTimeout(() => {
+        fetch('/api/chat/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: chatMessages }),
+        }).catch(() => {});
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [chatMessages]);
 
   // 1. Fetch Dashboard data
   const loadDashboard = async () => {
@@ -187,9 +265,8 @@ export const App: React.FC = () => {
         console.log('SW register note:', err);
       });
       navigator.serviceWorker.addEventListener('message', (event) => {
-        if (event.data?.type === 'OPEN_CHAT_CHECKIN' && event.data?.prompt) {
-          setCurrentTab('chat');
-          handleSendMessage(event.data.prompt);
+        if (event.data?.type === 'OPEN_CHAT_CHECKIN') {
+          handleOpenCheckinChat();
         }
       });
     }
@@ -213,10 +290,7 @@ export const App: React.FC = () => {
         const n = new Notification(title, { body, icon: '/icon-192.png' });
         n.onclick = () => {
           window.focus();
-          if (prompt) {
-            setCurrentTab('chat');
-            handleSendMessage(prompt);
-          }
+          handleOpenCheckinChat();
         };
       }
     } catch (err) {
@@ -278,12 +352,6 @@ export const App: React.FC = () => {
     } catch (e) {
       console.error('Test notification trigger error', e);
     }
-  };
-
-  const handleOpenCheckinChat = (prompt: string) => {
-    setCheckinToast(null);
-    setChatInitialPrompt(prompt);
-    setCurrentTab('chat');
   };
 
   useEffect(() => {
@@ -488,10 +556,15 @@ export const App: React.FC = () => {
 
   const handleSendMessage = async (msg: string): Promise<string> => {
     try {
+      const historyContext = chatMessages.slice(-6).map((m) => ({
+        role: m.sender === 'user' ? 'user' : 'model',
+        text: m.text,
+      }));
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, history: historyContext }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -576,7 +649,10 @@ export const App: React.FC = () => {
 
         {currentTab === 'chat' && (
           <CoachChatTab
+            messages={chatMessages}
+            setMessages={setChatMessages}
             onSendMessage={handleSendMessage}
+            onClearHistory={handleClearChatHistory}
             initialPrompt={chatInitialPrompt}
             onClearInitialPrompt={() => setChatInitialPrompt(null)}
           />
