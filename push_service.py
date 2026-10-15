@@ -162,6 +162,7 @@ def send_push_notification(
 
     keys = get_or_create_vapid_keys()
     priv_pem = keys["private_pem"]
+    v = Vapid.from_pem(priv_pem.encode("utf-8"))
 
     payload = json.dumps({
         "title": title,
@@ -181,7 +182,7 @@ def send_push_notification(
             webpush(
                 subscription_info=sub,
                 data=payload,
-                vapid_private_key=priv_pem,
+                vapid_private_key=v,
                 vapid_claims={"sub": "mailto:athlete@fitpulse.app"},
                 ttl=3600
             )

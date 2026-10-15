@@ -351,7 +351,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.should_notify && data.notification) {
-          showNativeNotification(data.notification.title, data.notification.body, data.notification.prompt);
+          // Display sleek in-app banner under Dynamic Island
           setCheckinToast(data.notification);
           await fetch('/api/notifications/ack', { method: 'POST' });
         } else if (data.pending && !data.is_due && data.seconds_left > 0) {

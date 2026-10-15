@@ -690,22 +690,7 @@ def check_for_new_workouts_and_sync(bot):
             save_pending_checkin(new_pending)
             tracker["last_prompted_id"] = w_id
             save_workout_tracker(tracker)
-
-            # If newly detected, notify subscribers that sync occurred
-            if is_new:
-                mins_left = max(0, int((target_due - now_ts) / 60))
-                time_hint = f"Примерно через *{mins_left} мин.* я пришлю опрос о твоем самочувствии" if mins_left > 0 else "Через несколько секунд я пришлю опрос о твоем самочувствии"
-                msg_text = (
-                    f"🔄 *Авто-синхронизация Hevy:* зафиксирована новая тренировка!\n\n"
-                    f"🏋️‍♂️ *{w_title}*\n"
-                    f"Все упражнения, подходы и веса сохранены в базу.\n\n"
-                    f"⏳ {time_hint}, чтобы разобрать нагрузку и восстановление! 💪"
-                )
-                for cid in get_all_subscribers():
-                    try:
-                        bot.send_message(cid, msg_text, parse_mode="Markdown")
-                    except Exception as err:
-                        print(f"Не удалось отправить уведомление об автосинхронизации в {cid}: {err}")
+            print(f"⏰ Запланирован опрос о тренировке «{w_title}» (целевое время: {target_due})")
 
     except Exception as e:
         print(f"Error in check_for_new_workouts_and_sync: {e}")
