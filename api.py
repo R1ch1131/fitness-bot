@@ -532,9 +532,22 @@ def ack_notification():
         return {"status": "error", "error": str(e)}
     return {"status": "ok"}
 
+@app.get("/api/notifications/vapid_key")
+def get_vapid_key():
+    """Returns public VAPID key for browser Web Push subscription."""
+    from push_service import get_public_vapid_key
+    return {"public_key": get_public_vapid_key()}
+
+@app.post("/api/notifications/subscribe")
+def subscribe_push(req: Dict[str, Any]):
+    """Registers browser Web Push subscription (APNs on iOS)."""
+    from push_service import add_subscription
+    success = add_subscription(req)
+    return {"status": "ok" if success else "error"}
+
 @app.post("/api/notifications/test_checkin")
 def trigger_test_checkin(delay_seconds: int = 3):
-    """Triggers or schedules a test 20-min checkin prompt for debugging/testing in PWA."""
+    """Triggers or schedules a test 20-min checkin prompt for debugging/testing in PWA and sends real Web Push."""
     try:
         from bot import save_pending_checkin
         w_title = "Жим лежа (Грудь/Трицепс)"
@@ -552,6 +565,22 @@ def trigger_test_checkin(delay_seconds: int = 3):
             "responded": False
         }
         save_pending_checkin(new_pending)
+
+        # Trigger background real Web Push via APNs after delay_seconds
+        def async_push_worker():
+            time.sleep(max(1, delay_seconds))
+            try:
+                from push_service import send_push_notification
+                send_push_notification(
+                    title="Ну чё, как тренировка? 💪",
+                    body=f"Прошло 20 минут после «{w_title}». Самое время зафиксировать ощущения!",
+                    url="/?tab=chat"
+                )
+            except Exception as pe:
+                print(f"[Push] Test async push note: {pe}")
+
+        threading.Thread(target=async_push_worker, daemon=True).start()
+
         return {
             "status": "ok",
             "message": f"Тестовое уведомление «Ну чё, как тренировка?» запланировано через {delay_seconds} сек.",

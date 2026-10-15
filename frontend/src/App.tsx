@@ -258,10 +258,57 @@ export const App: React.FC = () => {
     }
   };
 
+  function urlB64ToUint8Array(base64String: string) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  const subscribeToWebPush = async () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return;
+    }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg) return;
+
+      const res = await fetch('/api/notifications/vapid_key');
+      if (!res.ok) return;
+      const { public_key } = await res.json();
+      if (!public_key) return;
+
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlB64ToUint8Array(public_key),
+        });
+      }
+
+      await fetch('/api/notifications/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      console.log('[Web Push] Subscribed successfully');
+    } catch (err) {
+      console.warn('[Web Push] Subscription note:', err);
+    }
+  };
+
   // Register Service Worker for notifications
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
+      navigator.serviceWorker.register('/sw.js').then(() => {
+        if ('Notification' in window && Notification.permission === 'granted') {
+          subscribeToWebPush();
+        }
+      }).catch((err) => {
         console.log('SW register note:', err);
       });
       navigator.serviceWorker.addEventListener('message', (event) => {
@@ -327,6 +374,7 @@ export const App: React.FC = () => {
         const perm = await Notification.requestPermission();
         setNotificationPermission(perm);
         if (perm === 'granted') {
+          await subscribeToWebPush();
           showNativeNotification(
             'Уведомления включены! 🔔',
             'Теперь приложение пришлет «Ну чё, как тренировка?» через 20 минут после зала.'
@@ -340,11 +388,13 @@ export const App: React.FC = () => {
 
   const handleTestNotification = async () => {
     try {
+      if (notificationPermission !== 'granted') {
+        await handleRequestNotificationPermission();
+      } else {
+        await subscribeToWebPush();
+      }
       const res = await fetch('/api/notifications/test_checkin?delay_seconds=3', { method: 'POST' });
       if (res.ok) {
-        if (notificationPermission !== 'granted') {
-          await handleRequestNotificationPermission();
-        }
         setTimeout(() => {
           checkWorkoutNotifications();
         }, 3500);

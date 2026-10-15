@@ -588,6 +588,17 @@ def dispatch_checkin_if_due(bot, target_chat_id: Optional[int] = None):
             pending["prompt_sent"] = True
             pending["prompt_sent_time"] = time.time()
             save_pending_checkin(pending)
+
+        # Dispatch real Web Push to iPhone/PWA subscribers (works in background)
+        try:
+            from push_service import send_push_notification
+            send_push_notification(
+                title="Ну чё, как тренировка? 💪",
+                body=f"Прошло 20 минут после «{w_title}». Самое время зафиксировать ощущения!",
+                url="/?tab=chat"
+            )
+        except Exception as pe:
+            print(f"Error dispatching Web Push in bot: {pe}")
     except Exception as e:
         print(f"Error in dispatch_checkin_if_due: {e}")
 
