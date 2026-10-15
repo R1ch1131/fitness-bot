@@ -62,8 +62,11 @@ export interface UserProfile {
 
 export interface DashboardData {
   date: string;
+  date_formatted?: string;
   weekday: string;
+  weekday_short?: string;
   time: string;
+  week_dates?: Record<string, string>;
   nutrition: NutritionData;
   workout: WorkoutStatus;
   profile: UserProfile;

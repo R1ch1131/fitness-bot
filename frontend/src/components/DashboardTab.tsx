@@ -17,6 +17,7 @@ import type { DashboardData, HabitItem } from '../types';
 interface DashboardTabProps {
   data: DashboardData | null;
   selectedDay: string;
+  todayKey?: string;
   habits: HabitItem[];
   weekDates: Record<string, string>;
   onToggleHabit: (habitId: string, dateStr: string) => void;
@@ -29,6 +30,7 @@ interface DashboardTabProps {
 export const DashboardTab: React.FC<DashboardTabProps> = ({
   data,
   selectedDay,
+  todayKey = 'Чт',
   habits,
   weekDates,
   onToggleHabit,
@@ -112,14 +114,19 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     <div className="space-y-4 pb-28 px-3 pt-3 max-w-5xl mx-auto">
       {/* 1. TOP 4 KPI METRIC CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Card 1: Сегодня */}
+        {/* Card 1: Сегодня / Фокус дня */}
         <div 
-          onClick={() => onOpenChat(`Как успехи по целям на сегодня (${selectedDay})?`)}
+          onClick={() => onOpenChat(selectedDay === todayKey ? `Как успехи по целям на сегодня (${todayKey})?` : `Как успехи по целям на день (${selectedDay})?`)}
           className="bg-[#111726] border border-[#1e293b] hover:border-[#00d084]/40 cursor-pointer rounded-3xl p-4 flex flex-col justify-between shadow-lg relative overflow-hidden transition-all"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-[#94a3b8] uppercase tracking-wider">
-              📅 Сегодня ({selectedDay})
+            <span className="text-[11px] font-semibold text-[#94a3b8] uppercase tracking-wider flex items-center space-x-1.5">
+              <span>📅 {selectedDay === todayKey ? `Сегодня (${todayKey})` : `Фокус: ${selectedDay}`}</span>
+              {selectedDay !== todayKey && (
+                <span className="text-[9px] bg-[#1e293b] text-[#00d084] border border-[#00d084]/30 px-1.5 py-0.5 rounded font-bold">
+                  (Сегодня: {todayKey})
+                </span>
+              )}
             </span>
             <div className="w-8 h-8 rounded-xl bg-[#00d084]/10 border border-[#00d084]/20 flex items-center justify-center text-[#00d084]">
               <CheckCircle2 className="w-4 h-4" />
@@ -375,8 +382,14 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-bold text-white tracking-tight">
-              Фокус: {selectedDay} ({selectedDateStr})
+            <h2 className="text-base font-bold text-white tracking-tight flex items-center space-x-2">
+              <span>Фокус: {selectedDay}</span>
+              <span className="text-xs text-[#94a3b8] font-normal">({selectedDateStr})</span>
+              {selectedDay === todayKey && (
+                <span className="text-[10px] font-bold bg-[#00d084]/20 text-[#00d084] border border-[#00d084]/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Сегодня
+                </span>
+              )}
             </h2>
             <p className="text-xs text-[#94a3b8]">Кольцо закрытия дня и баланс сфер</p>
           </div>
@@ -551,24 +564,35 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     const dateForDay = weekDates[d];
                     const isChecked = !!habit.history[dateForDay];
                     const isSelectedDay = selectedDay === d;
+                    const isToday = d === todayKey;
 
                     return (
                       <button
                         key={d}
                         onClick={() => onToggleHabit(habit.id, dateForDay)}
-                        className={`h-9 rounded-xl flex flex-col items-center justify-center text-xs font-bold transition-all ${
+                        title={isToday ? `${d} (Сегодня)` : d}
+                        className={`relative h-9 rounded-xl flex flex-col items-center justify-center text-xs font-bold transition-all ${
                           isChecked && isSelectedDay
                             ? 'bg-[#00d084] text-[#0b0f19] shadow-md shadow-[#00d084]/25 scale-[1.02]'
                             : isChecked
                             ? 'bg-[#25224d] text-[#c7d2fe] border border-[#4338ca]/40'
+                            : isSelectedDay
+                            ? 'bg-[#1b2338] text-white border border-[#00d084]/40'
                             : 'bg-[#111726] text-[#64748b] hover:text-white hover:bg-[#1b2338]'
-                        }`}
+                        } ${isToday && !isSelectedDay ? 'ring-1 ring-[#00d084]/40' : ''}`}
                       >
                         <span className="text-[10px] opacity-75">{d}</span>
                         {isChecked ? (
                           <span className="text-xs">✓</span>
                         ) : (
                           <span className="text-[10px] opacity-30">•</span>
+                        )}
+                        {isToday && (
+                          <span
+                            className={`absolute bottom-0.5 w-1 h-1 rounded-full ${
+                              isChecked && isSelectedDay ? 'bg-[#0b0f19]' : 'bg-[#00d084]'
+                            }`}
+                          />
                         )}
                       </button>
                     );

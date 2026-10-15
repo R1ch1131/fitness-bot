@@ -231,10 +231,21 @@ def get_dashboard():
     except Exception as e:
         print(f"Weight history fetch error: {e}")
 
+    weekdays_short = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    today_weekday_short = weekdays_short[now_gmt6.weekday()]
+    monday = today_date - timedelta(days=now_gmt6.weekday())
+    week_dates = {
+        weekdays_short[i]: (monday + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(7)
+    }
+
     return {
         "date": today_date.strftime("%Y-%m-%d"),
+        "date_formatted": today_date.strftime("%d.%m.%Y"),
         "weekday": today_weekday,
+        "weekday_short": today_weekday_short,
         "time": now_gmt6.strftime("%H:%M"),
+        "week_dates": week_dates,
         "nutrition": nutrition_data,
         "workout": workout_data,
         "profile": profile_data

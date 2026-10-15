@@ -9,16 +9,21 @@ import { WeeklyTab } from './components/WeeklyTab';
 import { LibraryTab } from './components/LibraryTab';
 import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem, BookItem, BooksResponse } from './types';
 
-// Compute current week's Monday - Sunday dates (YYYY-MM-DD)
-function getWeekDates(): Record<string, string> {
+// Compute accurate GMT+6 (UTC+6) date, day of week key ('Пн'..'Вс'), and Monday-Sunday week dates
+function getGMT6Info(): { dateStr: string; dateFormatted: string; dayKey: string; weekdayLong: string; weekDates: Record<string, string> } {
   const now = new Date();
-  const day = now.getDay(); // 0 is Sunday, 1 is Monday...
+  // Timezone offset is in minutes. Convert client device time to UTC, then shift by +6 hours for GMT+6
+  const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const gmt6 = new Date(utcMs + (6 * 3600000));
+
+  const day = gmt6.getDay(); // 0 is Sunday, 1 is Monday...
   const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMonday);
+  const monday = new Date(gmt6);
+  monday.setDate(gmt6.getDate() + diffToMonday);
 
   const daysMap: Record<string, string> = {};
   const dayKeys = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const dayNamesLong = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
   dayKeys.forEach((key, idx) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + idx);
@@ -27,12 +32,29 @@ function getWeekDates(): Record<string, string> {
     const dateStr = String(d.getDate()).padStart(2, '0');
     daysMap[key] = `${year}-${month}-${dateStr}`;
   });
-  return daysMap;
+
+  const dayIndex = day === 0 ? 6 : day - 1;
+  const dayKey = dayKeys[dayIndex] || 'Чт';
+  const weekdayLong = dayNamesLong[dayIndex] || 'Четверг';
+  const year = gmt6.getFullYear();
+  const month = String(gmt6.getMonth() + 1).padStart(2, '0');
+  const dateStr = String(gmt6.getDate()).padStart(2, '0');
+
+  return {
+    dateStr: `${year}-${month}-${dateStr}`,
+    dateFormatted: `${dateStr}.${month}.${year}`,
+    dayKey,
+    weekdayLong,
+    weekDates: daysMap
+  };
 }
 
 export const App: React.FC = () => {
+  const initialGmt6 = getGMT6Info();
   const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
-  const [selectedDay, setSelectedDay] = useState<string>('Ср');
+  const [todayKey, setTodayKey] = useState<string>(initialGmt6.dayKey);
+  const [selectedDay, setSelectedDay] = useState<string>(initialGmt6.dayKey);
+  const [weekDates, setWeekDates] = useState<Record<string, string>>(initialGmt6.weekDates);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -42,15 +64,21 @@ export const App: React.FC = () => {
   const [booksData, setBooksData] = useState<BooksResponse | null>(null);
   const [isBooksLoading, setIsBooksLoading] = useState<boolean>(false);
 
-  const weekDates = getWeekDates();
-
   // 1. Fetch Dashboard data
   const loadDashboard = async () => {
     try {
       const res = await fetch('/api/dashboard');
       if (res.ok) {
-        const data = await res.json();
+        const data: DashboardData = await res.json();
         setDashboardData(data);
+        if (data.weekday_short) {
+          setTodayKey(data.weekday_short);
+          // If selectedDay is currently pointing to initial day or default 'Ср', align to today
+          setSelectedDay((prev) => (prev === 'Ср' || prev === initialGmt6.dayKey ? data.weekday_short! : prev));
+        }
+        if (data.week_dates) {
+          setWeekDates(data.week_dates);
+        }
       }
     } catch (err) {
       console.warn('Dashboard fetch offline', err);
@@ -151,6 +179,27 @@ export const App: React.FC = () => {
     loadWeekly();
     loadHabits();
     loadBooks();
+
+    // Check for day rollover every minute and when window/tab is focused
+    const checkDayRollover = () => {
+      const latest = getGMT6Info();
+      setTodayKey(latest.dayKey);
+    };
+
+    const interval = setInterval(checkDayRollover, 60000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkDayRollover();
+        loadDashboard();
+        loadHabits();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   // Habit Actions
@@ -347,6 +396,11 @@ export const App: React.FC = () => {
         onTabChange={setCurrentTab}
         selectedDay={selectedDay}
         onSelectDay={setSelectedDay}
+        todayKey={todayKey}
+        dateFormatted={dashboardData?.date_formatted || initialGmt6.dateFormatted}
+        weekdayName={dashboardData?.weekday || initialGmt6.weekdayLong}
+        weekDates={weekDates}
+        habits={habits}
         isSyncing={isSyncing}
         onSync={handleSync}
       />
@@ -357,6 +411,7 @@ export const App: React.FC = () => {
           <DashboardTab
             data={dashboardData}
             selectedDay={selectedDay}
+            todayKey={todayKey}
             habits={habits}
             weekDates={weekDates}
             onToggleHabit={handleToggleHabit}
