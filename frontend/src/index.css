@@ -30,6 +30,14 @@
 .pb-safe {
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 24px);
 }
+.top-safe-toast {
+  top: calc(max(env(safe-area-inset-top, 0px), 54px) + 10px);
+}
+@media (min-width: 640px) {
+  .top-safe-toast {
+    top: 1.25rem;
+  }
+}
 
 /* Custom sleek scrollbars */
 ::-webkit-scrollbar {
