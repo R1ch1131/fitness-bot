@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, RefreshCw, LayoutDashboard, Dumbbell, BookOpen, MessageSquare, Calendar } from 'lucide-react';
+import { Zap, RefreshCw, LayoutDashboard, Dumbbell, BookOpen, MessageSquare, Calendar, Bell, BellRing } from 'lucide-react';
 import type { TabType } from './BottomNav';
 import type { HabitItem } from '../types';
 
@@ -13,6 +13,9 @@ interface HeaderProps {
   weekdayName?: string;
   weekDates?: Record<string, string>;
   habits?: HabitItem[];
+  notificationPermission?: NotificationPermission;
+  onRequestNotificationPermission?: () => void;
+  onTestNotification?: () => void;
   isSyncing: boolean;
   onSync: () => void;
   weightInfo?: { current: number; lost: number };
@@ -28,6 +31,9 @@ export const Header: React.FC<HeaderProps> = ({
   weekdayName,
   weekDates,
   habits,
+  notificationPermission,
+  onRequestNotificationPermission,
+  onTestNotification,
   isSyncing,
   onSync,
 }) => {
@@ -108,14 +114,42 @@ export const Header: React.FC<HeaderProps> = ({
           })}
         </div>
 
-        {/* Sync Button */}
-        <button
-          onClick={onSync}
-          disabled={isSyncing}
-          className="w-9 h-9 rounded-2xl bg-[#111726] border border-[#1e293b] flex items-center justify-center text-[#94a3b8] hover:text-white hover:border-[#00d084]/50 active:scale-95 transition-all"
-        >
-          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-[#00d084]' : ''}`} />
-        </button>
+        {/* Action Buttons: Notification Bell + Sync Button */}
+        <div className="flex items-center space-x-1.5">
+          {onRequestNotificationPermission && (
+            <button
+              onClick={notificationPermission === 'granted' ? onTestNotification : onRequestNotificationPermission}
+              title={
+                notificationPermission === 'granted'
+                  ? 'Уведомления включены (кликните для теста)'
+                  : 'Включить уведомления о тренировках'
+              }
+              className={`w-9 h-9 rounded-2xl bg-[#111726] border flex items-center justify-center active:scale-95 transition-all relative ${
+                notificationPermission === 'granted'
+                  ? 'border-[#00d084]/40 text-[#00d084] hover:bg-[#00d084]/10'
+                  : 'border-[#f59e0b]/40 text-[#f59e0b] hover:bg-[#f59e0b]/10'
+              }`}
+            >
+              {notificationPermission === 'granted' ? (
+                <Bell className="w-4 h-4 fill-[#00d084]/20" />
+              ) : (
+                <>
+                  <BellRing className="w-4 h-4 animate-bounce" />
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#f59e0b] animate-ping" />
+                </>
+              )}
+            </button>
+          )}
+
+          <button
+            onClick={onSync}
+            disabled={isSyncing}
+            className="w-9 h-9 rounded-2xl bg-[#111726] border border-[#1e293b] flex items-center justify-center text-[#94a3b8] hover:text-white hover:border-[#00d084]/50 active:scale-95 transition-all"
+            title="Синхронизировать Hevy и YAZIO"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-[#00d084]' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Mobile Day Selector Row (Visible on phones) */}

@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -297,11 +298,50 @@ def get_weekly():
 
 @app.post("/api/sync")
 def sync_data():
-    """Forces sync with Hevy and YAZIO."""
+    """Forces sync with Hevy and YAZIO and schedules 20-min post-workout checkin if due."""
     try:
         res = coach.storage.sync_all(verbose=False)
         coach.reload(auto_sync=False)
         habits_mgr.sync_with_hevy_and_yazio(coach)
+
+        # Check if latest workout needs 20-minute post-workout checkin
+        try:
+            from bot import load_pending_checkin, save_pending_checkin, load_workout_tracker, save_workout_tracker
+            from analyzer import parse_iso
+            latest_w = coach.analyzer.get_latest_workout()
+            if latest_w:
+                w_id = latest_w.get("id")
+                w_title = latest_w.get("title", "Тренировка")
+                end_iso = latest_w.get("end_time") or latest_w.get("start_time")
+                end_dt = parse_iso(end_iso) if end_iso else None
+                now_ts = time.time()
+
+                if end_dt and (0 <= (now_ts - end_dt.timestamp()) / 3600 <= 24):
+                    pending = load_pending_checkin()
+                    tracker = load_workout_tracker()
+                    already_prompted = (
+                        (tracker.get("last_prompted_id") == w_id) or
+                        (pending.get("workout_id") == w_id and pending.get("prompt_sent"))
+                    )
+                    if not already_prompted:
+                        target_due = end_dt.timestamp() + (20 * 60)
+                        if target_due < now_ts:
+                            target_due = now_ts + 3  # Ended > 20 min ago, trigger prompt right away
+                        new_pending = {
+                            "workout_id": w_id,
+                            "workout_title": w_title,
+                            "end_time": end_iso,
+                            "due_time": target_due,
+                            "prompt_sent": False,
+                            "pwa_notified": False,
+                            "responded": False
+                        }
+                        save_pending_checkin(new_pending)
+                        tracker["last_prompted_id"] = w_id
+                        save_workout_tracker(tracker)
+        except Exception as ce:
+            print(f"Post-workout checkin schedule note in sync: {ce}")
+
         return {"status": "ok", "synced": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -365,12 +405,118 @@ def chat_with_coach(req: ChatRequest):
     except Exception as e:
         print(f"Habit sync in chat note: {e}")
 
+    # If pending checkin is active, mark it as responded so notifications stop
+    try:
+        from bot import load_pending_checkin, save_pending_checkin
+        pending = load_pending_checkin()
+        if pending and not pending.get("responded"):
+            pending["responded"] = True
+            pending["last_user_feedback"] = user_msg
+            pending["last_feedback_time"] = time.time()
+            save_pending_checkin(pending)
+    except Exception as pe:
+        print(f"Pending checkin response note: {pe}")
+
     try:
         from bot import ask_gemini_ai
         ai_reply = ask_gemini_ai(user_msg, force_llm=True)
         return {"reply": ai_reply}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
+
+# ==================== NOTIFICATIONS ENDPOINTS ====================
+
+@app.get("/api/notifications/checkin")
+def get_checkin_notification():
+    """Checks if 20-min post-workout checkin is due or pending for PWA."""
+    try:
+        from bot import load_pending_checkin
+        pending = load_pending_checkin()
+        if not pending:
+            return {"should_notify": False, "pending": False}
+
+        w_id = pending.get("workout_id")
+        w_title = pending.get("workout_title", "Тренировка")
+        due_time = pending.get("due_time", 0)
+        pwa_notified = pending.get("pwa_notified", False)
+        responded = pending.get("responded", False)
+
+        now_ts = time.time()
+
+        # If already responded or workout is too old (> 8 hours ago), no notification
+        if responded or (now_ts - due_time > 8 * 3600):
+            return {"should_notify": False, "pending": False}
+
+        if now_ts >= due_time:
+            return {
+                "should_notify": not pwa_notified,
+                "pending": True,
+                "is_due": True,
+                "seconds_left": 0,
+                "notification": {
+                    "id": f"workout_{w_id}",
+                    "title": "Ну чё, как тренировка? 💪",
+                    "body": f"Прошло 20 минут после тренировки «{w_title}». Самое время зафиксировать ощущения, пока всё свежо в памяти!",
+                    "workout_id": w_id,
+                    "workout_title": w_title,
+                    "prompt": f"Я закончил тренировку «{w_title}». Давай разберем, как самочувствие, как зашли веса и восстановление!"
+                }
+            }
+        else:
+            seconds_left = max(1, int(due_time - now_ts))
+            return {
+                "should_notify": False,
+                "pending": True,
+                "is_due": False,
+                "seconds_left": seconds_left,
+                "workout_title": w_title
+            }
+    except Exception as e:
+        return {"should_notify": False, "pending": False, "error": str(e)}
+
+@app.post("/api/notifications/ack")
+def ack_notification():
+    """Marks pending checkin notification as seen/notified in PWA."""
+    try:
+        from bot import load_pending_checkin, save_pending_checkin
+        pending = load_pending_checkin()
+        if pending:
+            pending["pwa_notified"] = True
+            pending["pwa_notified_time"] = time.time()
+            save_pending_checkin(pending)
+            return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+    return {"status": "ok"}
+
+@app.post("/api/notifications/test_checkin")
+def trigger_test_checkin(delay_seconds: int = 3):
+    """Triggers or schedules a test 20-min checkin prompt for debugging/testing in PWA."""
+    try:
+        from bot import save_pending_checkin
+        w_title = "Жим лежа (Грудь/Трицепс)"
+        if coach.workouts:
+            w_title = coach.workouts[0].get("title", w_title)
+
+        target_due = time.time() + max(1, delay_seconds)
+        new_pending = {
+            "workout_id": f"test_{int(time.time())}",
+            "workout_title": w_title,
+            "end_time": datetime.now(timezone(timedelta(hours=6))).isoformat(),
+            "due_time": target_due,
+            "prompt_sent": False,
+            "pwa_notified": False,
+            "responded": False
+        }
+        save_pending_checkin(new_pending)
+        return {
+            "status": "ok",
+            "message": f"Тестовое уведомление «Ну чё, как тренировка?» запланировано через {delay_seconds} сек.",
+            "due_in_seconds": delay_seconds,
+            "workout_title": w_title
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== BOOKS / LIBRARY ENDPOINTS ====================
 

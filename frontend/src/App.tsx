@@ -7,6 +7,8 @@ import { CoachChatTab } from './components/CoachChatTab';
 import { WorkoutsTab } from './components/WorkoutsTab';
 import { WeeklyTab } from './components/WeeklyTab';
 import { LibraryTab } from './components/LibraryTab';
+import { WorkoutCheckinToast } from './components/WorkoutCheckinToast';
+import type { CheckinNotificationData } from './components/WorkoutCheckinToast';
 import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem, BookItem, BooksResponse } from './types';
 
 // Compute accurate GMT+6 (UTC+6) date, day of week key ('Пн'..'Вс'), and Monday-Sunday week dates
@@ -63,6 +65,10 @@ export const App: React.FC = () => {
   const [habits, setHabits] = useState<HabitItem[]>([]);
   const [booksData, setBooksData] = useState<BooksResponse | null>(null);
   const [isBooksLoading, setIsBooksLoading] = useState<boolean>(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
+  );
+  const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
 
   // 1. Fetch Dashboard data
   const loadDashboard = async () => {
@@ -173,25 +179,134 @@ export const App: React.FC = () => {
     }
   };
 
+  // Register Service Worker for notifications
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.log('SW register note:', err);
+      });
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'OPEN_CHAT_CHECKIN' && event.data?.prompt) {
+          setCurrentTab('chat');
+          handleSendMessage(event.data.prompt);
+        }
+      });
+    }
+  }, []);
+
+  const showNativeNotification = (title: string, body: string, prompt?: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    try {
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then((reg) => {
+          reg.showNotification(title, {
+            body,
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+            data: { url: '/?tab=chat', prompt },
+          });
+        });
+      } else {
+        const n = new Notification(title, { body, icon: '/icon-192.png' });
+        n.onclick = () => {
+          window.focus();
+          if (prompt) {
+            setCurrentTab('chat');
+            handleSendMessage(prompt);
+          }
+        };
+      }
+    } catch (err) {
+      console.warn('Native notification display error', err);
+    }
+  };
+
+  const checkWorkoutNotifications = async () => {
+    try {
+      const res = await fetch('/api/notifications/checkin');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.should_notify && data.notification) {
+          showNativeNotification(data.notification.title, data.notification.body, data.notification.prompt);
+          setCheckinToast(data.notification);
+          await fetch('/api/notifications/ack', { method: 'POST' });
+        } else if (data.pending && !data.is_due && data.seconds_left > 0) {
+          if (data.seconds_left <= 1800) {
+            window.clearTimeout((window as any)._checkinTimer);
+            (window as any)._checkinTimer = window.setTimeout(() => {
+              checkWorkoutNotifications();
+            }, data.seconds_left * 1000 + 500);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Checkin notification check note', err);
+    }
+  };
+
+  const handleRequestNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        setNotificationPermission(perm);
+        if (perm === 'granted') {
+          showNativeNotification(
+            'Уведомления включены! 🔔',
+            'Теперь приложение пришлет «Ну чё, как тренировка?» через 20 минут после зала.'
+          );
+        }
+      } catch (e) {
+        console.warn('Notification permission error', e);
+      }
+    }
+  };
+
+  const handleTestNotification = async () => {
+    try {
+      const res = await fetch('/api/notifications/test_checkin?delay_seconds=3', { method: 'POST' });
+      if (res.ok) {
+        if (notificationPermission !== 'granted') {
+          await handleRequestNotificationPermission();
+        }
+        setTimeout(() => {
+          checkWorkoutNotifications();
+        }, 3500);
+      }
+    } catch (e) {
+      console.error('Test notification trigger error', e);
+    }
+  };
+
+  const handleOpenCheckinChat = (prompt: string) => {
+    setCheckinToast(null);
+    setCurrentTab('chat');
+    handleSendMessage(prompt);
+  };
+
   useEffect(() => {
     loadDashboard();
     loadWorkouts();
     loadWeekly();
     loadHabits();
     loadBooks();
+    checkWorkoutNotifications();
 
-    // Check for day rollover every minute and when window/tab is focused
+    // Check for day rollover and notifications every 30-60s
     const checkDayRollover = () => {
       const latest = getGMT6Info();
       setTodayKey(latest.dayKey);
+      checkWorkoutNotifications();
     };
 
-    const interval = setInterval(checkDayRollover, 60000);
+    const interval = setInterval(checkDayRollover, 30000);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         checkDayRollover();
         loadDashboard();
         loadHabits();
+        checkWorkoutNotifications();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -271,6 +386,7 @@ export const App: React.FC = () => {
     try {
       await fetch('/api/sync', { method: 'POST' });
       await Promise.all([loadDashboard(), loadWorkouts(), loadWeekly(), loadHabits(), loadBooks()]);
+      await checkWorkoutNotifications();
     } catch (err) {
       console.error('Sync failed', err);
     } finally {
@@ -390,6 +506,13 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0b0f19] text-[#f8fafc] flex flex-col selection:bg-[#00d084]/20 selection:text-[#00d084]">
+      {/* 20-min Post-Workout Checkin In-App Banner */}
+      <WorkoutCheckinToast
+        notification={checkinToast}
+        onOpenChat={handleOpenCheckinChat}
+        onDismiss={() => setCheckinToast(null)}
+      />
+
       {/* Top Header */}
       <Header
         currentTab={currentTab}
@@ -401,6 +524,9 @@ export const App: React.FC = () => {
         weekdayName={dashboardData?.weekday || initialGmt6.weekdayLong}
         weekDates={weekDates}
         habits={habits}
+        notificationPermission={notificationPermission}
+        onRequestNotificationPermission={handleRequestNotificationPermission}
+        onTestNotification={handleTestNotification}
         isSyncing={isSyncing}
         onSync={handleSync}
       />
