@@ -69,6 +69,7 @@ export const App: React.FC = () => {
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
   );
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
+  const [chatInitialPrompt, setChatInitialPrompt] = useState<string | null>(null);
 
   // 1. Fetch Dashboard data
   const loadDashboard = async () => {
@@ -281,8 +282,8 @@ export const App: React.FC = () => {
 
   const handleOpenCheckinChat = (prompt: string) => {
     setCheckinToast(null);
+    setChatInitialPrompt(prompt);
     setCurrentTab('chat');
-    handleSendMessage(prompt);
   };
 
   useEffect(() => {
@@ -504,8 +505,14 @@ export const App: React.FC = () => {
     }
   };
 
+  const isChatTab = currentTab === 'chat';
+
   return (
-    <div className="min-h-screen bg-[#0b0f19] text-[#f8fafc] flex flex-col selection:bg-[#00d084]/20 selection:text-[#00d084]">
+    <div
+      className={`bg-[#0b0f19] text-[#f8fafc] flex flex-col selection:bg-[#00d084]/20 selection:text-[#00d084] ${
+        isChatTab ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'
+      }`}
+    >
       {/* 20-min Post-Workout Checkin In-App Banner */}
       <WorkoutCheckinToast
         notification={checkinToast}
@@ -515,8 +522,6 @@ export const App: React.FC = () => {
 
       {/* Top Header */}
       <Header
-        currentTab={currentTab}
-        onTabChange={setCurrentTab}
         selectedDay={selectedDay}
         onSelectDay={setSelectedDay}
         todayKey={todayKey}
@@ -532,7 +537,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full">
+      <main className={`w-full ${isChatTab ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1'}`}>
         {currentTab === 'dashboard' && (
           <DashboardTab
             data={dashboardData}
@@ -543,7 +548,10 @@ export const App: React.FC = () => {
             onToggleHabit={handleToggleHabit}
             onAddHabit={handleAddHabit}
             onDeleteHabit={handleDeleteHabit}
-            onOpenChat={() => setCurrentTab('chat')}
+            onOpenChat={(prompt) => {
+              if (prompt) setChatInitialPrompt(prompt);
+              setCurrentTab('chat');
+            }}
             onOpenWorkouts={() => setCurrentTab('workouts')}
           />
         )}
@@ -567,7 +575,11 @@ export const App: React.FC = () => {
         )}
 
         {currentTab === 'chat' && (
-          <CoachChatTab onSendMessage={handleSendMessage} />
+          <CoachChatTab
+            onSendMessage={handleSendMessage}
+            initialPrompt={chatInitialPrompt}
+            onClearInitialPrompt={() => setChatInitialPrompt(null)}
+          />
         )}
 
         {currentTab === 'weekly' && (

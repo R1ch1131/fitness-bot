@@ -1,11 +1,8 @@
 import React from 'react';
-import { Zap, RefreshCw, LayoutDashboard, Dumbbell, BookOpen, MessageSquare, Calendar, Bell, BellRing } from 'lucide-react';
-import type { TabType } from './BottomNav';
+import { Zap, RefreshCw, Bell, BellRing } from 'lucide-react';
 import type { HabitItem } from '../types';
 
 interface HeaderProps {
-  currentTab: TabType;
-  onTabChange: (tab: TabType) => void;
   selectedDay: string;
   onSelectDay: (day: string) => void;
   todayKey?: string;
@@ -22,8 +19,6 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  currentTab,
-  onTabChange,
   selectedDay,
   onSelectDay,
   todayKey = 'Чт',
@@ -183,69 +178,6 @@ export const Header: React.FC<HeaderProps> = ({
             );
           })}
         </div>
-      </div>
-
-      {/* Top Nav Pills */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-0.5 no-scrollbar">
-        <button
-          onClick={() => onTabChange('dashboard')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all ${
-            currentTab === 'dashboard'
-              ? 'bg-[#1e293b] text-white border border-[#334155]'
-              : 'text-[#94a3b8] hover:text-white hover:bg-[#111726]'
-          }`}
-        >
-          <LayoutDashboard className="w-3.5 h-3.5" />
-          <span>Дашборд</span>
-        </button>
-
-        <button
-          onClick={() => onTabChange('workouts')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all ${
-            currentTab === 'workouts'
-              ? 'bg-[#1e293b] text-white border border-[#334155]'
-              : 'text-[#94a3b8] hover:text-white hover:bg-[#111726]'
-          }`}
-        >
-          <Dumbbell className="w-3.5 h-3.5 text-[#6366f1]" />
-          <span>Hevy Зал</span>
-        </button>
-
-        <button
-          onClick={() => onTabChange('library')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all ${
-            currentTab === 'library'
-              ? 'bg-[#1e293b] text-white border border-[#334155]'
-              : 'text-[#94a3b8] hover:text-white hover:bg-[#111726]'
-          }`}
-        >
-          <BookOpen className="w-3.5 h-3.5 text-[#38bdf8]" />
-          <span>Книги</span>
-        </button>
-
-        <button
-          onClick={() => onTabChange('chat')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all ${
-            currentTab === 'chat'
-              ? 'bg-[#1e293b] text-white border border-[#334155]'
-              : 'text-[#94a3b8] hover:text-white hover:bg-[#111726]'
-          }`}
-        >
-          <MessageSquare className="w-3.5 h-3.5 text-[#00d084]" />
-          <span>AI Тренер</span>
-        </button>
-
-        <button
-          onClick={() => onTabChange('weekly')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all ${
-            currentTab === 'weekly'
-              ? 'bg-[#1e293b] text-white border border-[#334155]'
-              : 'text-[#94a3b8] hover:text-white hover:bg-[#111726]'
-          }`}
-        >
-          <Calendar className="w-3.5 h-3.5 text-[#f59e0b]" />
-          <span>Сводка Недели</span>
-        </button>
       </div>
     </header>
   );

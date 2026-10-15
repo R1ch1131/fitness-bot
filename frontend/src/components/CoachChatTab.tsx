@@ -4,9 +4,15 @@ import type { ChatMessage } from '../types';
 
 interface CoachChatTabProps {
   onSendMessage: (msg: string) => Promise<string>;
+  initialPrompt?: string | null;
+  onClearInitialPrompt?: () => void;
 }
 
-export const CoachChatTab: React.FC<CoachChatTabProps> = ({ onSendMessage }) => {
+export const CoachChatTab: React.FC<CoachChatTabProps> = ({
+  onSendMessage,
+  initialPrompt,
+  onClearInitialPrompt,
+}) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -36,6 +42,13 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({ onSendMessage }) => 
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (initialPrompt && initialPrompt.trim()) {
+      handleSend(initialPrompt.trim());
+      onClearInitialPrompt?.();
+    }
+  }, [initialPrompt]);
 
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
@@ -75,9 +88,9 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({ onSendMessage }) => 
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] h-[calc(100dvh-140px)] max-w-4xl mx-auto px-3 pb-24">
+    <div className="flex-1 flex flex-col min-h-0 w-full max-w-4xl mx-auto px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))]">
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 py-2">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-2 overscroll-contain">
         {messages.map((m) => {
           const isUser = m.sender === 'user';
           return (
