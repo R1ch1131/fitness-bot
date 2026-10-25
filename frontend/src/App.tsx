@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePushNotifications } from './usePushNotifications';
+import { readSnapshot, writeSnapshot, isHabits, isDashboard } from './snapshot';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import type { TabType } from './components/BottomNav';
@@ -63,12 +64,13 @@ export const App: React.FC = () => {
   const [weekDates, setWeekDates] = useState<Record<string, string>>(initialGmt6.weekDates);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(() => readSnapshot<DashboardData>('dashboard', isDashboard));
   const [workoutsData, setWorkoutsData] = useState<WorkoutsResponse | null>(null);
   const [weeklyData, setWeeklyData] = useState<WeeklyResponse | null>(null);
-  const [habits, setHabits] = useState<HabitItem[]>([]);
+  const [habits, setHabits] = useState<HabitItem[]>(() => readSnapshot<HabitItem[]>('habits', isHabits) || []);
   const [booksData, setBooksData] = useState<BooksResponse | null>(null);
   const [isBooksLoading, setIsBooksLoading] = useState<boolean>(false);
+  const [dashboardRefreshing, setDashboardRefreshing] = useState(true);
   const push = usePushNotifications();
   const [showPushSettings, setShowPushSettings] = useState(false);
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
@@ -154,11 +156,15 @@ export const App: React.FC = () => {
 
   // 1. Fetch Dashboard data
   const loadDashboard = async () => {
+    setDashboardRefreshing(true);
     try {
       const res = await fetch('/api/dashboard');
       if (res.ok) {
         const data: DashboardData = await res.json();
+        writeSnapshot('dashboard', data);
         setDashboardData(data);
+        // Dashboard finishes the Hevy/YAZIO auto-sync. Read its updated marks.
+        await loadHabits();
         if (data.weekday_short) {
           setTodayKey(data.weekday_short);
           // If selectedDay is currently pointing to initial day or default 'Ср', align to today
@@ -170,6 +176,8 @@ export const App: React.FC = () => {
       }
     } catch (err) {
       console.warn('Dashboard fetch offline', err);
+    } finally {
+      setDashboardRefreshing(false);
     }
   };
 
@@ -206,6 +214,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.habits) {
+          writeSnapshot('habits', data.habits);
           setHabits(data.habits);
         }
       }
@@ -294,10 +303,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     loadDashboard();
-    loadWorkouts();
-    loadWeekly();
     loadHabits();
-    loadBooks();
     checkWorkoutNotifications();
 
     // Check for day rollover and notifications every 30-60s
@@ -324,6 +330,13 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Load heavier sections only when the user opens them.
+  useEffect(() => {
+    if (currentTab === 'workouts') void loadWorkouts();
+    if (currentTab === 'weekly') void loadWeekly();
+    if (currentTab === 'library') void loadBooks();
+  }, [currentTab]);
+
   // Habit Actions
   const handleToggleHabit = async (habitId: string, dateStr: string) => {
     // Optimistic UI update
@@ -347,6 +360,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.habits) {
+          writeSnapshot('habits', data.habits);
           setHabits(data.habits);
         }
       }
@@ -365,6 +379,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.habits) {
+          writeSnapshot('habits', data.habits);
           setHabits(data.habits);
         }
       }
@@ -380,6 +395,7 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.habits) {
+          writeSnapshot('habits', data.habits);
           setHabits(data.habits);
         }
       }
@@ -449,6 +465,7 @@ export const App: React.FC = () => {
           updateBooksState({ books: data.books, stats: data.stats });
         }
         if (data.habits) {
+          writeSnapshot('habits', data.habits);
           setHabits(data.habits);
         }
       }
@@ -470,6 +487,7 @@ export const App: React.FC = () => {
           updateBooksState({ books: data.books, stats: data.stats });
         }
         if (data.habits) {
+          writeSnapshot('habits', data.habits);
           setHabits(data.habits);
         }
       }
@@ -564,6 +582,7 @@ export const App: React.FC = () => {
         {currentTab === 'dashboard' && (
           <DashboardTab
             data={dashboardData}
+            refreshing={dashboardRefreshing}
             selectedDay={selectedDay}
             todayKey={todayKey}
             habits={habits}

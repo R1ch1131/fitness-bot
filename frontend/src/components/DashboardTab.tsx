@@ -16,6 +16,7 @@ import type { DashboardData, HabitItem } from '../types';
 
 interface DashboardTabProps {
   data: DashboardData | null;
+  refreshing?: boolean;
   selectedDay: string;
   todayKey?: string;
   habits: HabitItem[];
@@ -29,6 +30,7 @@ interface DashboardTabProps {
 
 export const DashboardTab: React.FC<DashboardTabProps> = ({
   data,
+  refreshing = false,
   selectedDay,
   todayKey = 'Чт',
   habits,
@@ -112,6 +114,156 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
   return (
     <div className="space-y-4 pb-28 px-3 pt-3 max-w-5xl mx-auto">
+      {/* 4. REAL DYNAMIC HABIT MATRIX */}
+      <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-4">
+        <div>
+          <div className="flex items-center space-x-2">
+            <span className="text-[#00d084] font-bold text-lg">✨</span>
+            <h2 className="text-base font-bold text-white tracking-tight">
+              Матрица привычек и целей на неделю
+            </h2>
+          </div>
+          <p className="text-xs text-[#94a3b8] mt-0.5">
+            Отмечайте выполнение на выбранный день или кликайте по ячейкам Пн — Вс
+          </p>
+        </div>
+
+        {/* Input Add Habit Bar */}
+        <div className="flex flex-col sm:flex-row gap-2 pt-1">
+          <input
+            type="text"
+            placeholder="Новая цель / тренировка (напр. Растяжка 15 мин)"
+            value={newHabitTitle}
+            onChange={(e) => setNewHabitTitle(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddHabitSubmit()}
+            className="flex-1 bg-[#0b0f19] border border-[#1e293b] rounded-2xl px-3.5 py-2 text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#00d084]"
+          />
+          <select
+            value={newHabitCategory}
+            onChange={(e) => setNewHabitCategory(e.target.value)}
+            className="bg-[#0b0f19] border border-[#1e293b] rounded-2xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00d084]"
+          >
+            <option value="Спорт">Спорт</option>
+            <option value="Питание">Питание</option>
+            <option value="Учеба / Код">Учеба / Код</option>
+            <option value="Чтение">Чтение</option>
+            <option value="Режим">Режим</option>
+          </select>
+          <button
+            onClick={handleAddHabitSubmit}
+            className="bg-[#00d084] hover:bg-[#00b572] active:scale-95 text-[#0b0f19] font-bold text-xs px-4 py-2 rounded-2xl transition-all flex items-center justify-center space-x-1.5 shadow-md shadow-[#00d084]/20"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Добавить</span>
+          </button>
+        </div>
+
+        {/* Habits List */}
+        <div className="space-y-3 pt-2">
+          {habits.map((habit) => {
+            const isCheckedForSelectedDay = !!habit.history[selectedDateStr];
+
+            return (
+              <div
+                key={habit.id}
+                className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-3.5 space-y-3 transition-all hover:border-[#334155]"
+              >
+                {/* Habit Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() => onToggleHabit(habit.id, selectedDateStr)}
+                      className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
+                        isCheckedForSelectedDay
+                          ? 'bg-[#00d084] text-[#0b0f19] shadow-md shadow-[#00d084]/30'
+                          : 'bg-[#1b2338] text-zinc-500 hover:text-white'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                    </button>
+                    <div>
+                      <h3 className="text-sm font-bold text-white tracking-tight">{habit.title}</h3>
+                      <div className="flex items-center space-x-2 text-[11px] text-[#94a3b8] mt-0.5">
+                        <span className="bg-[#1e293b] text-zinc-300 px-2 py-0.5 rounded-md font-medium">
+                          {habit.category}
+                        </span>
+                        <span>План: {habit.target_days || 7} дн./нед</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-1.5 text-zinc-500">
+                    <button
+                      onClick={() => onDeleteHabit(habit.id)}
+                      className="p-1 hover:text-[#f43f5e] transition-colors"
+                      title="Удалить"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Day Buttons Grid (7 Days) */}
+                <div className="grid grid-cols-7 gap-1.5">
+                  {allDays.map((d) => {
+                    const dateForDay = weekDates[d];
+                    const isChecked = !!habit.history[dateForDay];
+                    const isSelectedDay = selectedDay === d;
+                    const isToday = d === todayKey;
+
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => onToggleHabit(habit.id, dateForDay)}
+                        title={isToday ? `${d} (Сегодня)` : d}
+                        className={`relative h-9 rounded-xl flex flex-col items-center justify-center text-xs font-bold transition-all ${
+                          isChecked && isSelectedDay
+                            ? 'bg-[#00d084] text-[#0b0f19] shadow-md shadow-[#00d084]/25 scale-[1.02]'
+                            : isChecked
+                            ? 'bg-[#25224d] text-[#c7d2fe] border border-[#4338ca]/40'
+                            : isSelectedDay
+                            ? 'bg-[#1b2338] text-white border border-[#00d084]/40'
+                            : 'bg-[#111726] text-[#64748b] hover:text-white hover:bg-[#1b2338]'
+                        } ${isToday && !isSelectedDay ? 'ring-1 ring-[#00d084]/40' : ''}`}
+                      >
+                        <span className="text-[10px] opacity-75">{d}</span>
+                        {isChecked ? (
+                          <span className="text-xs">✓</span>
+                        ) : (
+                          <span className="text-[10px] opacity-30">•</span>
+                        )}
+                        {isToday && (
+                          <span
+                            className={`absolute bottom-0.5 w-1 h-1 rounded-full ${
+                              isChecked && isSelectedDay ? 'bg-[#0b0f19]' : 'bg-[#00d084]'
+                            }`}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Streak Pill */}
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <div className="flex items-center space-x-1.5 bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/30 px-2.5 py-1 rounded-xl font-bold">
+                    <Flame className="w-3.5 h-3.5 fill-[#f59e0b]" />
+                    <span>
+                      {habit.current_streak > 0 ? `${habit.current_streak} дней` : '0 дней (старт)'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-[#64748b]">
+                    Рекорд: {habit.record_streak || 0} дн.
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p role="status" className="text-xs text-[#94a3b8] px-1">
+        {data ? `Данные на ${data.time || '—'}${refreshing ? ' · Обновляем…' : ''}` : 'Загружаем питание и тренировки…'}
+      </p>
       {/* 1. TOP 4 KPI METRIC CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Card 1: Сегодня / Фокус дня */}
@@ -469,153 +621,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
       </div>
 
-      {/* 4. REAL DYNAMIC HABIT MATRIX */}
-      <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <span className="text-[#00d084] font-bold text-lg">✨</span>
-            <h2 className="text-base font-bold text-white tracking-tight">
-              Матрица привычек и целей на неделю
-            </h2>
-          </div>
-          <p className="text-xs text-[#94a3b8] mt-0.5">
-            Отмечайте выполнение на выбранный день или кликайте по ячейкам Пн — Вс
-          </p>
-        </div>
 
-        {/* Input Add Habit Bar */}
-        <div className="flex flex-col sm:flex-row gap-2 pt-1">
-          <input
-            type="text"
-            placeholder="Новая цель / тренировка (напр. Растяжка 15 мин)"
-            value={newHabitTitle}
-            onChange={(e) => setNewHabitTitle(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddHabitSubmit()}
-            className="flex-1 bg-[#0b0f19] border border-[#1e293b] rounded-2xl px-3.5 py-2 text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#00d084]"
-          />
-          <select
-            value={newHabitCategory}
-            onChange={(e) => setNewHabitCategory(e.target.value)}
-            className="bg-[#0b0f19] border border-[#1e293b] rounded-2xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00d084]"
-          >
-            <option value="Спорт">Спорт</option>
-            <option value="Питание">Питание</option>
-            <option value="Учеба / Код">Учеба / Код</option>
-            <option value="Чтение">Чтение</option>
-            <option value="Режим">Режим</option>
-          </select>
-          <button
-            onClick={handleAddHabitSubmit}
-            className="bg-[#00d084] hover:bg-[#00b572] active:scale-95 text-[#0b0f19] font-bold text-xs px-4 py-2 rounded-2xl transition-all flex items-center justify-center space-x-1.5 shadow-md shadow-[#00d084]/20"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Добавить</span>
-          </button>
-        </div>
-
-        {/* Habits List */}
-        <div className="space-y-3 pt-2">
-          {habits.map((habit) => {
-            const isCheckedForSelectedDay = !!habit.history[selectedDateStr];
-
-            return (
-              <div
-                key={habit.id}
-                className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-3.5 space-y-3 transition-all hover:border-[#334155]"
-              >
-                {/* Habit Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <button
-                      onClick={() => onToggleHabit(habit.id, selectedDateStr)}
-                      className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
-                        isCheckedForSelectedDay
-                          ? 'bg-[#00d084] text-[#0b0f19] shadow-md shadow-[#00d084]/30'
-                          : 'bg-[#1b2338] text-zinc-500 hover:text-white'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                    </button>
-                    <div>
-                      <h3 className="text-sm font-bold text-white tracking-tight">{habit.title}</h3>
-                      <div className="flex items-center space-x-2 text-[11px] text-[#94a3b8] mt-0.5">
-                        <span className="bg-[#1e293b] text-zinc-300 px-2 py-0.5 rounded-md font-medium">
-                          {habit.category}
-                        </span>
-                        <span>План: {habit.target_days || 7} дн./нед</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-1.5 text-zinc-500">
-                    <button
-                      onClick={() => onDeleteHabit(habit.id)}
-                      className="p-1 hover:text-[#f43f5e] transition-colors"
-                      title="Удалить"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Day Buttons Grid (7 Days) */}
-                <div className="grid grid-cols-7 gap-1.5">
-                  {allDays.map((d) => {
-                    const dateForDay = weekDates[d];
-                    const isChecked = !!habit.history[dateForDay];
-                    const isSelectedDay = selectedDay === d;
-                    const isToday = d === todayKey;
-
-                    return (
-                      <button
-                        key={d}
-                        onClick={() => onToggleHabit(habit.id, dateForDay)}
-                        title={isToday ? `${d} (Сегодня)` : d}
-                        className={`relative h-9 rounded-xl flex flex-col items-center justify-center text-xs font-bold transition-all ${
-                          isChecked && isSelectedDay
-                            ? 'bg-[#00d084] text-[#0b0f19] shadow-md shadow-[#00d084]/25 scale-[1.02]'
-                            : isChecked
-                            ? 'bg-[#25224d] text-[#c7d2fe] border border-[#4338ca]/40'
-                            : isSelectedDay
-                            ? 'bg-[#1b2338] text-white border border-[#00d084]/40'
-                            : 'bg-[#111726] text-[#64748b] hover:text-white hover:bg-[#1b2338]'
-                        } ${isToday && !isSelectedDay ? 'ring-1 ring-[#00d084]/40' : ''}`}
-                      >
-                        <span className="text-[10px] opacity-75">{d}</span>
-                        {isChecked ? (
-                          <span className="text-xs">✓</span>
-                        ) : (
-                          <span className="text-[10px] opacity-30">•</span>
-                        )}
-                        {isToday && (
-                          <span
-                            className={`absolute bottom-0.5 w-1 h-1 rounded-full ${
-                              isChecked && isSelectedDay ? 'bg-[#0b0f19]' : 'bg-[#00d084]'
-                            }`}
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Streak Pill */}
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <div className="flex items-center space-x-1.5 bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/30 px-2.5 py-1 rounded-xl font-bold">
-                    <Flame className="w-3.5 h-3.5 fill-[#f59e0b]" />
-                    <span>
-                      {habit.current_streak > 0 ? `${habit.current_streak} дней` : '0 дней (старт)'}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-[#64748b]">
-                    Рекорд: {habit.record_streak || 0} дн.
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 };

@@ -349,12 +349,8 @@ def sync_data():
 
 @app.get("/api/habits")
 def get_habits():
-    """Returns active habits with dynamic consecutive streaks and history."""
-    try:
-        habits = habits_mgr.sync_with_hevy_and_yazio(coach)
-    except Exception as e:
-        print(f"Habits sync error: {e}")
-        habits = habits_mgr.get_habits()
+    """Return local marks immediately; dashboard and explicit sync refresh integrations."""
+    habits = habits_mgr.get_habits()
     return {
         "habits": habits,
         "today_summary": habits_mgr.get_habits_ai_summary()
