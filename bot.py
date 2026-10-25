@@ -538,14 +538,30 @@ def dispatch_checkin_if_due(bot, target_chat_id: Optional[int] = None):
     """Dispatches 20-minute post-workout checkin if due."""
     try:
         pending = load_pending_checkin()
-        if not pending or pending.get("prompt_sent"):
+        if not pending or pending.get("responded"):
             return
 
         due_time = pending.get("due_time", 0)
         now_ts = time.time()
-        if now_ts < due_time:
+        if now_ts < due_time or now_ts - due_time > 8 * 3600:
             return
 
+        if not pending.get("push_sent"):
+            try:
+                from push_service import send_push_notification
+                delivered = send_push_notification(
+                    title="Ну чё, как тренировка? 💪",
+                    body=f"Прошло 20 минут после «{pending.get('workout_title', 'Тренировка')}». Как самочувствие?",
+                    url="/?tab=chat", tag=f"workout-{pending.get('workout_id')}"
+                )
+                if delivered:
+                    pending["push_sent"] = True
+                    save_pending_checkin(pending)
+            except Exception as pe:
+                print(f"Error dispatching Web Push: {pe}")
+
+        if pending.get("prompt_sent"):
+            return
         subscribers = [target_chat_id] if target_chat_id else get_all_subscribers()
         if not subscribers:
             print("⚠️ Опрос готов к отправке, но нет подписчиков. Ожидание сообщения от пользователя...")
@@ -589,16 +605,6 @@ def dispatch_checkin_if_due(bot, target_chat_id: Optional[int] = None):
             pending["prompt_sent_time"] = time.time()
             save_pending_checkin(pending)
 
-        # Dispatch real Web Push to iPhone/PWA subscribers (works in background)
-        try:
-            from push_service import send_push_notification
-            send_push_notification(
-                title="Ну чё, как тренировка? 💪",
-                body=f"Прошло 20 минут после «{w_title}». Самое время зафиксировать ощущения!",
-                url="/?tab=chat"
-            )
-        except Exception as pe:
-            print(f"Error dispatching Web Push in bot: {pe}")
     except Exception as e:
         print(f"Error in dispatch_checkin_if_due: {e}")
 
@@ -817,6 +823,16 @@ def run_keep_alive_pinger():
     t.start()
     print(f"⏰ Фоновый keep-alive пингер запущен (интервал 10 мин, цель: {public_url})")
 
+def send_scheduled_push(title, body, tab, tag):
+    """PWA delivery must be independent of Telegram subscribers and errors."""
+    try:
+        from push_service import send_push_notification
+        return send_push_notification(title, body, url=f"/?tab={tab}", tag=tag)
+    except Exception as exc:
+        print(f"[Push] Scheduled notification failed: {exc}")
+        return 0
+
+
 def run_gym_reminder_scheduler(bot):
     """Sends gym reminder Monday to Friday at 08:30 AM (GMT+6)."""
     tz_gmt6 = timezone(timedelta(hours=6))
@@ -833,6 +849,7 @@ def run_gym_reminder_scheduler(bot):
                 if now_gmt6.weekday() < 5 and now_gmt6.hour == 8 and now_gmt6.minute == 30:
                     today_str = now_gmt6.strftime("%Y-%m-%d")
                     if last_sent_date != today_str:
+                        send_scheduled_push("Пора в зал", "Не забудь сменные вещи и тапочки!", "workouts", "gym-reminder")
                         subscribers = get_all_subscribers()
                         reminder_text = "👟🎒 *Не забудь сменные вещи в зал и тапочки!*"
                         for cid in subscribers:
@@ -865,6 +882,7 @@ def run_laundry_reminder_scheduler(bot):
                 if now_gmt6.hour == 22 and now_gmt6.minute == 0:
                     today_str = now_gmt6.strftime("%Y-%m-%d")
                     if last_sent_date != today_str:
+                        send_scheduled_push("FitPulse", "Вещи после тренировки постирал?", "dashboard", "laundry-reminder")
                         subscribers = get_all_subscribers()
                         reminder_text = "🧺 *Вещи постирал?*"
                         for cid in subscribers:
@@ -921,6 +939,7 @@ def run_sunday_report_scheduler(bot):
                 if now_gmt6.weekday() == 6 and now_gmt6.hour == 12 and now_gmt6.minute == 0:
                     today_str = now_gmt6.strftime("%Y-%m-%d")
                     if last_sent_date != today_str:
+                        send_scheduled_push("Недельный отчёт", "Посмотри итоги тренировок и питания за неделю.", "weekly", "weekly-report")
                         subscribers = get_all_subscribers()
                         if subscribers:
                             try:
@@ -957,6 +976,7 @@ def run_evening_nutrition_scheduler(bot):
                 if now_gmt6.hour == 23 and now_gmt6.minute == 0:
                     today_str = now_gmt6.strftime("%Y-%m-%d")
                     if last_sent_date != today_str:
+                        send_scheduled_push("Вечерняя проверка питания", "Открой дневник и проверь калории и БЖУ за сегодня.", "dashboard", "nutrition-reminder")
                         subscribers = get_all_subscribers()
                         if subscribers:
                             report_text = coach.get_evening_nutrition_checkin()

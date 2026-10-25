@@ -1,4 +1,6 @@
 {
+  "id": "/",
+  "scope": "/",
   "name": "AI Fitness Coach",
   "short_name": "AI Coach",
   "description": "Персональный AI-тренер и нутрициолог Hevy + YAZIO",

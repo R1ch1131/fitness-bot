@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { usePushNotifications } from './usePushNotifications';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import type { TabType } from './components/BottomNav';
@@ -53,7 +54,10 @@ function getGMT6Info(): { dateStr: string; dateFormatted: string; dayKey: string
 
 export const App: React.FC = () => {
   const initialGmt6 = getGMT6Info();
-  const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
+  const [currentTab, setCurrentTab] = useState<TabType>(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return ['dashboard', 'chat', 'workouts', 'weekly', 'library'].includes(tab || '') ? tab as TabType : 'dashboard';
+  });
   const [todayKey, setTodayKey] = useState<string>(initialGmt6.dayKey);
   const [selectedDay, setSelectedDay] = useState<string>(initialGmt6.dayKey);
   const [weekDates, setWeekDates] = useState<Record<string, string>>(initialGmt6.weekDates);
@@ -65,9 +69,8 @@ export const App: React.FC = () => {
   const [habits, setHabits] = useState<HabitItem[]>([]);
   const [booksData, setBooksData] = useState<BooksResponse | null>(null);
   const [isBooksLoading, setIsBooksLoading] = useState<boolean>(false);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
-  );
+  const push = usePushNotifications();
+  const [showPushSettings, setShowPushSettings] = useState(false);
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | null>(null);
 
@@ -258,92 +261,13 @@ export const App: React.FC = () => {
     }
   };
 
-  function urlB64ToUint8Array(base64String: string) {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-  }
-
-  const subscribeToWebPush = async () => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-      return;
-    }
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (!reg) return;
-
-      const res = await fetch('/api/notifications/vapid_key');
-      if (!res.ok) return;
-      const { public_key } = await res.json();
-      if (!public_key) return;
-
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlB64ToUint8Array(public_key),
-        });
-      }
-
-      await fetch('/api/notifications/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub.toJSON()),
-      });
-      console.log('[Web Push] Subscribed successfully');
-    } catch (err) {
-      console.warn('[Web Push] Subscription note:', err);
-    }
-  };
-
-  // Register Service Worker for notifications
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').then(() => {
-        if ('Notification' in window && Notification.permission === 'granted') {
-          subscribeToWebPush();
-        }
-      }).catch((err) => {
-        console.log('SW register note:', err);
-      });
-      navigator.serviceWorker.addEventListener('message', (event) => {
-        if (event.data?.type === 'OPEN_CHAT_CHECKIN') {
-          handleOpenCheckinChat();
-        }
-      });
-    }
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OPEN_CHAT_CHECKIN') handleOpenCheckinChat();
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
   }, []);
-
-  const showNativeNotification = (title: string, body: string, prompt?: string) => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission !== 'granted') return;
-
-    try {
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.ready.then((reg) => {
-          reg.showNotification(title, {
-            body,
-            icon: '/icon-192.png',
-            badge: '/icon-192.png',
-            data: { url: '/?tab=chat', prompt },
-          });
-        });
-      } else {
-        const n = new Notification(title, { body, icon: '/icon-192.png' });
-        n.onclick = () => {
-          window.focus();
-          handleOpenCheckinChat();
-        };
-      }
-    } catch (err) {
-      console.warn('Native notification display error', err);
-    }
-  };
 
   const checkWorkoutNotifications = async () => {
     try {
@@ -365,42 +289,6 @@ export const App: React.FC = () => {
       }
     } catch (err) {
       console.warn('Checkin notification check note', err);
-    }
-  };
-
-  const handleRequestNotificationPermission = async () => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      try {
-        const perm = await Notification.requestPermission();
-        setNotificationPermission(perm);
-        if (perm === 'granted') {
-          await subscribeToWebPush();
-          showNativeNotification(
-            'Уведомления включены! 🔔',
-            'Теперь приложение пришлет «Ну чё, как тренировка?» через 20 минут после зала.'
-          );
-        }
-      } catch (e) {
-        console.warn('Notification permission error', e);
-      }
-    }
-  };
-
-  const handleTestNotification = async () => {
-    try {
-      if (notificationPermission !== 'granted') {
-        await handleRequestNotificationPermission();
-      } else {
-        await subscribeToWebPush();
-      }
-      const res = await fetch('/api/notifications/test_checkin?delay_seconds=3', { method: 'POST' });
-      if (res.ok) {
-        setTimeout(() => {
-          checkWorkoutNotifications();
-        }, 3500);
-      }
-    } catch (e) {
-      console.error('Test notification trigger error', e);
     }
   };
 
@@ -652,12 +540,24 @@ export const App: React.FC = () => {
         weekdayName={dashboardData?.weekday || initialGmt6.weekdayLong}
         weekDates={weekDates}
         habits={habits}
-        notificationPermission={notificationPermission}
-        onRequestNotificationPermission={handleRequestNotificationPermission}
-        onTestNotification={handleTestNotification}
+        notificationPermission={push.ready ? 'granted' : 'default'}
+        onRequestNotificationPermission={() => setShowPushSettings(v => !v)}
+        onTestNotification={() => setShowPushSettings(v => !v)}
         isSyncing={isSyncing}
         onSync={handleSync}
       />
+
+      {showPushSettings && (
+        <section className="mx-4 my-3 p-4 rounded-2xl bg-[#111726] border border-[#1e293b] text-sm text-white space-y-3" aria-label="Уведомления">
+          <p className="font-semibold">{push.ready ? 'Уведомления подключены' : 'Уведомления не подключены'}</p>
+          <p role="status" className="text-[#94a3b8]">{push.blocked || push.message}</p>
+          <div className="flex flex-wrap gap-3">
+            <button disabled={push.busy || !!push.blocked} onClick={push.enable} className="px-3 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] disabled:opacity-40">Включить</button>
+            {push.ready && <button disabled={push.busy} onClick={push.test} className="px-3 py-2 rounded-xl border border-[#00d084] disabled:opacity-40">Тест</button>}
+            {push.ready && <button disabled={push.busy} onClick={push.disable} className="px-3 py-2 disabled:opacity-40">Отключить</button>}
+          </div>
+        </section>
+      )}
 
       {/* Main Content Area */}
       <main className={`w-full ${isChatTab ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1'}`}>
