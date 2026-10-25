@@ -1,5 +1,7 @@
 import os
 import json
+from functools import wraps
+from threading import RLock
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -7,6 +9,15 @@ from config import DATA_DIR
 
 HABITS_FILE = DATA_DIR / "habits.json"
 TZ_GMT6 = timezone(timedelta(hours=6))
+_write_lock = RLock()
+_revision = 0
+
+def serialized_write(method):
+    @wraps(method)
+    def wrapped(*args, **kwargs):
+        with _write_lock:
+            return method(*args, **kwargs)
+    return wrapped
 
 DEFAULT_HABITS = [
     {
@@ -68,11 +79,9 @@ class HabitsManager:
         - 'calories': marked True for dates where YAZIO has logged food (breakfast, meals, calories > 100).
         - 'gym': marked True for dates where Hevy has a completed workout.
         """
-        try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
-                habits = json.load(f)
-        except Exception:
-            habits = DEFAULT_HABITS
+        with _write_lock:
+            habits = self.get_habits()
+            start_revision = _revision
 
         changed = False
 
@@ -144,7 +153,10 @@ class HabitsManager:
                 print(f"Auto-sync weekly YAZIO error: {e}")
 
         if changed:
-            self._save(habits)
+            # External calls can take seconds. Never overwrite edits made meanwhile.
+            with _write_lock:
+                if _revision == start_revision:
+                    self._save(habits)
 
         return self.get_habits()
 
@@ -220,6 +232,7 @@ class HabitsManager:
                 cur_streak = 1
         return max_streak
 
+    @serialized_write
     def toggle_day(self, habit_id: str, date_str: str) -> Dict[str, Any]:
         habits = self.get_habits()
         target = None
@@ -239,6 +252,7 @@ class HabitsManager:
         self._save(habits)
         return target
 
+    @serialized_write
     def add_habit(self, title: str, category: str, target_days: int = 7) -> Dict[str, Any]:
         habits = self.get_habits()
         import uuid
@@ -254,12 +268,14 @@ class HabitsManager:
         self._save(habits)
         return new_habit
 
+    @serialized_write
     def delete_habit(self, habit_id: str) -> bool:
         habits = self.get_habits()
         habits = [h for h in habits if h.get("id") != habit_id]
         self._save(habits)
         return True
 
+    @serialized_write
     def edit_habit(self, habit_id: str, title: Optional[str] = None, category: Optional[str] = None, target_days: Optional[int] = None) -> Dict[str, Any]:
         habits = self.get_habits()
         target = None
@@ -278,7 +294,9 @@ class HabitsManager:
         self._save(habits)
         return target
 
+    @serialized_write
     def _save(self, habits: List[Dict[str, Any]]):
+        global _revision
         # Clean ephemeral fields before saving
         to_save = []
         for h in habits:
@@ -286,8 +304,11 @@ class HabitsManager:
             h_copy.pop("current_streak", None)
             h_copy.pop("record_streak", None)
             to_save.append(h_copy)
-        with open(self.file_path, "w", encoding="utf-8") as f:
+        temporary = self.file_path.with_suffix(".tmp")
+        with open(temporary, "w", encoding="utf-8") as f:
             json.dump(to_save, f, ensure_ascii=False, indent=2)
+        temporary.replace(self.file_path)
+        _revision += 1
         try:
             from cloud_storage import set_cloud_data
             set_cloud_data("athlete_habits", to_save)
