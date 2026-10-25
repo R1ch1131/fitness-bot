@@ -114,9 +114,10 @@ export const Header: React.FC<HeaderProps> = ({
           {onRequestNotificationPermission && (
             <button
               onClick={notificationPermission === 'granted' ? onTestNotification : onRequestNotificationPermission}
+              aria-label="Настройки уведомлений"
               title={
                 notificationPermission === 'granted'
-                  ? 'Уведомления включены (кликните для теста)'
+                  ? 'Уведомления подключены — настройки и тест'
                   : 'Включить уведомления о тренировках'
               }
               className={`w-9 h-9 rounded-2xl bg-[#111726] border flex items-center justify-center active:scale-95 transition-all relative ${

@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import threading
 from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -543,7 +544,29 @@ def subscribe_push(req: Dict[str, Any]):
     """Registers browser Web Push subscription (APNs on iOS)."""
     from push_service import add_subscription
     success = add_subscription(req)
-    return {"status": "ok" if success else "error"}
+    if not success:
+        raise HTTPException(status_code=400, detail="Некорректная push-подписка")
+    return {"status": "ok"}
+
+@app.post("/api/notifications/unsubscribe")
+def unsubscribe_push(req: Dict[str, Any]):
+    from push_service import remove_subscription
+    endpoint = req.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint:
+        raise HTTPException(status_code=400, detail="Не указан endpoint подписки")
+    remove_subscription(endpoint)
+    return {"status": "ok"}
+
+@app.post("/api/notifications/test_push")
+def test_push(req: Dict[str, Any]):
+    """Test only the requesting device; do not overwrite a real workout check-in."""
+    from push_service import load_subscriptions, send_push_notification
+    endpoint = req.get("endpoint")
+    if not isinstance(endpoint, str) or not any(s.get("endpoint") == endpoint for s in load_subscriptions()):
+        raise HTTPException(status_code=404, detail="Подписка не найдена. Включите уведомления заново.")
+    sent = send_push_notification("FitPulse: тест уведомлений", "Push-уведомления подключены!", url="/", endpoint=endpoint, tag="fitpulse-test")
+    return {"status": "ok" if sent else "error", "sent": sent,
+            "detail": "Push-сервис не принял уведомление. Проверьте ключи и журналы сервера." if not sent else "Push-сервис принял уведомление"}
 
 @app.post("/api/notifications/test_checkin")
 def trigger_test_checkin(delay_seconds: int = 3):
@@ -706,5 +729,10 @@ def restore_backup(req: RestoreBackupPayload):
 
 # Mount static frontend files if built
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    return FileResponse(frontend_dist / "sw.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")

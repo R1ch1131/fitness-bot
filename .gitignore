@@ -9,3 +9,7 @@ push.py
 get_week_summary.py
 patch.py
 frontend/node_modules/
+vapid_keys.json
+push_subscriptions.json
+private_key.pem
+public_key.pem
