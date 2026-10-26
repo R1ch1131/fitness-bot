@@ -39,6 +39,7 @@ class ScheduleTests(unittest.TestCase):
         self.settings = copy.deepcopy(ns.DEFAULTS)
         self.store = {}
         ns._delivery_memory = None
+        ns._delivery_dirty = False
         self.stack = __import__("contextlib").ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(ns, "get_settings", return_value=self.settings))
@@ -61,14 +62,71 @@ class ScheduleTests(unittest.TestCase):
         ns.dispatch_scheduled_push(now + timedelta(days=1))
         self.assertEqual(self.send.call_count, 1)
 
-    def test_weekend_rules_and_five_minute_catch_up(self):
+    def test_weekend_rules_and_one_hour_catch_up(self):
         ns.dispatch_scheduled_push(datetime(2026, 11, 1, 8, 30, tzinfo=ns.TZ))
         self.send.assert_not_called()
         ns.dispatch_scheduled_push(datetime(2026, 11, 1, 12, 3, tzinfo=ns.TZ))
         self.assertEqual(self.send.call_args.kwargs["url"], "/?tab=weekly")
         self.send.reset_mock()
-        ns.dispatch_scheduled_push(datetime(2026, 11, 2, 22, 5, tzinfo=ns.TZ))
+        self.settings["nutrition"]["enabled"] = False
+        ns.dispatch_scheduled_push(datetime(2026, 11, 2, 23, 0, tzinfo=ns.TZ))
         self.send.assert_not_called()
+
+    def test_changed_time_can_send_again_same_day_without_repeating_old_occurrence(self):
+        first = datetime(2026, 10, 26, 8, 30, tzinfo=ns.TZ)
+        ns.dispatch_scheduled_push(first)
+        self.assertEqual(self.send.call_count, 1)
+        self.settings["gym"]["time"] = "09:00"
+        ns.dispatch_scheduled_push(first + timedelta(minutes=30))
+        self.assertEqual(self.send.call_count, 2)
+        self.settings["gym"]["time"] = "08:30"
+        ns.dispatch_scheduled_push(first + timedelta(minutes=31))
+        self.assertEqual(self.send.call_count, 2)
+
+    def test_retry_after_ten_minutes_and_midnight_recovery(self):
+        now = datetime(2026, 10, 26, 22, 0, tzinfo=ns.TZ)
+        self.send.return_value = 0
+        ns.dispatch_scheduled_push(now)
+        self.send.return_value = 1
+        ns.dispatch_scheduled_push(now + timedelta(minutes=10))
+        self.assertEqual(self.send.call_count, 2)
+        self.settings["gym"]["time"] = "23:55"
+        ns.dispatch_scheduled_push(datetime(2026, 10, 31, 0, 5, tzinfo=ns.TZ))
+        self.assertEqual(self.send.call_count, 3)
+        self.assertEqual(self.send.call_args.kwargs['url'], '/?tab=workouts')
+
+    def test_legacy_delivery_is_bound_to_old_time_before_saving_new_time(self):
+        self.store["notification_delivery"] = {"gym": "2026-10-26"}
+        first = datetime(2026, 10, 26, 8, 30, tzinfo=ns.TZ)
+        ns.dispatch_scheduled_push(first)
+        self.send.assert_not_called()
+        self.settings["gym"]["time"] = "09:00"
+        ns.dispatch_scheduled_push(first + timedelta(minutes=30))
+        self.send.assert_called_once()
+        ns._delivery_memory = None
+        ns.dispatch_scheduled_push(first + timedelta(minutes=30, seconds=20))
+        self.send.assert_called_once()
+
+    def test_storage_failure_retries_journal_without_resending_push(self):
+        now = datetime(2026, 10, 26, 22, 0, tzinfo=ns.TZ)
+        self.write.side_effect = RuntimeError('Storage down')
+        with self.assertRaises(RuntimeError):
+            ns.dispatch_scheduled_push(now)
+        self.send.assert_called_once()
+        self.write.side_effect = lambda key, value: self.store.update({key: copy.deepcopy(value)})
+        ns.dispatch_scheduled_push(now + timedelta(seconds=20))
+        self.send.assert_called_once()
+        self.assertFalse(ns._delivery_dirty)
+
+    def test_next_run_distinguishes_one_am_from_one_pm(self):
+        now = datetime(2026, 10, 26, 12, 0, tzinfo=ns.TZ)
+        self.settings["gym"]["time"] = "01:00"
+        next_run = ns.schedule_status(self.settings, now)["items"]["gym"]["next_run"]
+        self.assertEqual(next_run, '2026-10-27T01:00:00+06:00')
+        self.settings["gym"]["time"] = "13:00"
+        status = ns.schedule_status(self.settings, now)
+        self.assertEqual(status["items"]["gym"]["next_run"], '2026-10-26T13:00:00+06:00')
+        self.assertNotIn('endpoint', str(status))
 
     def test_provider_failure_retries_without_marking_sent(self):
         self.send.return_value = 0
