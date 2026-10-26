@@ -9,6 +9,9 @@ interface CoachChatTabProps {
   onClearHistory: () => void;
   initialPrompt?: string | null;
   onClearInitialPrompt?: () => void;
+  analysisBusy?: boolean;
+  analysisError?: string;
+  onRetryAnalysis?: () => void;
 }
 
 export const CoachChatTab: React.FC<CoachChatTabProps> = ({
@@ -18,9 +21,13 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
   onClearHistory,
   initialPrompt,
   onClearInitialPrompt,
+  analysisBusy = false,
+  analysisError = '',
+  onRetryAnalysis,
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const isBusy = isLoading || analysisBusy;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -40,7 +47,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading]);
+  }, [messages, isBusy]);
 
   useEffect(() => {
     if (initialPrompt && initialPrompt.trim()) {
@@ -52,7 +59,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
 
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
-    if (!text || isLoading) return;
+    if (!text || isBusy) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -101,6 +108,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
         {messages.length > 1 && (
           <button
             onClick={onClearHistory}
+            disabled={isBusy}
             title="Очистить историю сообщений"
             className="flex items-center space-x-1 text-[11px] text-[#64748b] hover:text-rose-400 active:scale-95 transition-all px-2 py-0.5 rounded-lg hover:bg-rose-500/10"
           >
@@ -109,6 +117,11 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
           </button>
         )}
       </div>
+
+      {analysisError && <div role="alert" className="shrink-0 my-2 p-3 rounded-xl border border-rose-500/20 bg-rose-500/5 text-xs text-rose-300 space-y-2">
+        <p>{analysisError}</p>
+        <button disabled={isBusy} onClick={onRetryAnalysis} className="px-3 py-2 rounded-lg bg-[#192235] border border-[#334155] text-white disabled:opacity-40">Повторить разбор</button>
+      </div>}
 
       {/* Messages Scroll Area */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-2 overscroll-contain">
@@ -145,8 +158,8 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
           );
         })}
 
-        {isLoading && (
-          <div className="flex items-start space-x-2.5">
+        {isBusy && (
+          <div role="status" aria-label="ИИ анализирует данные" className="flex items-start space-x-2.5">
             <div className="w-8 h-8 rounded-xl bg-[#00d084]/20 border border-[#00d084]/40 flex items-center justify-center text-[#00d084]">
               <Zap className="w-4 h-4 fill-[#00d084] animate-pulse" />
             </div>
@@ -158,6 +171,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
             </div>
           </div>
         )}
+        {analysisBusy && <p className="text-xs text-[#94a3b8] pl-11">Анализирую данные выбранной недели…</p>}
         <div ref={messagesEndRef} />
       </div>
 
@@ -167,7 +181,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
           <button
             key={idx}
             onClick={() => handleSend(q)}
-            disabled={isLoading}
+            disabled={isBusy}
             className="shrink-0 bg-[#111726] hover:bg-[#1e293b] active:scale-95 border border-[#1e293b] text-[#94a3b8] hover:text-white px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
           >
             {q}
@@ -190,7 +204,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
             placeholder="Спроси тренера о питании или тренировках..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            disabled={isLoading}
+            disabled={isBusy}
             className="flex-1 bg-transparent px-3 py-2 text-xs text-white placeholder-[#64748b] focus:outline-none"
           />
           <button

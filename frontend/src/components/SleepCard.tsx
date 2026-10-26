@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Moon, Watch, RefreshCw, Sparkles, SlidersHorizontal, ChevronDown, LogOut, Trash2, Clock3 } from 'lucide-react';
 import { healthHeaders, saveHealthKey, responseError } from '../healthConnection';
-import { WeekSelector } from './WeekSelector';
 
 type Night = {
   date: string; start?: string | null; end?: string | null; sleep_minutes: number | null;
@@ -52,8 +51,8 @@ function NightCard({ night, expanded }: { night: Night; expanded: boolean }) {
   </article>;
 }
 
-export function SleepCard({ weekStart, onDiscuss, onSelectWeek, disabled = false }: {
-  weekStart: string; onDiscuss: () => void; onSelectWeek: (week: string) => void; disabled?: boolean;
+export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
+  weekStart: string; onDiscuss: (context: string) => void; disabled?: boolean;
 }) {
   const [sleep, setSleep] = useState<Sleep | null>(null);
   const [token, setToken] = useState('');
@@ -115,7 +114,6 @@ export function SleepCard({ weekStart, onDiscuss, onSelectWeek, disabled = false
       <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-2xl bg-[#a78bfa]/10 border border-[#a78bfa]/20 flex items-center justify-center"><Moon className="w-5 h-5 text-[#c4b5fd]" /></div><div><h2 className="font-bold text-white text-sm">Сон</h2><p className="text-[10px] text-[#64748b] mt-0.5 flex items-center gap-1"><Watch className="w-3 h-3" />Apple Watch · Омск</p></div></div>
       {connected && <button aria-label="Настройки сна" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(v => !v)} className="w-10 h-10 rounded-xl flex items-center justify-center text-[#64748b] hover:text-white hover:bg-[#192235] transition"><SlidersHorizontal className="w-4 h-4" /></button>}
     </div>
-    <WeekSelector weekStart={weekStart} onChange={onSelectWeek} disabled={blocked} label="Неделя сна" />
     {error && <p role="alert" className="text-xs text-rose-300 rounded-xl bg-rose-500/5 p-3">{error}</p>}
     {!connected ? <div className="space-y-3">
       <p className="text-xs text-[#94a3b8]">Подключи сон для просмотра и разбора с ИИ.</p>
@@ -144,7 +142,13 @@ export function SleepCard({ weekStart, onDiscuss, onSelectWeek, disabled = false
       </>}
       <div className="grid grid-cols-2 gap-2">
         <button disabled={blocked} onClick={refresh} className={secondary}><RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />Обновить сон</button>
-        <button disabled={blocked || !sleep?.tracked_nights} onClick={onDiscuss} className="inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl bg-[#a78bfa]/15 border border-[#a78bfa]/30 text-[#ddd6fe] text-xs font-semibold hover:bg-[#a78bfa]/25 active:scale-[0.98] transition disabled:opacity-40"><Sparkles className="w-4 h-4" />Разобрать с ИИ</button>
+        <button disabled={blocked || !sleep?.tracked_nights} onClick={() => {
+          if (!sleep) return;
+          const context = [`Сон Apple Watch · время по Омску. Ночей с данными: ${sleep.tracked_nights} из 7. Среднее: ${duration(sleep.average_minutes)}.`,
+            ...[...nights].reverse().map(n => `${n.date}: сон ${duration(n.sleep_minutes)}, ${clock(n.start)}–${clock(n.end)}; базовый ${duration(n.core_minutes)}, глубокий ${duration(n.deep_minutes)}, REM ${duration(n.rem_minutes)}${n.asleep_minutes ? `, без фазы ${duration(n.asleep_minutes)}` : ''}; бодрствование ${duration(n.awake_minutes)}.`),
+          ].join('\n');
+          onDiscuss(context);
+        }} className="inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl bg-[#a78bfa]/15 border border-[#a78bfa]/30 text-[#ddd6fe] text-xs font-semibold hover:bg-[#a78bfa]/25 active:scale-[0.98] transition disabled:opacity-40"><Sparkles className="w-4 h-4" />Разобрать с ИИ</button>
       </div>
       {settingsOpen && <div className="rounded-2xl bg-[#0b101d] p-3 space-y-2" aria-label="Управление сном">
         <button disabled={blocked} onClick={disconnect} className={`${secondary} w-full justify-start`}><LogOut className="w-4 h-4" />Отключить устройство</button>

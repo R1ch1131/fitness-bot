@@ -14,7 +14,7 @@ import { WeeklyTab } from './components/WeeklyTab';
 import { LibraryTab } from './components/LibraryTab';
 import { WorkoutCheckinToast } from './components/WorkoutCheckinToast';
 import type { CheckinNotificationData } from './components/WorkoutCheckinToast';
-import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem, BookItem, BooksResponse, ChatMessage } from './types';
+import type { DashboardData, WorkoutsResponse, WeeklyResponse, WeeklyAnalysisRequest, HabitItem, BookItem, BooksResponse, ChatMessage } from './types';
 
 type AppPage = TabType | 'notifications';
 
@@ -85,6 +85,12 @@ export const App: React.FC = () => {
   const [testDelay, setTestDelay] = useState(0);
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | null>(null);
+  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  const [lastAnalysis, setLastAnalysis] = useState<WeeklyAnalysisRequest | null>(null);
+  const analysisController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => analysisController.current?.abort(), []);
 
   const DEFAULT_COACH_GREETING: ChatMessage = {
     id: '1',
@@ -570,6 +576,49 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleWeeklyAnalysis = async (request: WeeklyAnalysisRequest, retry = false) => {
+    if (analysisController.current) {
+      setCurrentTab('chat');
+      return;
+    }
+    const controller = new AbortController();
+    analysisController.current = controller;
+    setLastAnalysis(request);
+    setAnalysisError('');
+    setAnalysisBusy(true);
+    setChatInitialPrompt(null);
+    if (!retry) setChatMessages(prev => [...prev, {
+      id: `analysis-user-${Date.now()}`, sender: 'user',
+      text: `${request.focus === 'sleep' ? 'Разбери мой сон' : 'Разбери мою неделю'} за ${request.weekStart} — ${request.weekEnd}.\n\n${request.context}`,
+      timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+    }]);
+    setCurrentTab('chat');
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 90000);
+    try {
+      const query = new URLSearchParams({ week_start: request.weekStart });
+      if (request.focus) query.set('focus', request.focus);
+      const response = await fetch(`/api/weekly/analysis?${query}`, {
+        method: 'POST', headers: healthHeaders(), signal: controller.signal,
+      });
+      if (!response.ok) throw await responseError(response);
+      const result = await response.json();
+      if (typeof result.reply !== 'string' || !result.reply.trim()) throw Error('ИИ вернул пустой ответ. Попробуй ещё раз.');
+      setChatMessages(prev => [...prev, {
+        id: `analysis-coach-${Date.now()}`, sender: 'coach', text: result.reply,
+        timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+      }]);
+    } catch (error) {
+      if (!controller.signal.aborted || timedOut) setAnalysisError(timedOut
+        ? 'ИИ не успел ответить. Данные остались в чате — можно повторить разбор.'
+        : (error as Error).message);
+    } finally {
+      clearTimeout(timeout);
+      analysisController.current = null;
+      setAnalysisBusy(false);
+    }
+  };
+
   const isChatTab = currentTab === 'chat';
 
   return (
@@ -698,6 +747,9 @@ export const App: React.FC = () => {
             onClearHistory={handleClearChatHistory}
             initialPrompt={chatInitialPrompt}
             onClearInitialPrompt={() => setChatInitialPrompt(null)}
+            analysisBusy={analysisBusy}
+            analysisError={analysisError}
+            onRetryAnalysis={() => { if (lastAnalysis) void handleWeeklyAnalysis(lastAnalysis, true); }}
           />
         )}
 
@@ -711,14 +763,7 @@ export const App: React.FC = () => {
               setSelectedWeek(week);
               void loadWeekly(week);
             }}
-            onOpenChat={(reply, prompt) => {
-              if (reply) setChatMessages(prev => [...prev, {
-                id: `weekly-${Date.now()}`, sender: 'coach', text: reply,
-                timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-              }]);
-              setChatInitialPrompt(prompt || null);
-              setCurrentTab('chat');
-            }}
+            onAnalyze={request => void handleWeeklyAnalysis(request)}
           />
         )}
         </fieldset>

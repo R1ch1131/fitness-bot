@@ -97,6 +97,13 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export interface WeeklyAnalysisRequest {
+  weekStart: string;
+  weekEnd: string;
+  focus?: 'sleep';
+  context: string;
+}
+
 export interface WeeklyDayItem {
   date: string;
   weekday: string;
