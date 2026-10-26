@@ -397,6 +397,9 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
             if extra_context:
                 system_instruction += "\n\nДополнительные данные для этого запроса:\n" + extra_context
 
+            from response_style import CONCISE_STYLE
+            system_instruction += "\n\n" + CONCISE_STYLE
+
             contents_text = f"Вопрос атлета: {user_question}"
             if history and isinstance(history, list):
                 valid_turns = []
@@ -459,53 +462,23 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
             c_items = [f"{c['title']} ({c.get('distance_km', 0)} км за {c.get('duration_minutes', 0)} мин, темп {c.get('pace_min_km', '')})" for c in an["cardio"]]
             cardio_text = "; ".join(c_items)
 
-        prof = {}
-        try:
-            if coach.yazio.is_configured():
-                prof = coach.yazio.get_user_profile() or {}
-        except Exception as e:
-            print(f"YAZIO profile note in feedback: {e}")
-            prof = {}
-        w_cur = prof.get("current_weight_kg", 98.1)
-
-        prompt = f"""
-Ты — персональный спортивный тренер и физиолог атлета со следующими параметрами:
-- Атлет: Мужчина, 22 года, Рост: 182 см, Вес: {w_cur} кг (начальный 103 кг, цель 80 кг, режим: дефицит калорий / сушка с сохранением мышц).
-- Атлет только что закончил силовую тренировку и прислал свои ощущения.
-
-РЕАЛЬНЫЕ ДАННЫЕ СЕГОДНЯШНЕЙ ТРЕНИРОВКИ ИЗ HEVY:
-- Название программы: {w_title} ({w_date})
-- Время тренировки: {duration} мин
-- Общий тоннаж: {tonnage:,.0f} кг | Рабочих подходов: {sets_count}
-- Выполненные упражнения и подходы:
-{exercises_text}
-- Кардио: {cardio_text}
-
-ОТВЕТ И СУБЪЕКТИВНЫЕ ОЩУЩЕНИЯ АТЛЕТА:
-«{user_feedback}»
-
-ОБЯЗАТЕЛЬНО: В ответе обязательно упомяни любые проблемы, которые пользователь указал в своём тексте (например, боль в спине, тяжело шла тяга, ощущение "забитости" и т.п.).
-ТВОЯ ЗАДАЧА:
-Проанализируй ощущения атлета, опираясь на спортивную физиологию, биомеханику и его реальные цифры из тренировки выше.
-Сформируй структурированный, дружелюбный, ободряющий и научно обоснованный ответ по следующим пунктам:
-1. 🎯 Оценка нагрузки и ощущений: свяжи то, что почувствовал атлет, с конкретными весами, количеством подходов или объемом. Объясни, почему организм так отреагировал.
-2. 🦴 Суставы, связки и техника: если атлет упомянул дискомфорт или ноющую боль (плечо, колено, локоть, поясница), дай четкие рекомендации по технике (угол локтей, наклон скамьи, разминка манжеты плеча, замена хвата на нейтральный). Если суставы в порядке — похвали технику.
-3. ⚡ Восстановление на ближайшие 24-48ч: рекомендации по питанию (белок 30-40г, сложные углеводы, вода/электролиты), сну и расслаблению мышц.
-4. 📝 Корректировка следующих тренировок: стоит ли прогрессировать веса, зафиксировать их или скинуть на 5-10% в проблемных упражнениях?
-
-Форматируй текст в Markdown с жирным шрифтом, списками и эмодзи. Ответ должен быть удобен для чтения с мобильного экрана в Telegram. Отвечай на русском языке.
-"""
+        from response_style import post_workout_prompt
+        workout_context = (
+            f"Программа: {w_title} ({w_date}).\n"
+            f"Длительность: {duration} мин. Тоннаж: {tonnage:,.0f} кг. Рабочих подходов: {sets_count}.\n"
+            f"Упражнения и подходы:\n{exercises_text}\nКардио: {cardio_text}"
+        )
+        prompt = post_workout_prompt(workout_context, user_feedback)
 
         # Try Gemini models cascade
         if GEMINI_KEY:
             try:
                 from google import genai
-                from google.genai import types as genai_types
                 client = genai.Client(
                     api_key=GEMINI_KEY,
                     http_options={"timeout": 12_000}  # 12 sec timeout
                 )
-                print(f"[FEEDBACK] Prompt length: {len(prompt)} chars, user_feedback: {user_feedback[:100]}...")
+                print(f"[FEEDBACK] Prompt length: {len(prompt)} chars")
                 for model_name in MODELS_CASCADE:
                     try:
                         resp = client.models.generate_content(
@@ -526,11 +499,7 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
             f"📋 *Анализ тренировки: {w_title}*\n\n"
             f"⏱ Длительность: *{duration} мин* | Тоннаж: *{tonnage:,.0f} кг* ({sets_count} раб. подходов)\n\n"
             f"💬 *Твой отзыв:* «_{user_feedback}_»\n\n"
-            f"⚠️ *Примечание:* Сервер нейросети временно перегружен, детальный ИИ-разбор не сгенерировался. Твой отзыв надёжно сохранён в памяти тренера!\n\n"
-            f"💡 *Базовые рекомендации тренера:*\n"
-            f"1. *Восстановление*: Закрой потребность в белке (~35–40 г) и выпей 0.7–1.0 л чистой воды с электролитами.\n"
-            f"2. *Суставы и связки*: Если есть мышечный спазм или дискомфорт в связках, сделай легкую растяжку и держи проблемную зону в тепле.\n"
-            f"3. *Сон*: Не менее 8 часов сна для восстановления ЦНС и снижения кортизола."
+            "ИИ сейчас недоступен — разбор не сформирован. Попробуй ещё раз позже."
         )
     except Exception as err:
         print(f"Error in analyze_post_workout_feedback: {err}")
