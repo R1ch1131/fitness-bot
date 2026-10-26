@@ -313,7 +313,7 @@ def sync_data():
             if latest_w:
                 w_id = latest_w.get("id")
                 w_title = latest_w.get("title", "Тренировка")
-                end_iso = latest_w.get("end_time") or latest_w.get("start_time")
+                end_iso = latest_w.get("end_time")
                 end_dt = parse_iso(end_iso) if end_iso else None
                 now_ts = time.time()
 
@@ -580,9 +580,39 @@ def test_push(req: Dict[str, Any]):
     endpoint = req.get("endpoint")
     if not isinstance(endpoint, str) or not any(s.get("endpoint") == endpoint for s in load_subscriptions()):
         raise HTTPException(status_code=404, detail="Подписка не найдена. Включите уведомления заново.")
+    delay = req.get("delay_seconds", 0)
+    if type(delay) is not int or delay not in (0, 60, 2100):
+        raise HTTPException(status_code=400, detail="Выберите тест сейчас, через 1 или через 35 минут")
+    if delay:
+        from push_test_queue import schedule_test
+        try:
+            job = schedule_test(endpoint, delay)
+        except (RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=503, detail="Не удалось сохранить отложенный тест. Повторите попытку.") from exc
+        return {"status": "ok", "scheduled": True, "due_at": job["due_at"]}
     sent = send_push_notification("FitPulse: тест уведомлений", "Push-уведомления подключены!", url="/", endpoint=endpoint, tag="fitpulse-test")
     return {"status": "ok" if sent else "error", "sent": sent,
             "detail": "Push-сервис не принял уведомление. Проверьте ключи и журналы сервера." if not sent else "Push-сервис принял уведомление"}
+
+@app.post("/api/notifications/test_push/status")
+def pending_push_test(req: Dict[str, Any]):
+    from push_test_queue import test_status
+    endpoint = req.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint:
+        raise HTTPException(status_code=400, detail="Не указана подписка устройства")
+    return {"status": "ok", "pending": test_status(endpoint)}
+
+@app.post("/api/notifications/test_push/cancel")
+def cancel_pending_push_test(req: Dict[str, Any]):
+    from push_test_queue import cancel_test
+    endpoint = req.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint:
+        raise HTTPException(status_code=400, detail="Не указана подписка устройства")
+    try:
+        cancel_test(endpoint)
+    except (RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=503, detail="Не удалось отменить тест. Повторите попытку.") from exc
+    return {"status": "ok"}
 
 @app.post("/api/notifications/test_checkin")
 def trigger_test_checkin(delay_seconds: int = 3):

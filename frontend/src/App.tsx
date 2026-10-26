@@ -76,6 +76,7 @@ export const App: React.FC = () => {
   const push = usePushNotifications();
   const serverStatus = useServerConnection();
   const [showPushSettings, setShowPushSettings] = useState(false);
+  const [testDelay, setTestDelay] = useState(0);
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | null>(null);
 
@@ -587,9 +588,25 @@ export const App: React.FC = () => {
           <p role="status" className="text-[#94a3b8]">{push.blocked || push.message}</p>
           <div className="flex flex-wrap gap-3">
             <button disabled={push.busy || !!push.blocked} onClick={push.enable} className="px-3 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] disabled:opacity-40">Включить</button>
-            {push.ready && <button disabled={push.busy} onClick={push.test} className="px-3 py-2 rounded-xl border border-[#00d084] disabled:opacity-40">Тест</button>}
+            {push.ready && <button disabled={push.busy} onClick={() => push.test(testDelay)} className="px-3 py-2 rounded-xl border border-[#00d084] disabled:opacity-40">Тест</button>}
             {push.ready && <button disabled={push.busy} onClick={push.disable} className="px-3 py-2 disabled:opacity-40">Отключить</button>}
           </div>
+          {push.ready && (
+            <div className="space-y-2 text-xs text-[#94a3b8]">
+              <label className="flex items-center justify-between gap-3">
+                <span>Когда отправить тест</span>
+                <select value={testDelay} disabled={push.busy} onChange={e => setTestDelay(Number(e.target.value))} className="rounded-lg bg-[#0b0f19] border border-[#334155] p-2 text-white">
+                  <option value={0}>Сейчас</option>
+                  <option value={60}>Через 1 минуту</option>
+                  <option value={2100}>Через 35 минут</option>
+                </select>
+              </label>
+              <p>Отложенный тест отправляет сервер — приложение можно закрыть. Он проверяет доставку push и не означает начало тренировки в Hevy.</p>
+              {push.scheduledTest && <p>Тест запланирован на {new Date(push.scheduledTest * 1000).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Omsk', hour: '2-digit', minute: '2-digit' })} по Омску.
+                <button disabled={push.busy} onClick={push.cancelTest} className="ml-2 underline disabled:opacity-40">Отменить тест</button>
+              </p>}
+            </div>
+          )}
           <NotificationSchedule />
         </section>
       )}
