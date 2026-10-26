@@ -42,6 +42,7 @@ export function usePushNotifications() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Включите уведомления, чтобы получать напоминания при закрытом приложении.');
   const [blocked, setBlocked] = useState(availability);
+  const [scheduledTest, setScheduledTest] = useState<number | null>(null);
   const error = (e: unknown) => { setMessage(e instanceof Error ? e.message : 'Не удалось подключить уведомления. Повторите попытку.'); };
 
   async function subscribe(create: boolean) {
@@ -70,12 +71,18 @@ export function usePushNotifications() {
       if ('Notification' in window && Notification.permission === 'granted' && !availability()) {
         void subscribe(false).then(sub => {
           if (sub) setMessage('Подписка сохранена. Нажмите «Тест», чтобы проверить получение уведомлений на этом устройстве.');
+          if (sub) void jsonRequest('/api/notifications/test_push/status', { endpoint: sub.endpoint })
+            .then(data => setScheduledTest(data.pending?.due_at || null)).catch(() => {});
         }).catch(e => { setReady(false); error(e); });
       } else setReady(false);
     };
     refresh();
     window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
+    window.addEventListener('fitpulse:server-ready', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('fitpulse:server-ready', refresh);
+    };
   }, []);
 
   async function enable() {
@@ -93,15 +100,33 @@ export function usePushNotifications() {
     } catch (e) { error(e); } finally { setBusy(false); }
   }
 
-  async function test() {
+  async function test(delaySeconds = 0) {
     if (busy) return;
     setBusy(true);
     try {
       const sub = await subscribe(false);
       if (!sub) throw new Error('Сначала включите уведомления.');
-      const result = await jsonRequest('/api/notifications/test_push', { endpoint: sub.endpoint });
+      const result = await jsonRequest('/api/notifications/test_push', { endpoint: sub.endpoint, delay_seconds: delaySeconds });
+      if (result.scheduled) {
+        setScheduledTest(result.due_at);
+        setMessage(`Тест сохранён на сервере: через ${delaySeconds / 60} мин. Закрой приложение и проверь уведомление на экране блокировки.`);
+        return;
+      }
       setMessage(result.sent === 1 ? 'Push-сервис принял тест. Проверьте уведомление на iPhone; при необходимости проверьте режим «Фокусирование».' : 'Push-сервис не принял тест. Повторно включите уведомления или проверьте сервер.');
       if (result.sent !== 1) setReady(false);
+    } catch (e) { error(e); } finally { setBusy(false); }
+  }
+
+  async function cancelTest() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const reg = await registration();
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) throw new Error('Подписка этого устройства не найдена.');
+      await jsonRequest('/api/notifications/test_push/cancel', { endpoint: sub.endpoint });
+      setScheduledTest(null);
+      setMessage('Отложенный тест отменён.');
     } catch (e) { error(e); } finally { setBusy(false); }
   }
 
@@ -116,8 +141,9 @@ export function usePushNotifications() {
         if (!await sub.unsubscribe()) throw new Error('Не удалось отключить подписку на устройстве. Повторите попытку.');
       }
       setReady(false);
+      setScheduledTest(null);
       setMessage('Уведомления для этого устройства отключены.');
     } catch (e) { error(e); } finally { setBusy(false); }
   }
-  return { ready, busy, message, blocked, enable, test, disable };
+  return { ready, busy, message, blocked, scheduledTest, enable, test, cancelTest, disable };
 }

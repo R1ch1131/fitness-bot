@@ -650,7 +650,7 @@ def check_for_new_workouts_and_sync(bot):
 
         w_id = latest_workout.get("id")
         w_title = latest_workout.get("title", "Тренировка")
-        end_iso = latest_workout.get("end_time") or latest_workout.get("start_time")
+        end_iso = latest_workout.get("end_time")
 
         from analyzer import parse_iso
         end_dt = parse_iso(end_iso) if end_iso else None

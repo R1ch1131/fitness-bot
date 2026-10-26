@@ -140,10 +140,12 @@ def dispatch_scheduled_push(now=None):
 
 def start_push_scheduler():
     def worker():
+        from push_test_queue import dispatch_test_pushes
         while True:
-            try:
-                dispatch_scheduled_push()
-            except Exception as exc:
-                print(f"[Push] Scheduler: {exc}")
+            for dispatch in (dispatch_scheduled_push, dispatch_test_pushes):
+                try:
+                    dispatch()
+                except Exception as exc:
+                    print(f"[Push] Scheduler: {exc}")
             time.sleep(20)
     threading.Thread(target=worker, daemon=True, name="pwa-notifications").start()
