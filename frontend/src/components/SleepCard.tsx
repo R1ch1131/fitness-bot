@@ -1,20 +1,71 @@
 import { useEffect, useState } from 'react';
+import { Moon, Watch, RefreshCw, Sparkles, SlidersHorizontal, ChevronDown, LogOut, Trash2, Clock3 } from 'lucide-react';
 import { healthHeaders, saveHealthKey, responseError } from '../healthConnection';
+import { WeekSelector } from './WeekSelector';
 
-type Night = { date: string; sleep_minutes: number | null; core_minutes: number; deep_minutes: number; rem_minutes: number; asleep_minutes: number; awake_minutes: number };
+type Night = {
+  date: string; start?: string | null; end?: string | null; sleep_minutes: number | null;
+  core_minutes: number; deep_minutes: number; rem_minutes: number; asleep_minutes: number; awake_minutes: number;
+};
 type Sleep = { nights: Night[]; tracked_nights: number; average_minutes: number | null; imported_at: string | null };
-export const duration = (minutes: number | null) => minutes === null ? 'Нет данных' : `${Math.floor(Math.round(minutes) / 60)} ч ${Math.round(minutes) % 60} мин`;
+export const duration = (minutes: number | null) => {
+  if (minutes === null) return 'Нет данных';
+  const rounded = Math.round(minutes);
+  return rounded < 60 ? `${rounded} мин` : `${Math.floor(rounded / 60)} ч${rounded % 60 ? ` ${rounded % 60} мин` : ''}`;
+};
+const clock = (value?: string | null) => value && !Number.isNaN(Date.parse(value))
+  ? new Date(value).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Omsk', hour: '2-digit', minute: '2-digit' }) : '—';
+const secondary = 'inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl border border-[#2b3850] bg-[#192235] text-xs font-medium text-[#cbd5e1] hover:bg-[#24304a] active:scale-[0.98] transition disabled:opacity-40';
 
-export function SleepCard({ weekStart, onDiscuss }: { weekStart: string; onDiscuss: () => void }) {
+function NightCard({ night, expanded }: { night: Night; expanded: boolean }) {
+  const [open, setOpen] = useState(expanded);
+  const parts = [
+    { name: 'Базовый', minutes: night.core_minutes, color: '#818cf8' },
+    { name: 'Глубокий', minutes: night.deep_minutes, color: '#a78bfa' },
+    { name: 'REM', minutes: night.rem_minutes, color: '#38bdf8' },
+    ...(night.asleep_minutes > 0 ? [{ name: 'Без фазы', minutes: night.asleep_minutes, color: '#64748b' }] : []),
+  ];
+  const total = parts.reduce((sum, part) => sum + part.minutes, 0);
+  const title = new Date(night.date + 'T12:00:00Z').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const weekday = new Date(night.date + 'T12:00:00Z').toLocaleDateString('ru-RU', { weekday: 'long', timeZone: 'UTC' });
+  return <article aria-label={`Сон за ${night.date}`} className="rounded-2xl border border-[#202b42] bg-[#0b101d] overflow-hidden">
+    <button onClick={() => setOpen(v => !v)} aria-expanded={open} aria-label={`Фазы сна за ${night.date}`} className="w-full p-4 text-left flex items-center justify-between gap-2 hover:bg-white/[0.02] transition">
+      <div><p className="text-[10px] uppercase tracking-wider text-[#64748b]">Ночь на {weekday}</p><h3 className="text-sm font-semibold text-white mt-0.5">{title}</h3></div>
+      <div className="flex items-center gap-2"><strong className="text-sm text-[#ddd6fe]">{duration(night.sleep_minutes)}</strong><ChevronDown className={`w-4 h-4 text-[#64748b] transition-transform ${open ? 'rotate-180' : ''}`} /></div>
+    </button>
+    <div className="px-4 pb-4 space-y-3">
+      <div className="flex items-center gap-2 text-xs text-[#94a3b8]"><Moon className="w-3.5 h-3.5 text-[#a78bfa]" /><span>{clock(night.start)}</span><span className="flex-1 h-px bg-[#263149]" /><Clock3 className="w-3.5 h-3.5 text-[#64748b]" /><span>{clock(night.end)}</span><span className="sr-only">Время начала и окончания сна по Омску</span></div>
+      {total > 0 && <div role="img" aria-label={`Доли фаз сна: ${parts.map(p => `${p.name} ${duration(p.minutes)}`).join(', ')}`} className="h-2.5 rounded-full overflow-hidden flex bg-[#192235]">
+        {parts.filter(p => p.minutes > 0).map(p => <span key={p.name} style={{ width: `${p.minutes / total * 100}%`, backgroundColor: p.color }} />)}
+      </div>}
+      {open && <div className="space-y-3">
+        {total > 0 ? <div className={`grid gap-2 ${parts.length > 3 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          {parts.map(p => <div key={p.name} className="rounded-xl bg-[#131b2c] px-2.5 py-2.5">
+            <p className="text-[10px] text-[#94a3b8] flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />{p.name}</p>
+            <p className="text-xs text-white font-semibold mt-1.5">{duration(p.minutes)}</p>
+            <p className="text-[10px] text-[#64748b] mt-1">{Math.round(p.minutes / total * 100)}%</p>
+          </div>)}
+        </div> : <p className="text-xs text-[#94a3b8]">Часы не записали фазы сна.</p>}
+        <div className="flex items-center justify-between text-[11px]"><span className="text-[#64748b]">Бодрствование</span><span className="text-[#cbd5e1]">{duration(night.awake_minutes)}</span></div>
+      </div>}
+    </div>
+  </article>;
+}
+
+export function SleepCard({ weekStart, onDiscuss, onSelectWeek, disabled = false }: {
+  weekStart: string; onDiscuss: () => void; onSelectWeek: (week: string) => void; disabled?: boolean;
+}) {
   const [sleep, setSleep] = useState<Sleep | null>(null);
   const [token, setToken] = useState('');
   const [connected, setConnected] = useState(() => !!healthHeaders().Authorization);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [revision, setRevision] = useState(0);
   const [configured, setConfigured] = useState<boolean | null>(null);
-  const [message, setMessage] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const blocked = busy || disabled;
 
   useEffect(() => {
     fetch('/api/health/status').then(r => r.ok ? r.json() : null).then(d => setConfigured(d?.configured ?? null)).catch(() => {});
@@ -41,90 +92,65 @@ export function SleepCard({ weekStart, onDiscuss }: { weekStart: string; onDiscu
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
-
+  const refresh = () => { setRevision(r => r + 1); window.dispatchEvent(new Event('fitpulse:health-changed')); };
   const disconnect = () => {
-    saveHealthKey(''); setConnected(false); setSleep(null); setConfirmDelete(false); setError(''); setMessage('');
+    saveHealthKey(''); setConnected(false); setSleep(null); setConfirmDelete(false); setSettingsOpen(false); setError('');
   };
-
-  const upload = async (file: File) => {
-    setBusy(true); setError(''); setMessage('');
-    try {
-      if (file.size > 2_000_000) throw Error('Файл слишком большой. Выбери в экспорте только сон за последние 7 дней.');
-      const text = await file.text();
-      try { JSON.parse(text); } catch { throw Error('Не удалось прочитать JSON. Выбери экспорт в формате JSON, а не Markdown.'); }
-      const response = await fetch('/api/health/sleep', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...healthHeaders() }, body: text,
-      });
-      if (!response.ok) throw await responseError(response);
-      const result = await response.json();
-      if (result.status !== 'ok' || !Number.isInteger(result.imported_nights) || result.imported_nights < 1) throw Error('Сервер не подтвердил импорт. Повтори попытку.');
-      setMessage(`Импортировано ночей: ${result.imported_nights}. Если записи не видны, выбери неделю, в которую они попадают.`);
-      setRevision(r => r + 1);
-      window.dispatchEvent(new Event('fitpulse:health-changed'));
-    } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
-  };
-
   const remove = async () => {
-    setBusy(true); setError(''); setMessage('');
+    setBusy(true); setError('');
     try {
       const response = await fetch('/api/health/sleep', { method: 'DELETE', headers: healthHeaders() });
       if (!response.ok) throw await responseError(response);
-      setConfirmDelete(false); setRevision(r => r + 1);
-      window.dispatchEvent(new Event('fitpulse:health-changed'));
+      setConfirmDelete(false); refresh();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
 
-  return <section aria-label="Сон Apple Watch" className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 space-y-3">
-    <h2 className="font-bold text-white">Сон · Apple Watch</h2>
-    <p className="text-xs text-[#94a3b8]">Данные из «Здоровья» передаёт команда на iPhone. Время и дни сна — по Омску.</p>
-    {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
-    {message && <p role="status" className="text-xs text-[#00d084]">{message}</p>}
-    {!connected ? <>
-      {configured === false && <p className="text-xs text-amber-300">На Render ещё нужно добавить HEALTH_IMPORT_TOKEN. Инструкция ниже.</p>}
-      <label className="block text-xs text-[#94a3b8]">Ключ подключения
-        <input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} className="block w-full mt-2 p-3 rounded-xl bg-[#0b0f19] border border-[#334155] text-white" placeholder="Тот же ключ, что в команде и на Render" />
-      </label>
-      <p className="text-xs text-[#94a3b8]">При подключении ключ сохранится на этом устройстве. Импортированный сон будет доступен ИИ при запросах из приложения.</p>
-      <button onClick={connect} disabled={busy || token.trim().length < 32} className="px-4 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] text-sm disabled:opacity-40">{busy ? 'Подключаем…' : 'Подключить сон'}</button>
-    </> : <>
-      {busy && <p role="status" className="text-xs text-[#94a3b8]">Обновляем данные сна…</p>}
+  const nights = [...(sleep?.nights || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const dates = Array.from({ length: 7 }, (_, index) => new Date(Date.parse(weekStart + 'T12:00:00Z') + index * 86400000).toISOString().slice(0, 10));
+  const activeDate = selectedDate && dates.includes(selectedDate) ? selectedDate : nights[0]?.date || weekStart;
+  const activeNight = nights.find(night => night.date === activeDate);
+  return <section aria-label="Сон Apple Watch" aria-busy={blocked} className="bg-[#111726] border border-[#1e293b] rounded-3xl p-4 sm:p-5 space-y-4">
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-2xl bg-[#a78bfa]/10 border border-[#a78bfa]/20 flex items-center justify-center"><Moon className="w-5 h-5 text-[#c4b5fd]" /></div><div><h2 className="font-bold text-white text-sm">Сон</h2><p className="text-[10px] text-[#64748b] mt-0.5 flex items-center gap-1"><Watch className="w-3 h-3" />Apple Watch · Омск</p></div></div>
+      {connected && <button aria-label="Настройки сна" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(v => !v)} className="w-10 h-10 rounded-xl flex items-center justify-center text-[#64748b] hover:text-white hover:bg-[#192235] transition"><SlidersHorizontal className="w-4 h-4" /></button>}
+    </div>
+    <WeekSelector weekStart={weekStart} onChange={onSelectWeek} disabled={blocked} label="Неделя сна" />
+    {error && <p role="alert" className="text-xs text-rose-300 rounded-xl bg-rose-500/5 p-3">{error}</p>}
+    {!connected ? <div className="space-y-3">
+      <p className="text-xs text-[#94a3b8]">Подключи сон для просмотра и разбора с ИИ.</p>
+      {configured === false && <p className="text-xs text-amber-300">На сервере нужно настроить HEALTH_IMPORT_TOKEN.</p>}
+      <label className="block text-xs text-[#94a3b8]">Ключ подключения<input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} className="block w-full mt-2 p-3 rounded-xl bg-[#0b0f19] border border-[#334155] text-white" placeholder="Вставь ключ" /></label>
+      <button onClick={connect} disabled={blocked || token.trim().length < 32} className="w-full px-4 py-3 rounded-xl bg-[#00d084] text-[#0b0f19] text-xs font-semibold disabled:opacity-40">{busy ? 'Подключаем…' : 'Подключить сон'}</button>
+      <a href="/api/health/setup" target="_blank" rel="noreferrer" className={`${secondary} w-full`}>Как подключить</a>
+    </div> : <>
+      {busy && <p role="status" className="text-xs text-[#94a3b8] flex items-center gap-2"><RefreshCw className="w-3 h-3 animate-spin" />Обновляем сон…</p>}
       {sleep && <>
-        <p className="text-2xl font-bold text-[#c4b5fd]">{duration(sleep.average_minutes)}</p>
-        <p className="text-xs text-[#94a3b8]">Среднее за неделю · ночей с данными: {sleep.tracked_nights} из 7</p>
-        {!sleep.tracked_nights && <p className="text-xs text-[#94a3b8]">Запусти команду на iPhone, затем нажми «Обновить сон».</p>}
-        <div className="space-y-2">
-          {sleep.nights.map(n => <div key={n.date} className="rounded-xl bg-[#0b0f19] p-3 text-xs">
-            <div className="flex justify-between gap-2"><span>{n.date.slice(8)}.{n.date.slice(5, 7)}</span><strong>{duration(n.sleep_minutes)}</strong></div>
-            {n.sleep_minutes !== null && <p className="mt-1 text-[#94a3b8]">Базовый {duration(n.core_minutes)} · глубокий {duration(n.deep_minutes)} · REM {duration(n.rem_minutes)}{n.asleep_minutes > 0 && ` · без фазы ${duration(n.asleep_minutes)}`}</p>}
-          </div>)}
+        {sleep.tracked_nights > 0 && <div className="flex items-end justify-between gap-2 px-1"><div><p className="text-[10px] uppercase tracking-wider text-[#64748b]">Средний сон</p><p className="text-3xl font-bold tracking-tight text-[#ddd6fe] mt-1">{duration(sleep.average_minutes)}</p></div><div className="text-right pb-1"><p className="text-sm font-semibold text-[#cbd5e1]">{sleep.tracked_nights} / 7</p><p className="text-[10px] text-[#64748b]">ночей с данными</p></div></div>}
+        <div role="group" aria-label="Дни сна" className="grid grid-cols-7 gap-1">
+          {dates.map((date, index) => {
+            const night = nights.find(n => n.date === date);
+            const minutes = night?.sleep_minutes;
+            const value = minutes === null || minutes === undefined ? '—' : `${Math.floor(Math.round(minutes) / 60)}:${String(Math.round(minutes) % 60).padStart(2, '0')}`;
+            const active = date === activeDate;
+            return <button key={date} disabled={blocked} onClick={() => setSelectedDate(date)} aria-pressed={active} aria-label={`Сон ${date}: ${minutes === null || minutes === undefined ? 'нет данных' : duration(minutes)}`} className={`min-w-0 rounded-xl py-2.5 px-0.5 text-center border transition active:scale-95 disabled:opacity-40 ${active ? 'bg-[#a78bfa]/15 border-[#a78bfa]/50 text-[#ddd6fe]' : 'bg-[#0b101d] border-transparent text-[#64748b] hover:bg-[#192235]'}`}>
+              <span className="block text-[10px]">{['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][index]}</span>
+              <span className={`block text-xs font-semibold mt-1 ${active ? 'text-white' : 'text-[#94a3b8]'}`}>{Number(date.slice(8))}</span>
+              <span className={`block text-[10px] tabular-nums mt-1.5 ${minutes !== null && minutes !== undefined ? 'text-[#c4b5fd]' : ''}`}>{value}</span>
+            </button>;
+          })}
         </div>
-        {sleep.imported_at && <p className="text-xs text-[#94a3b8]">Последний импорт: {new Date(sleep.imported_at).toLocaleString('ru-RU', { timeZone: 'Asia/Omsk' })} по Омску</p>}
-        <p className="text-xs text-[#94a3b8]">Это оценки часов. ИИ учтёт длительность, регулярность и твоё самочувствие; диагноз по фазам сна он ставить не должен.</p>
+        {activeNight ? <NightCard key={activeNight.date} night={activeNight} expanded /> : <div className="text-center rounded-2xl bg-[#0b101d] py-6 px-4"><Moon className="w-6 h-6 mx-auto text-[#475569] mb-2" /><p className="text-sm font-medium text-[#cbd5e1]">{sleep.tracked_nights ? 'За этот день записей нет' : 'За эту неделю записей нет'}</p><p className="text-xs text-[#64748b] mt-1">Выбери другой день или обнови сон.</p></div>}
       </>}
-      <div className="flex flex-wrap gap-3 text-xs">
-        <button disabled={busy} onClick={() => { setRevision(r => r + 1); window.dispatchEvent(new Event('fitpulse:health-changed')); }} className="underline disabled:opacity-40">Обновить сон</button>
-        {!!sleep?.tracked_nights && <button onClick={onDiscuss} className="text-[#00d084] underline">Спросить ИИ о сне</button>}
-        <button disabled={busy} onClick={disconnect} className="underline disabled:opacity-40">Отключить устройство</button>
-        <button disabled={busy} onClick={() => setConfirmDelete(true)} className="text-rose-300 underline disabled:opacity-40">Удалить данные с сервера</button>
+      <div className="grid grid-cols-2 gap-2">
+        <button disabled={blocked} onClick={refresh} className={secondary}><RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />Обновить сон</button>
+        <button disabled={blocked || !sleep?.tracked_nights} onClick={onDiscuss} className="inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl bg-[#a78bfa]/15 border border-[#a78bfa]/30 text-[#ddd6fe] text-xs font-semibold hover:bg-[#a78bfa]/25 active:scale-[0.98] transition disabled:opacity-40"><Sparkles className="w-4 h-4" />Разобрать с ИИ</button>
       </div>
-      <label className="block text-xs text-[#c4b5fd]">Загрузить JSON сна
-        <input type="file" accept=".json,application/json" disabled={busy} className="block mt-2 w-full text-xs text-[#94a3b8] disabled:opacity-40" onChange={e => {
-          const file = e.currentTarget.files?.[0];
-          e.currentTarget.value = '';
-          if (file) void upload(file);
-        }} />
-      </label>
-      <p className="text-xs text-[#94a3b8]">Поддерживается JSON Health Export Kit. Импортируется только сон; остальные категории из файла не сохраняются. Повторная загрузка обновляет ночи без дублей.</p>
-      {confirmDelete && <div className="text-xs space-y-2"><p>Удалить всю импортированную историю сна? Копии уже отправленных сообщений ИИ останутся в чате.</p><button disabled={busy} onClick={remove} className="text-rose-300 underline">Удалить историю сна</button><button onClick={() => setConfirmDelete(false)} className="ml-4 underline">Отмена</button></div>}
+      {settingsOpen && <div className="rounded-2xl bg-[#0b101d] p-3 space-y-2" aria-label="Управление сном">
+        <button disabled={blocked} onClick={disconnect} className={`${secondary} w-full justify-start`}><LogOut className="w-4 h-4" />Отключить устройство</button>
+        <button disabled={blocked} onClick={() => setConfirmDelete(true)} className={`${secondary} w-full justify-start text-rose-300`}><Trash2 className="w-4 h-4" />Удалить историю сна</button>
+        {confirmDelete && <div className="text-xs space-y-3 p-1"><p className="text-[#94a3b8]">Удалить все записи сна с сервера?</p><div className="grid grid-cols-2 gap-2"><button disabled={blocked} onClick={remove} className="rounded-xl bg-rose-500/15 text-rose-300 py-2.5 disabled:opacity-40">Удалить окончательно</button><button disabled={blocked} onClick={() => setConfirmDelete(false)} className={secondary}>Отмена</button></div></div>}
+      </div>}
     </>}
-    <details className="text-xs text-[#94a3b8] space-y-2">
-      <summary className="cursor-pointer text-[#c4b5fd]">Как подключить Apple «Здоровье»</summary>
-      <p>1. Добавь в Render переменную HEALTH_IMPORT_TOKEN — случайный секрет не короче 32 символов.</p>
-      <p>2. В Health Export Kit выбери «Последние 7 дней» и JSON. Файл можно загрузить здесь или отправлять командой на {window.location.origin}/api/health/sleep с этим ключом.</p>
-      <p>3. Разреши чтение сна, запусти команду вручную. Затем вставь ключ выше. Ежедневную автоматизацию настрой после успешной проверки на телефоне.</p>
-      <a href="/api/health/setup" target="_blank" rel="noreferrer" className="inline-block underline text-[#00d084]">Подробная инструкция и формат команды</a>
-    </details>
   </section>;
 }

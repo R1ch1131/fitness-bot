@@ -709,7 +709,6 @@ export const App: React.FC = () => {
             onRetry={() => void loadWeekly(selectedWeek, true)}
             onSelectWeek={week => {
               setSelectedWeek(week);
-              setWeeklyData(null);
               void loadWeekly(week);
             }}
             onOpenChat={(reply, prompt) => {

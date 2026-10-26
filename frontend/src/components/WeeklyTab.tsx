@@ -3,6 +3,7 @@ import { Award, Download, MessageSquare } from 'lucide-react';
 import type { WeeklyResponse } from '../types';
 import { healthHeaders, responseError } from '../healthConnection';
 import { SleepCard } from './SleepCard';
+import { WeekSelector } from './WeekSelector';
 
 interface WeeklyTabProps {
   data: WeeklyResponse | null;
@@ -62,9 +63,6 @@ export function WeeklyTab({ data, isLoading, error, onRetry, onSelectWeek, onOpe
   </div>;
 
   const { days, averages } = data;
-  const shiftWeek = (days: number) => new Date(Date.parse(data.period_start + 'T12:00:00Z') + days * 86400000).toISOString().slice(0, 10);
-  const omskToday = new Date(Date.now() + 6 * 3600000);
-  const currentMonday = new Date(omskToday.getTime() - ((omskToday.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10);
   const number = (value: number | null, unit = '') => value === null || value === undefined ? '—' : `${Math.round(value)}${unit}`;
   return <div className="space-y-4 pb-32 px-3 pt-3 max-w-4xl mx-auto">
     <section aria-label="Итоги недели" className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 space-y-4">
@@ -72,13 +70,9 @@ export function WeeklyTab({ data, isLoading, error, onRetry, onSelectWeek, onOpe
         <h2 className="font-bold text-white">Твоя неделя</h2>
         <p className="text-xs text-[#94a3b8]">{data.period_start} — {data.period_end} · по Омску</p>
       </div></div>
-      <div className="flex flex-wrap gap-3 text-xs">
-        <button onClick={() => onSelectWeek(shiftWeek(-7))} disabled={isLoading || analyzing || data.period_start <= new Date(Date.now() - 358 * 86400000).toISOString().slice(0, 10)} className="underline disabled:opacity-40">Предыдущая неделя</button>
-        <button onClick={() => onSelectWeek(shiftWeek(7))} disabled={isLoading || analyzing || data.period_start >= currentMonday} className="underline disabled:opacity-40">Следующая неделя</button>
-        {data.period_start < currentMonday && <button onClick={() => onSelectWeek('')} disabled={isLoading || analyzing} className="text-[#00d084] underline disabled:opacity-40">Текущая неделя</button>}
-      </div>
+      <WeekSelector weekStart={data.period_start} onChange={onSelectWeek} disabled={isLoading || analyzing} />
       <p className="text-xs text-[#94a3b8]">Картинка формируется по твоим записям. Текущая неделя обновляется по мере появления данных.</p>
-      <button onClick={onRetry} disabled={isLoading} className="text-xs text-[#00d084] underline disabled:opacity-40">{isLoading ? 'Обновляем неделю…' : 'Обновить неделю'}</button>
+      <button onClick={onRetry} disabled={isLoading} className="px-3 py-2 rounded-xl text-xs text-[#00d084] bg-[#00d084]/10 border border-[#00d084]/20 hover:bg-[#00d084]/15 disabled:opacity-40">{isLoading ? 'Обновляем неделю…' : 'Обновить неделю'}</button>
       {image ? <a href={image} target="_blank" rel="noreferrer" aria-label="Открыть картинку итогов недели"><img src={image} alt={`Итоги недели ${data.period_start} — ${data.period_end}: тренировки, питание и динамика веса`} className="w-full rounded-2xl border border-[#1e293b]" /></a>
         : <p role={imageError ? 'alert' : 'status'} className="text-xs text-[#94a3b8]">{imageError || 'Собираем картинку недели…'}</p>}
       <div className="flex flex-wrap gap-3">
@@ -97,7 +91,7 @@ export function WeeklyTab({ data, isLoading, error, onRetry, onSelectWeek, onOpe
         {[['Ккал / день', number(averages.calories)], ['Белок / день', number(averages.protein, ' г')], ['Тренировки', data.workout_count], ['Вес за неделю', data.weight_change === null ? 'Мало замеров' : `${data.weight_change > 0 ? '+' : ''}${data.weight_change} кг`]].map(([label, value]) => <div key={label} className="bg-[#0b0f19] rounded-2xl p-3"><p className="text-xs text-[#94a3b8]">{label}</p><p className="text-lg font-bold text-[#00d084] mt-1">{value}</p></div>)}
       </div>
     </section>
-    <SleepCard weekStart={data.period_start} onDiscuss={() => void analyze('sleep')} />
+    <SleepCard weekStart={data.period_start} onSelectWeek={onSelectWeek} disabled={isLoading || analyzing} onDiscuss={() => void analyze('sleep')} />
     <section className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 space-y-3">
       <h2 className="text-sm font-bold">По дням недели</h2>
       {days.map(day => <div key={day.date} className="bg-[#0b0f19] rounded-2xl p-3 text-xs space-y-1">
