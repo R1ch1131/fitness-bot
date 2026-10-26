@@ -1,114 +1,110 @@
-import React from 'react';
-import { Award } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Award, Download, MessageSquare } from 'lucide-react';
 import type { WeeklyResponse } from '../types';
+import { healthHeaders, responseError } from '../healthConnection';
+import { SleepCard } from './SleepCard';
 
 interface WeeklyTabProps {
   data: WeeklyResponse | null;
   isLoading: boolean;
+  error?: string;
+  onRetry: () => void;
+  onSelectWeek: (week: string) => void;
+  onOpenChat: (reply?: string, prompt?: string) => void;
 }
 
-export const WeeklyTab: React.FC<WeeklyTabProps> = ({ data, isLoading }) => {
-  if (isLoading || !data) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-3">
-        <div className="w-8 h-8 border-2 border-[#f59e0b] border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-[#94a3b8]">Загрузка сводки недели...</p>
+export function WeeklyTab({ data, isLoading, error, onRetry, onSelectWeek, onOpenChat }: WeeklyTabProps) {
+  const [image, setImage] = useState('');
+  const [imageError, setImageError] = useState('');
+  const [imageRevision, setImageRevision] = useState(0);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  const analysisRequest = useRef<AbortController | null>(null);
+  const start = data?.period_start;
+
+  useEffect(() => () => analysisRequest.current?.abort(), []);
+
+  useEffect(() => {
+    const changed = () => setImageRevision(r => r + 1);
+    window.addEventListener('fitpulse:health-changed', changed);
+    return () => window.removeEventListener('fitpulse:health-changed', changed);
+  }, []);
+
+  useEffect(() => {
+    if (!start) return;
+    const controller = new AbortController();
+    let objectUrl = '';
+    setImage(''); setImageError('');
+    fetch(`/api/weekly/image?week_start=${start}`, { headers: healthHeaders(), cache: 'no-store', signal: controller.signal })
+      .then(async r => { if (!r.ok) throw await responseError(r); if (!r.headers.get('Content-Type')?.includes('image/png')) throw Error('Сервер ещё запускается. Повтори загрузку картинки.'); return r.blob(); })
+      .then(blob => { if (!controller.signal.aborted) { objectUrl = URL.createObjectURL(blob); setImage(objectUrl); } })
+      .catch(e => { if (!controller.signal.aborted) setImageError(e.message); });
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [start, data?.as_of, imageRevision]);
+
+  const analyze = async (focus?: 'sleep') => {
+    if (!start || analyzing) return;
+    const controller = new AbortController();
+    analysisRequest.current = controller;
+    setAnalyzing(true); setAnalysisError('');
+    try {
+      const response = await fetch(`/api/weekly/analysis?week_start=${start}${focus ? '&focus=sleep' : ''}`, { method: 'POST', headers: healthHeaders(), signal: controller.signal });
+      if (!response.ok) throw await responseError(response);
+      const result = await response.json();
+      onOpenChat(`Итоги недели ${data?.period_start} — ${data?.period_end}\n\n${result.reply}`);
+    } catch (e) { if (!controller.signal.aborted) setAnalysisError((e as Error).message); }
+    finally { if (!controller.signal.aborted) setAnalyzing(false); }
+  };
+
+  if (!data) return <div className="min-h-[50vh] flex flex-col items-center justify-center px-6 space-y-3 text-sm text-[#94a3b8]">
+    <p role={error ? 'alert' : 'status'}>{error || 'Загрузка сводки недели…'}</p>
+    {error && <button onClick={onRetry} className="text-[#00d084] underline">Повторить загрузку</button>}
+  </div>;
+
+  const { days, averages } = data;
+  const shiftWeek = (days: number) => new Date(Date.parse(data.period_start + 'T12:00:00Z') + days * 86400000).toISOString().slice(0, 10);
+  const omskToday = new Date(Date.now() + 6 * 3600000);
+  const currentMonday = new Date(omskToday.getTime() - ((omskToday.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10);
+  const number = (value: number | null, unit = '') => value === null || value === undefined ? '—' : `${Math.round(value)}${unit}`;
+  return <div className="space-y-4 pb-32 px-3 pt-3 max-w-4xl mx-auto">
+    <section aria-label="Итоги недели" className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 space-y-4">
+      <div className="flex items-center gap-3"><Award className="w-6 h-6 text-[#f59e0b] shrink-0" /><div>
+        <h2 className="font-bold text-white">Твоя неделя</h2>
+        <p className="text-xs text-[#94a3b8]">{data.period_start} — {data.period_end} · по Омску</p>
+      </div></div>
+      <div className="flex flex-wrap gap-3 text-xs">
+        <button onClick={() => onSelectWeek(shiftWeek(-7))} disabled={isLoading || analyzing || data.period_start <= new Date(Date.now() - 358 * 86400000).toISOString().slice(0, 10)} className="underline disabled:opacity-40">Предыдущая неделя</button>
+        <button onClick={() => onSelectWeek(shiftWeek(7))} disabled={isLoading || analyzing || data.period_start >= currentMonday} className="underline disabled:opacity-40">Следующая неделя</button>
+        {data.period_start < currentMonday && <button onClick={() => onSelectWeek('')} disabled={isLoading || analyzing} className="text-[#00d084] underline disabled:opacity-40">Текущая неделя</button>}
       </div>
-    );
-  }
-
-  const { days, averages, report_markdown } = data;
-
-  return (
-    <div className="space-y-4 pb-28 px-3 pt-3 max-w-4xl mx-auto">
-      {/* Weekly Averages Card */}
-      <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-xl bg-[#f59e0b]/20 border border-[#f59e0b]/30 flex items-center justify-center text-[#f59e0b]">
-              <Award className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-white tracking-tight">Средние показатели недели</h2>
-              <p className="text-[11px] text-[#94a3b8]">На основе {averages?.tracked_days || 5} дней в YAZIO</p>
-            </div>
-          </div>
-          <span className="text-xs font-bold bg-[#00d084]/20 text-[#00d084] border border-[#00d084]/30 px-2.5 py-1 rounded-xl">
-            -1.3 кг за неделю 🔥
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
-          <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-3 text-center">
-            <p className="text-[10px] text-[#94a3b8] uppercase font-semibold">Калории / день</p>
-            <p className="text-base font-extrabold text-white mt-1">
-              {averages?.calories ? Math.round(averages.calories) : 1955}
-            </p>
-            <p className="text-[10px] text-[#00d084] font-medium">Дефицит выдержан</p>
-          </div>
-
-          <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-3 text-center">
-            <p className="text-[10px] text-[#94a3b8] uppercase font-semibold">Белок / день</p>
-            <p className="text-base font-extrabold text-[#00d084] mt-1">
-              {averages?.protein ? Math.round(averages.protein) : 167}г
-            </p>
-            <p className="text-[10px] text-zinc-400">Цель: 160г+</p>
-          </div>
-
-          <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-3 text-center">
-            <p className="text-[10px] text-[#94a3b8] uppercase font-semibold">Жиры / день</p>
-            <p className="text-base font-extrabold text-[#f59e0b] mt-1">
-              {averages?.fat ? Math.round(averages.fat) : 58}г
-            </p>
-            <p className="text-[10px] text-zinc-400">Норма: ~65г</p>
-          </div>
-
-          <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-3 text-center">
-            <p className="text-[10px] text-[#94a3b8] uppercase font-semibold">Углеводы / день</p>
-            <p className="text-base font-extrabold text-[#38bdf8] mt-1">
-              {averages?.carbs ? Math.round(averages.carbs) : 188}г
-            </p>
-            <p className="text-[10px] text-zinc-400">Энергия для зала</p>
-          </div>
-        </div>
+      <p className="text-xs text-[#94a3b8]">Картинка формируется по твоим записям. Текущая неделя обновляется по мере появления данных.</p>
+      <button onClick={onRetry} disabled={isLoading} className="text-xs text-[#00d084] underline disabled:opacity-40">{isLoading ? 'Обновляем неделю…' : 'Обновить неделю'}</button>
+      {image ? <a href={image} target="_blank" rel="noreferrer" aria-label="Открыть картинку итогов недели"><img src={image} alt={`Итоги недели ${data.period_start} — ${data.period_end}: тренировки, питание и динамика веса`} className="w-full rounded-2xl border border-[#1e293b]" /></a>
+        : <p role={imageError ? 'alert' : 'status'} className="text-xs text-[#94a3b8]">{imageError || 'Собираем картинку недели…'}</p>}
+      <div className="flex flex-wrap gap-3">
+        {image && <a href={image} download={`fitpulse-${start}.png`} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[#334155] text-xs"><Download className="w-4 h-4" />Сохранить картинку</a>}
+        {imageError && <button onClick={() => setImageRevision(r => r + 1)} className="text-xs underline">Повторить картинку</button>}
+        <button onClick={() => void analyze()} disabled={analyzing || isLoading} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] text-xs font-semibold disabled:opacity-40"><MessageSquare className="w-4 h-4" />{analyzing ? 'ИИ разбирает неделю…' : 'Обсудить с ИИ'}</button>
       </div>
-
-      {/* Days Table List */}
-      <div className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 shadow-xl space-y-3">
-        <h2 className="text-sm font-bold text-white tracking-tight">По дням недели</h2>
-
-        <div className="space-y-2 pt-1">
-          {days && days.length > 0 ? (
-            days.map((d, idx) => (
-              <div
-                key={idx}
-                className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-3.5 flex items-center justify-between hover:border-[#334155] transition-all"
-              >
-                <div>
-                  <h3 className="text-xs font-bold text-white">
-                    {d.weekday} • {d.date}
-                  </h3>
-                  <p className="text-[11px] text-[#94a3b8] mt-0.5">
-                    Б: <strong className="text-[#00d084]">{Math.round(d.protein)}г</strong> • Ж:{' '}
-                    <strong className="text-[#f59e0b]">{Math.round(d.fat)}г</strong> • У:{' '}
-                    <strong className="text-[#38bdf8]">{Math.round(d.carbs)}г</strong>
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-xs font-extrabold text-white">
-                    {Math.round(d.calories)} ккал
-                  </p>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-4 text-xs text-[#94a3b8] whitespace-pre-wrap font-mono">
-              {report_markdown}
-            </div>
-          )}
-        </div>
+      {analysisError && <p role="alert" className="text-xs text-rose-300">{analysisError}</p>}
+      {!!data.warnings?.length && <p className="text-xs text-amber-300">{data.warnings.join('. ')}</p>}
+      {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
+    </section>
+    <section aria-label="Показатели недели" className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 space-y-3">
+      <h2 className="text-sm font-bold text-white">Показатели недели</h2>
+      <p className="text-xs text-[#94a3b8]">Питание записано за {averages.tracked_days} из 7 дней. Пропуски не считаются нулями.</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[['Ккал / день', number(averages.calories)], ['Белок / день', number(averages.protein, ' г')], ['Тренировки', data.workout_count], ['Вес за неделю', data.weight_change === null ? 'Мало замеров' : `${data.weight_change > 0 ? '+' : ''}${data.weight_change} кг`]].map(([label, value]) => <div key={label} className="bg-[#0b0f19] rounded-2xl p-3"><p className="text-xs text-[#94a3b8]">{label}</p><p className="text-lg font-bold text-[#00d084] mt-1">{value}</p></div>)}
       </div>
-    </div>
-  );
-};
+    </section>
+    <SleepCard weekStart={data.period_start} onDiscuss={() => void analyze('sleep')} />
+    <section className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 space-y-3">
+      <h2 className="text-sm font-bold">По дням недели</h2>
+      {days.map(day => <div key={day.date} className="bg-[#0b0f19] rounded-2xl p-3 text-xs space-y-1">
+        <div className="flex justify-between gap-2"><strong>{day.weekday} · {day.date}</strong><span>{day.is_logged ? `${Math.round(day.calories)} ккал` : '—'}</span></div>
+        <p className="text-[#94a3b8]">{day.is_logged ? `Б: ${Math.round(day.protein)} г · Ж: ${Math.round(day.fat)} г · У: ${Math.round(day.carbs)} г` : day.is_future ? 'Этот день впереди' : 'Питание не записано'}</p>
+        {!!day.workout_count && <p className="text-[#c4b5fd]">{day.workout_titles.join(', ')} · {day.tonnage_kg} кг</p>}
+      </div>)}
+    </section>
+  </div>;
+}

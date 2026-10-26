@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from coach import AIHevyCoach
@@ -284,18 +284,116 @@ def get_workouts():
     }
 
 @app.get("/api/weekly")
-def get_weekly():
-    """Returns weekly nutrition and workout summary."""
+def get_weekly(week_start: Optional[str] = None, refresh: bool = False):
+    """Calendar-week facts; missing measurements are never replaced with demo values."""
     try:
-        report_text = coach.get_sunday_weekly_table_report()
-        nutrition_weekly = coach.yazio.get_weekly_nutrition()
-        return {
-            "report_markdown": report_text,
-            "days": nutrition_weekly.get("days", []),
-            "averages": nutrition_weekly.get("averages", {})
-        }
+        import weekly_reports
+        if refresh:
+            weekly_reports.clear_cache()
+        return weekly_reports.summary(coach, weekly_reports.week_start(week_start))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _sleep_access(request, start=None, end=None, required=False):
+    import sleep_data
+    header = request.headers.get("authorization")
+    if not header and not required:
+        return None
+    try:
+        sleep_data.authorize(header)
+        return sleep_data.get_summary(start, end)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get("/api/health/status")
+def health_import_status():
+    import sleep_data
+    return {"configured": sleep_data.is_configured()}
+
+
+@app.get("/api/health/setup")
+def health_setup_guide():
+    return FileResponse(BASE_DIR / "APPLE_HEALTH.md", media_type="text/plain; charset=utf-8")
+
+
+@app.get("/api/health/sleep")
+def get_sleep(request: Request, week_start: Optional[str] = None):
+    import weekly_reports
+    try:
+        start = weekly_reports.week_start(week_start)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(_sleep_access(request, start, start + timedelta(days=6), required=True),
+                        headers={"Cache-Control": "private, no-store"})
+
+
+@app.post("/api/health/sleep")
+async def import_sleep(request: Request):
+    import sleep_data
+    _sleep_access(request, required=True)
+    body = await request.body()
+    if len(body) > 2_000_000:
+        raise HTTPException(status_code=413, detail="Импорт слишком большой; передайте последние 7 дней")
+    try:
+        return sleep_data.import_samples(json.loads(body))
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except (OSError, RuntimeError) as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.delete("/api/health/sleep")
+def delete_sleep(request: Request):
+    import sleep_data
+    _sleep_access(request, required=True)
+    try:
+        sleep_data.delete_data()
+    except (OSError, RuntimeError) as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {"status": "ok"}
+
+
+@app.get("/api/weekly/image")
+def get_weekly_image(request: Request, week_start: Optional[str] = None):
+    import weekly_reports
+    try:
+        start = weekly_reports.week_start(week_start)
+        sleep = _sleep_access(request, start, start + timedelta(days=6))
+        report = weekly_reports.summary(coach, start)
+        return Response(weekly_reports.render_image(report, sleep), media_type="image/png", headers={
+            "Cache-Control": "private, no-store", "Content-Disposition": f'inline; filename="fitpulse-{start}.png"'})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/weekly/analysis")
+def analyze_week(request: Request, week_start: Optional[str] = None, focus: Optional[str] = None):
+    import weekly_reports
+    import sleep_data
+    from bot import ask_gemini_ai
+    try:
+        start = weekly_reports.week_start(week_start)
+        report = weekly_reports.summary(coach, start)
+        sleep = _sleep_access(request, start, start + timedelta(days=6))
+        context = "Факты именно выбранной недели; для разбора используй этот период, а не текущую неделю:\n" + json.dumps(report, ensure_ascii=False)
+        context += "\n" + (sleep_data.ai_context(sleep) if sleep else "Пользователь не подключил данные сна. Не делай выводов о его сне.")
+        question = ("Разбери сон за выбранную неделю: длительность, регулярность, полноту данных и связь с тренировками. "
+                    "Если данных мало, явно скажи об этом. Предложи практичные изменения режима и спроси о самочувствии."
+                    if focus == "sleep" else "Разбери выбранную неделю: что получилось, что ограничивает прогресс и три конкретные задачи на следующую.")
+        reply = ask_gemini_ai(question + " "
+                              "Отделяй факты от предположений, учитывай пропуски данных и неполную неделю. Не приписывай изменение веса потере жира без оснований.",
+                              force_llm=True, extra_context=context)
+        if not reply or reply.startswith("⚠️"):
+            raise HTTPException(status_code=503, detail="ИИ временно недоступен. Картинка и показатели недели доступны отдельно.")
+        return {"reply": reply, "period_start": start.isoformat()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/sync")
 def sync_data():
@@ -303,6 +401,8 @@ def sync_data():
     try:
         res = coach.storage.sync_all(verbose=False)
         coach.reload(auto_sync=False)
+        from weekly_reports import clear_cache
+        clear_cache()
         habits_mgr.sync_with_hevy_and_yazio(coach)
 
         # Check if latest workout needs 20-minute post-workout checkin
@@ -390,11 +490,12 @@ def edit_habit(habit_id: str, req: EditHabitRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/chat")
-def chat_with_coach(req: ChatRequest):
+def chat_with_coach(req: ChatRequest, request: Request):
     """Processes messages to AI coach with full real-time athlete context and habits."""
     user_msg = req.message.strip()
     if not user_msg:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    sleep = _sleep_access(request)
 
     # Refresh habits sync so AI has 100% up-to-date state
     try:
@@ -416,16 +517,23 @@ def chat_with_coach(req: ChatRequest):
 
     try:
         from bot import ask_gemini_ai
-        ai_reply = ask_gemini_ai(user_msg, force_llm=True, history=req.history)
+        import sleep_data
+        ai_reply = ask_gemini_ai(user_msg, force_llm=True, history=req.history,
+                                 extra_context=sleep_data.ai_context(sleep) if sleep else "")
         return {"reply": ai_reply}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
 
 CHAT_HISTORY_FILE = "chat_history.json"
 
 @app.get("/api/chat/history")
-def get_chat_history():
+def get_chat_history(request: Request):
     """Returns stored chat messages from Upstash Redis or local storage."""
+    import sleep_data
+    if sleep_data.is_configured():
+        _sleep_access(request, required=True)
     try:
         from cloud_storage import get_cloud_data, is_cloud_configured
         if is_cloud_configured():
@@ -444,8 +552,11 @@ def get_chat_history():
     return {"messages": []}
 
 @app.post("/api/chat/history")
-def save_chat_history(req: Dict[str, Any]):
+def save_chat_history(req: Dict[str, Any], request: Request):
     """Saves updated chat history to Upstash Redis and local file."""
+    import sleep_data
+    if sleep_data.is_configured():
+        _sleep_access(request, required=True)
     messages = req.get("messages", [])
     if isinstance(messages, list):
         # Keep last 100 messages to prevent excessive storage

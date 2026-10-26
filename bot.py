@@ -349,7 +349,7 @@ def get_system_instruction() -> str:
         print(f"Error building system instruction: {e}")
         return _context_cache["instruction"] or "Ты — персональный спортивный тренер атлета."
 
-def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional[List[Dict[str, str]]] = None) -> str:
+def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional[List[Dict[str, str]]] = None, extra_context: str = "") -> str:
     """Uses Gemini API with cascaded model fallbacks, multi-turn history context, and robust error handling."""
     q_lower = user_question.lower().strip()
 
@@ -394,6 +394,8 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
                 http_options={"timeout": 18_000}  # 18 sec timeout
             )
             system_instruction = get_system_instruction()
+            if extra_context:
+                system_instruction += "\n\nДополнительные данные для этого запроса:\n" + extra_context
 
             contents_text = f"Вопрос атлета: {user_question}"
             if history and isinstance(history, list):

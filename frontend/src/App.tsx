@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePushNotifications } from './usePushNotifications';
 import { useServerConnection } from './useServerConnection';
+import { healthHeaders, responseError } from './healthConnection';
 import { readSnapshot, writeSnapshot, isHabits, isDashboard } from './snapshot';
 import { Header } from './components/Header';
 import { NotificationSchedule } from './components/NotificationSchedule';
@@ -14,6 +15,8 @@ import { LibraryTab } from './components/LibraryTab';
 import { WorkoutCheckinToast } from './components/WorkoutCheckinToast';
 import type { CheckinNotificationData } from './components/WorkoutCheckinToast';
 import type { DashboardData, WorkoutsResponse, WeeklyResponse, HabitItem, BookItem, BooksResponse, ChatMessage } from './types';
+
+type AppPage = TabType | 'notifications';
 
 // Compute accurate GMT+6 (UTC+6) date, day of week key ('Пн'..'Вс'), and Monday-Sunday week dates
 function getGMT6Info(): { dateStr: string; dateFormatted: string; dayKey: string; weekdayLong: string; weekDates: Record<string, string> } {
@@ -57,9 +60,9 @@ function getGMT6Info(): { dateStr: string; dateFormatted: string; dayKey: string
 
 export const App: React.FC = () => {
   const initialGmt6 = getGMT6Info();
-  const [currentTab, setCurrentTab] = useState<TabType>(() => {
+  const [currentTab, setCurrentTab] = useState<AppPage>(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'chat', 'workouts', 'weekly', 'library'].includes(tab || '') ? tab as TabType : 'dashboard';
+    return ['dashboard', 'chat', 'workouts', 'weekly', 'library', 'notifications'].includes(tab || '') ? tab as AppPage : 'dashboard';
   });
   const [todayKey, setTodayKey] = useState<string>(initialGmt6.dayKey);
   const [selectedDay, setSelectedDay] = useState<string>(initialGmt6.dayKey);
@@ -69,13 +72,16 @@ export const App: React.FC = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(() => readSnapshot<DashboardData>('dashboard', isDashboard));
   const [workoutsData, setWorkoutsData] = useState<WorkoutsResponse | null>(null);
   const [weeklyData, setWeeklyData] = useState<WeeklyResponse | null>(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const [weeklyError, setWeeklyError] = useState('');
+  const [selectedWeek, setSelectedWeek] = useState('');
+  const weeklyRequest = useRef<AbortController | null>(null);
   const [habits, setHabits] = useState<HabitItem[]>(() => readSnapshot<HabitItem[]>('habits', isHabits) || []);
   const [booksData, setBooksData] = useState<BooksResponse | null>(null);
   const [isBooksLoading, setIsBooksLoading] = useState<boolean>(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(true);
   const push = usePushNotifications();
   const serverStatus = useServerConnection();
-  const [showPushSettings, setShowPushSettings] = useState(false);
   const [testDelay, setTestDelay] = useState(0);
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | null>(null);
@@ -115,7 +121,7 @@ export const App: React.FC = () => {
       localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([DEFAULT_COACH_GREETING]));
       fetch('/api/chat/history', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...healthHeaders() },
         body: JSON.stringify({ messages: [DEFAULT_COACH_GREETING] }),
       }).catch(() => {});
     } catch (e) {}
@@ -134,7 +140,7 @@ export const App: React.FC = () => {
 
   // Load chat history from cloud/backend if local only has default greeting
   useEffect(() => {
-    fetch('/api/chat/history')
+    fetch('/api/chat/history', { headers: healthHeaders(), cache: 'no-store' })
       .then((res) => res.json())
       .then((data) => {
         if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
@@ -150,7 +156,7 @@ export const App: React.FC = () => {
       const timer = setTimeout(() => {
         fetch('/api/chat/history', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...healthHeaders() },
           body: JSON.stringify({ messages: chatMessages }),
         }).catch(() => {});
       }, 2000);
@@ -199,15 +205,24 @@ export const App: React.FC = () => {
   };
 
   // 3. Fetch Weekly data
-  const loadWeekly = async () => {
+  const loadWeekly = async (week = selectedWeek, refresh = false) => {
+    weeklyRequest.current?.abort();
+    const controller = new AbortController();
+    weeklyRequest.current = controller;
+    setWeeklyLoading(true);
+    setWeeklyError('');
     try {
-      const res = await fetch('/api/weekly');
-      if (res.ok) {
-        const data = await res.json();
-        setWeeklyData(data);
-      }
+      const query = new URLSearchParams();
+      if (week) query.set('week_start', week);
+      if (refresh) query.set('refresh', 'true');
+      const res = await fetch(`/api/weekly?${query}`, { signal: controller.signal });
+      if (!res.ok) throw await responseError(res);
+      const data = await res.json();
+      setWeeklyData(data);
     } catch (err) {
-      console.warn('Weekly fetch note', err);
+      if (!controller.signal.aborted) setWeeklyError((err as Error).message);
+    } finally {
+      if (!controller.signal.aborted) setWeeklyLoading(false);
     }
   };
 
@@ -334,6 +349,10 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [currentTab]);
+
   // Load heavier sections only when the user opens them.
   useEffect(() => {
     if (currentTab === 'workouts') void loadWorkouts();
@@ -352,7 +371,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('fitpulse:server-ready', recovered);
     return () => window.removeEventListener('fitpulse:server-ready', recovered);
-  }, [currentTab]);
+  }, [currentTab, selectedWeek]);
 
   // Habit Actions
   const handleToggleHabit = async (habitId: string, dateStr: string) => {
@@ -536,7 +555,7 @@ export const App: React.FC = () => {
 
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...healthHeaders() },
         body: JSON.stringify({ message: msg, history: historyContext }),
       });
       if (res.ok) {
@@ -576,40 +595,11 @@ export const App: React.FC = () => {
         weekDates={weekDates}
         habits={habits}
         notificationPermission={push.ready ? 'granted' : 'default'}
-        onRequestNotificationPermission={() => setShowPushSettings(v => !v)}
-        onTestNotification={() => setShowPushSettings(v => !v)}
+        onRequestNotificationPermission={() => setCurrentTab('notifications')}
+        onTestNotification={() => setCurrentTab('notifications')}
         isSyncing={isSyncing}
         onSync={handleSync}
       />
-
-      {showPushSettings && serverStatus === 'ready' && (
-        <section className="mx-4 my-3 p-4 rounded-2xl bg-[#111726] border border-[#1e293b] text-sm text-white space-y-3 max-h-[60dvh] overflow-y-auto shrink-0" aria-label="Уведомления">
-          <p className="font-semibold">{push.ready ? 'Уведомления подключены' : 'Уведомления не подключены'}</p>
-          <p role="status" className="text-[#94a3b8]">{push.blocked || push.message}</p>
-          <div className="flex flex-wrap gap-3">
-            <button disabled={push.busy || !!push.blocked} onClick={push.enable} className="px-3 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] disabled:opacity-40">Включить</button>
-            {push.ready && <button disabled={push.busy} onClick={() => push.test(testDelay)} className="px-3 py-2 rounded-xl border border-[#00d084] disabled:opacity-40">Тест</button>}
-            {push.ready && <button disabled={push.busy} onClick={push.disable} className="px-3 py-2 disabled:opacity-40">Отключить</button>}
-          </div>
-          {push.ready && (
-            <div className="space-y-2 text-xs text-[#94a3b8]">
-              <label className="flex items-center justify-between gap-3">
-                <span>Когда отправить тест</span>
-                <select value={testDelay} disabled={push.busy} onChange={e => setTestDelay(Number(e.target.value))} className="rounded-lg bg-[#0b0f19] border border-[#334155] p-2 text-white">
-                  <option value={0}>Сейчас</option>
-                  <option value={60}>Через 1 минуту</option>
-                  <option value={2100}>Через 35 минут</option>
-                </select>
-              </label>
-              <p>Отложенный тест отправляет сервер — приложение можно закрыть. Он проверяет доставку push и не означает начало тренировки в Hevy.</p>
-              {push.scheduledTest && <p>Тест запланирован на {new Date(push.scheduledTest * 1000).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Omsk', hour: '2-digit', minute: '2-digit' })} по Омску.
-                <button disabled={push.busy} onClick={push.cancelTest} className="ml-2 underline disabled:opacity-40">Отменить тест</button>
-              </p>}
-            </div>
-          )}
-          <NotificationSchedule />
-        </section>
-      )}
 
       {serverStatus !== 'ready' && (
         <p role="status" className="mx-4 my-2 p-3 text-xs text-[#94a3b8] rounded-xl bg-[#111726] shrink-0">
@@ -624,6 +614,45 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <main className={`w-full ${isChatTab ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1'}`}>
         <fieldset disabled={serverStatus !== 'ready'} className="contents">
+        {currentTab === 'notifications' && (
+          <section className="max-w-3xl mx-auto px-4 pt-5 pb-32 text-sm text-white space-y-4" aria-label="Уведомления">
+            <div>
+              <h2 className="text-xl font-bold">Уведомления</h2>
+              <p className="mt-1 text-[#94a3b8]">Подключение, расписание и свои напоминания. Время — по Омску.</p>
+            </div>
+            {serverStatus === 'ready' ? (
+              <div className="p-4 rounded-2xl bg-[#111726] border border-[#1e293b] space-y-3">
+                <p className="font-semibold">{push.ready ? 'Уведомления подключены' : 'Уведомления не подключены'}</p>
+                <p role="status" className="text-[#94a3b8]">{push.blocked || push.message}</p>
+                <div className="flex flex-wrap gap-3">
+                  <button disabled={push.busy || !!push.blocked} onClick={push.enable} className="px-3 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] disabled:opacity-40">Включить</button>
+                  {push.ready && <button disabled={push.busy} onClick={() => push.test(testDelay)} className="px-3 py-2 rounded-xl border border-[#00d084] disabled:opacity-40">Тест</button>}
+                  {push.ready && <button disabled={push.busy} onClick={push.disable} className="px-3 py-2 disabled:opacity-40">Отключить</button>}
+                </div>
+                {push.ready && (
+                  <div className="space-y-2 text-xs text-[#94a3b8]">
+                    <label className="flex items-center justify-between gap-3">
+                      <span>Когда отправить тест</span>
+                      <select value={testDelay} disabled={push.busy} onChange={e => setTestDelay(Number(e.target.value))} className="rounded-lg bg-[#0b0f19] border border-[#334155] p-2 text-white">
+                        <option value={0}>Сейчас</option>
+                        <option value={60}>Через 1 минуту</option>
+                        <option value={2100}>Через 35 минут</option>
+                      </select>
+                    </label>
+                    <p>Отложенный тест отправляет сервер — приложение можно закрыть. Он проверяет доставку push и не означает начало тренировки в Hevy.</p>
+                    {push.scheduledTest && <p>Тест запланирован на {new Date(push.scheduledTest * 1000).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Omsk', hour: '2-digit', minute: '2-digit' })} по Омску.
+                      <button disabled={push.busy} onClick={push.cancelTest} className="ml-2 underline disabled:opacity-40">Отменить тест</button>
+                    </p>}
+                  </div>
+                )}
+                <NotificationSchedule />
+              </div>
+            ) : (
+              <p className="text-[#94a3b8]">Настройки уведомлений появятся после подключения к серверу.</p>
+            )}
+          </section>
+        )}
+
         {currentTab === 'dashboard' && (
           <DashboardTab
             data={dashboardData}
@@ -675,14 +704,29 @@ export const App: React.FC = () => {
         {currentTab === 'weekly' && (
           <WeeklyTab
             data={weeklyData}
-            isLoading={!weeklyData}
+            isLoading={weeklyLoading}
+            error={weeklyError}
+            onRetry={() => void loadWeekly(selectedWeek, true)}
+            onSelectWeek={week => {
+              setSelectedWeek(week);
+              setWeeklyData(null);
+              void loadWeekly(week);
+            }}
+            onOpenChat={(reply, prompt) => {
+              if (reply) setChatMessages(prev => [...prev, {
+                id: `weekly-${Date.now()}`, sender: 'coach', text: reply,
+                timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+              }]);
+              setChatInitialPrompt(prompt || null);
+              setCurrentTab('chat');
+            }}
           />
         )}
         </fieldset>
       </main>
 
       {/* Sticky Mobile Bottom Navigation */}
-      <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+      <BottomNav currentTab={currentTab === 'notifications' ? null : currentTab} onTabChange={setCurrentTab} />
     </div>
   );
 };

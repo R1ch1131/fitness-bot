@@ -4,7 +4,7 @@ import { LayoutDashboard, Dumbbell, BookOpen, MessageSquare, Calendar } from 'lu
 export type TabType = 'dashboard' | 'workouts' | 'library' | 'chat' | 'weekly';
 
 interface BottomNavProps {
-  currentTab: TabType;
+  currentTab: TabType | null;
   onTabChange: (tab: TabType) => void;
 }
 
@@ -26,6 +26,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange })
           return (
             <button
               key={tab.id}
+              aria-current={isActive ? 'page' : undefined}
               onClick={() => onTabChange(tab.id)}
               className={`flex flex-col items-center justify-center w-16 py-1 transition-all duration-200 active:scale-95 ${
                 isActive ? 'text-emerald-400 font-semibold' : 'text-zinc-500 hover:text-zinc-300'

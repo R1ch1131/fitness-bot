@@ -104,16 +104,28 @@ export interface WeeklyDayItem {
   protein: number;
   fat: number;
   carbs: number;
+  is_logged: boolean;
+  is_future: boolean;
+  workout_count: number;
+  workout_titles: string[];
+  tonnage_kg: number;
 }
 
 export interface WeeklyResponse {
+  period_start: string;
+  period_end: string;
+  as_of: string;
+  workout_count: number;
+  tonnage_kg: number;
+  weight_change: number | null;
+  warnings: string[];
   report_markdown: string;
   days: WeeklyDayItem[];
   averages: {
-    calories: number;
-    protein: number;
-    fat: number;
-    carbs: number;
+    calories: number | null;
+    protein: number | null;
+    fat: number | null;
+    carbs: number | null;
     tracked_days: number;
   };
 }
