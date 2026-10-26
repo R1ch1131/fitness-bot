@@ -594,7 +594,7 @@ export const App: React.FC = () => {
     }]);
     setCurrentTab('chat');
     let timedOut = false;
-    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 90000);
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 120000);
     try {
       const query = new URLSearchParams({ week_start: request.weekStart });
       if (request.focus) query.set('focus', request.focus);

@@ -391,8 +391,7 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
             from google import genai
             client = genai.Client(
                 api_key=GEMINI_KEY,
-                http_options={"timeout": 12_000 if context_only else 18_000,
-                              "retry_options": {"attempts": 1}}
+                http_options={"timeout": 18_000}
             )
             system_instruction = (
                 "Ты — персональный спортивный наставник. Отвечай на русском. Используй только переданные факты выбранного периода. "
@@ -417,10 +416,7 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
                     history_context = "\n".join(valid_turns)
                     contents_text = f"Контекст последних сообщений диалога:\n{history_context}\n\nНовый вопрос атлета: {user_question}"
 
-            # Focused reports have all their facts already: at most two explicit requests, no hidden SDK retries.
-            models = ([model for model in MODELS_CASCADE if not model.endswith("-latest")][:2]
-                      or MODELS_CASCADE[:1]) if context_only else MODELS_CASCADE
-            for model_name in models:
+            for model_name in MODELS_CASCADE:
                 try:
                     response = client.models.generate_content(
                         model=model_name,

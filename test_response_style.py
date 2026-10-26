@@ -96,20 +96,19 @@ class ResponseStyleTests(unittest.TestCase):
             self.assertEqual(fn("/weekly"), "Таблица недели")
         generate.assert_not_called()
 
-    def test_focused_analysis_skips_full_context_and_bounds_model_attempts(self):
-        generate = Mock(side_effect=RuntimeError("deadline exceeded"))
+    def test_focused_analysis_tries_every_model_and_accepts_the_last_fallback(self):
+        generate = Mock(side_effect=[RuntimeError("deadline exceeded")] * 4 + [types.SimpleNamespace(text="Ответ последней модели")])
         fn, module = self.general(generate)
-        # Three models exist, but the focused report must stop after two attempts.
-        fn.__globals__["MODELS_CASCADE"] = ["first", "fallback", "third"]
+        models = ["first", "gemini-flash-lite-latest", "third", "fourth", "fifth"]
+        fn.__globals__["MODELS_CASCADE"] = models
         fn.__globals__["get_system_instruction"] = Mock(side_effect=AssertionError("No full context collection"))
         with patch.dict(sys.modules, {"google": module}):
             reply = fn("Разбери сон", force_llm=True, extra_context="One recorded night", context_only=True)
-        self.assertTrue(reply.startswith("⚠️"))
-        self.assertEqual(generate.call_count, 2)
+        self.assertEqual(reply, "Ответ последней модели")
+        self.assertEqual([call.kwargs["model"] for call in generate.call_args_list], models)
         fn.__globals__["get_system_instruction"].assert_not_called()
         http = module.genai.Client.call_args.kwargs["http_options"]
-        self.assertEqual(http["timeout"], 12000)
-        self.assertEqual(http["retry_options"]["attempts"], 1)
+        self.assertEqual(http, {"timeout": 18000})
         self.assertIn("One recorded night", generate.call_args.kwargs["config"]["system_instruction"])
 
 
