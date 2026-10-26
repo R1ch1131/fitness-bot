@@ -478,6 +478,11 @@ def get_checkin_notification():
         w_id = pending.get("workout_id")
         w_title = pending.get("workout_title", "Тренировка")
         due_time = pending.get("due_time", 0)
+        from notification_settings import get_settings, checkin_due_time
+        preferences = get_settings()
+        if not preferences["checkin"]["enabled"]:
+            return {"should_notify": False, "pending": False}
+        due_time = checkin_due_time(pending, preferences)
         pwa_notified = pending.get("pwa_notified", False)
         responded = pending.get("responded", False)
 
@@ -496,7 +501,7 @@ def get_checkin_notification():
                 "notification": {
                     "id": f"workout_{w_id}",
                     "title": "Ну чё, как тренировка? 💪",
-                    "body": f"Прошло 20 минут после тренировки «{w_title}». Самое время зафиксировать ощущения, пока всё свежо в памяти!",
+                    "body": f"После тренировки «{w_title}» прошло {preferences['checkin']['delay_minutes']} мин. Расскажи, как самочувствие!",
                     "workout_id": w_id,
                     "workout_title": w_title,
                     "prompt": f"Я закончил тренировку «{w_title}». Давай разберем, как самочувствие, как зашли веса и восстановление!"
@@ -534,6 +539,21 @@ def get_vapid_key():
     """Returns public VAPID key for browser Web Push subscription."""
     from push_service import get_public_vapid_key
     return {"public_key": get_public_vapid_key()}
+
+@app.get("/api/notifications/settings")
+def notification_preferences():
+    from notification_settings import get_settings
+    return {"settings": get_settings(), "timezone": "Asia/Omsk"}
+
+@app.post("/api/notifications/settings")
+def update_notification_preferences(req: Dict[str, Any]):
+    from notification_settings import save_settings
+    try:
+        return {"status": "ok", "settings": save_settings(req), "timezone": "Asia/Omsk"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except (RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=503, detail="Не удалось сохранить расписание. Повторите попытку.") from exc
 
 @app.post("/api/notifications/subscribe")
 def subscribe_push(req: Dict[str, Any]):

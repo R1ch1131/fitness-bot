@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { usePushNotifications } from './usePushNotifications';
 import { readSnapshot, writeSnapshot, isHabits, isDashboard } from './snapshot';
 import { Header } from './components/Header';
+import { NotificationSchedule } from './components/NotificationSchedule';
 import { BottomNav } from './components/BottomNav';
 import type { TabType } from './components/BottomNav';
 import { DashboardTab } from './components/DashboardTab';
@@ -566,7 +567,7 @@ export const App: React.FC = () => {
       />
 
       {showPushSettings && (
-        <section className="mx-4 my-3 p-4 rounded-2xl bg-[#111726] border border-[#1e293b] text-sm text-white space-y-3" aria-label="Уведомления">
+        <section className="mx-4 my-3 p-4 rounded-2xl bg-[#111726] border border-[#1e293b] text-sm text-white space-y-3 max-h-[60dvh] overflow-y-auto shrink-0" aria-label="Уведомления">
           <p className="font-semibold">{push.ready ? 'Уведомления подключены' : 'Уведомления не подключены'}</p>
           <p role="status" className="text-[#94a3b8]">{push.blocked || push.message}</p>
           <div className="flex flex-wrap gap-3">
@@ -574,6 +575,7 @@ export const App: React.FC = () => {
             {push.ready && <button disabled={push.busy} onClick={push.test} className="px-3 py-2 rounded-xl border border-[#00d084] disabled:opacity-40">Тест</button>}
             {push.ready && <button disabled={push.busy} onClick={push.disable} className="px-3 py-2 disabled:opacity-40">Отключить</button>}
           </div>
+          <NotificationSchedule />
         </section>
       )}
 
