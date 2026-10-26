@@ -799,10 +799,10 @@ def run_health_server(bot=None):
     t.start()
 
 def run_keep_alive_pinger():
-    """Background loop sending HTTP request to public URL every 10 minutes to prevent Render free-tier sleep."""
+    """Best-effort health ping; an external monitor is still needed while stopped."""
     import requests
 
-    public_url = os.getenv("RENDER_EXTERNAL_URL", "https://fitness-bot-9f8m.onrender.com")
+    public_url = os.getenv("RENDER_EXTERNAL_URL", "https://fitness-bot-9f8m.onrender.com").rstrip("/") + "/health"
 
     def ping_worker():
         time.sleep(30)
@@ -812,11 +812,11 @@ def run_keep_alive_pinger():
                 print(f"⏰ Self-ping sent to {public_url}: status {resp.status_code}")
             except Exception as e:
                 print(f"Self-ping note: {e}")
-            time.sleep(600)  # Ping every 10 minutes
+            time.sleep(300)  # Ping every 5 minutes
 
     t = threading.Thread(target=ping_worker, daemon=True)
     t.start()
-    print(f"⏰ Фоновый keep-alive пингер запущен (интервал 10 мин, цель: {public_url})")
+    print(f"⏰ Фоновый keep-alive пингер запущен (интервал 5 мин, цель: {public_url})")
 
 def run_gym_reminder_scheduler(bot):
     """Sends gym reminder Monday to Friday at 08:30 AM (GMT+6)."""
@@ -985,16 +985,15 @@ def start_bot():
         print("⚠️ ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env!")
         return
 
-    # Pre-load coach data on startup
-    try:
-        coach.reload(auto_sync=True)
-    except Exception as e:
-        print(f"Initial coach load warning: {e}")
-
     bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
     run_health_server(bot)
     run_keep_alive_pinger()
+    # Bind the web server before waiting for external Hevy/YAZIO synchronization.
+    try:
+        coach.reload(auto_sync=True)
+    except Exception as e:
+        print(f"Initial coach load warning: {e}")
     run_gym_reminder_scheduler(bot)
     run_hevy_auto_sync_monitor(bot)
     run_checkin_dispatcher(bot)
