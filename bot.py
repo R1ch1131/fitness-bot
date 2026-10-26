@@ -331,9 +331,9 @@ def get_system_instruction() -> str:
    - Если атлет спрашивает про программирование (Python, бэкенд, алгоритмы, базы данных, веб-разработку, чистый код или планирование учебной сессии) — отвечай на уровне опытного Senior разработчика: давай лаконичные, работающие примеры кода, архитектурные советы и понятные аналогии.
 4. КНИГИ И САМОРАЗВИТИЕ (привычка — чтение от 10 страниц/день):
    - Советуй сильные книги по продуктивности, дисциплине, психологии, биохакингу, бизнесу и IT.
-   - СТРОЖАЙШЕЕ ПРАВИЛО: АБСОЛЮТНЫЙ ЗАПРЕТ НА СПОЙЛЕРЫ! В контексте всегда передается текущая прочитанная страница атлета (например: 170/384 стр. — это ~44% книги). Ты точно знаешь хронологию сюжета:
-     * КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО раскрывать события, финалы, развязки, неожиданные повороты сюжета или судьбы персонажей, происходящие ПОСЛЕ текущей прочитанной страницы!
-     * Обсуждай книгу, шути, поддерживай беседу и проводи аналогии СТРОГО в рамках уже прочитанного (до указанной страницы), либо рассуждай интригующе и философски без намёков на будущие спойлеры. Не испорти атлету удовольствие от чтения!
+   - Никаких спойлеров для читаемых и запланированных книг: ни событий, ни концовок, ни судеб персонажей, ни намёков на будущее.
+   - Номер страницы не определяет пройденный сюжет: издания отличаются. Не заявляй, что знаешь, какие события уже прочитаны.
+   - Комментируй страницу и прогресс. Содержание обсуждай только в пределах текста и событий, которые сам пользователь привёл; не добавляй неизвестные ему детали из памяти.
 5. ТРЕКЕР ПРИВЫЧЕК И ДИСЦИПЛИНА:
    - Поддерживай стрики атлета, подбадривай, хвали за регулярность.
    - Если атлет пишет во второй половине дня, а важные привычки (зал, чтение, кодинг, питание) еще не отмечены — дружески и ненавязчиво напомни закрыть их.
@@ -429,7 +429,7 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
 
     return "⚠️ Сервер ИИ временно перегружен или недоступен. Пожалуйста, повтори свой вопрос через пару секунд."
 
-def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] = None) -> str:
+def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] = None, daily_context: Optional[str] = None, reading_progress: str = "", extra_context: str = "") -> str:
     """Correlates athlete's subjective feedback with actual Hevy workout metrics using Gemini AI."""
     workout = None
     if workout_id:
@@ -468,7 +468,12 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
             f"Длительность: {duration} мин. Тоннаж: {tonnage:,.0f} кг. Рабочих подходов: {sets_count}.\n"
             f"Упражнения и подходы:\n{exercises_text}\nКардио: {cardio_text}"
         )
-        prompt = post_workout_prompt(workout_context, user_feedback)
+        if daily_context is None:
+            from daily_review import collect_daily_review
+            daily_context, reading_progress = collect_daily_review(coach)
+        if extra_context:
+            daily_context += "\n" + extra_context
+        prompt = post_workout_prompt(workout_context, user_feedback, daily_context)
 
         # Try Gemini models cascade
         if GEMINI_KEY:
@@ -487,7 +492,7 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
                         )
                         if resp and resp.text:
                             print(f"[FEEDBACK] Model {model_name} responded OK, length: {len(resp.text)}")
-                            return f"📋 *Анализ тренировки и самочувствия:*\n\n{resp.text}"
+                            return f"📋 *Тренировка и итоги дня:*\n\n{resp.text}" + (f"\n\n{reading_progress}" if reading_progress else "")
                     except Exception as model_err:
                         print(f"Model {model_name} failed for feedback analysis: {model_err}")
                         continue
@@ -500,7 +505,7 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
             f"⏱ Длительность: *{duration} мин* | Тоннаж: *{tonnage:,.0f} кг* ({sets_count} раб. подходов)\n\n"
             f"💬 *Твой отзыв:* «_{user_feedback}_»\n\n"
             "ИИ сейчас недоступен — разбор не сформирован. Попробуй ещё раз позже."
-        )
+        ) + (f"\n\n{reading_progress}" if reading_progress else "")
     except Exception as err:
         print(f"Error in analyze_post_workout_feedback: {err}")
         return "⚠️ Не удалось сформировать отчет по самочувствию. Попробуй позже."

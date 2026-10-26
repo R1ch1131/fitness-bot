@@ -59,7 +59,8 @@ class ResponseStyleTests(unittest.TestCase):
             "Optional": Optional, "coach": coach, "GEMINI_KEY": "test-only" if configured else "",
             "MODELS_CASCADE": ["first"],
         })
-        return fn, module
+        from functools import partial
+        return partial(fn, daily_context='{"completed": ["Зал"], "not_marked_today": ["Кодинг"]}'), module
 
     def test_workout_feedback_no_longer_requires_four_generic_sections(self):
         generate = Mock(return_value=types.SimpleNamespace(text="Разберём пропущенное упражнение."))

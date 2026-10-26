@@ -503,11 +503,15 @@ def chat_with_coach(req: ChatRequest, request: Request):
     except Exception as e:
         print(f"Habit sync in chat note: {e}")
 
-    # If pending checkin is active, mark it as responded so notifications stop
+    from daily_review import is_workout_checkin, recent_checkin
+    pending = None
+    workout_feedback = is_workout_checkin(user_msg)
+    # Only an actual workout reply acknowledges a pending checkin.
     try:
         from bot import load_pending_checkin, save_pending_checkin
         pending = load_pending_checkin()
-        if pending and not pending.get("responded"):
+        workout_feedback = is_workout_checkin(user_msg, pending)
+        if workout_feedback and recent_checkin(pending) and not pending.get("responded"):
             pending["responded"] = True
             pending["last_user_feedback"] = user_msg
             pending["last_feedback_time"] = time.time()
@@ -518,8 +522,15 @@ def chat_with_coach(req: ChatRequest, request: Request):
     try:
         from bot import ask_gemini_ai
         import sleep_data
-        ai_reply = ask_gemini_ai(user_msg, force_llm=True, history=req.history,
-                                 extra_context=sleep_data.ai_context(sleep) if sleep else "")
+        sleep_context = sleep_data.ai_context(sleep) if sleep else ""
+        if workout_feedback:
+            from bot import analyze_post_workout_feedback
+            from daily_review import collect_daily_review
+            daily_context, reading_progress = collect_daily_review(coach, habits_mgr, books_mgr)
+            ai_reply = analyze_post_workout_feedback(user_msg, pending.get("workout_id") if recent_checkin(pending) else None,
+                daily_context=daily_context, reading_progress=reading_progress, extra_context=sleep_context)
+        else:
+            ai_reply = ask_gemini_ai(user_msg, force_llm=True, history=req.history, extra_context=sleep_context)
         return {"reply": ai_reply}
     except HTTPException:
         raise
