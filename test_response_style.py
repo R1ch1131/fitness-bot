@@ -96,6 +96,22 @@ class ResponseStyleTests(unittest.TestCase):
             self.assertEqual(fn("/weekly"), "Таблица недели")
         generate.assert_not_called()
 
+    def test_focused_analysis_skips_full_context_and_bounds_model_attempts(self):
+        generate = Mock(side_effect=RuntimeError("deadline exceeded"))
+        fn, module = self.general(generate)
+        # Three models exist, but the focused report must stop after two attempts.
+        fn.__globals__["MODELS_CASCADE"] = ["first", "fallback", "third"]
+        fn.__globals__["get_system_instruction"] = Mock(side_effect=AssertionError("No full context collection"))
+        with patch.dict(sys.modules, {"google": module}):
+            reply = fn("Разбери сон", force_llm=True, extra_context="One recorded night", context_only=True)
+        self.assertTrue(reply.startswith("⚠️"))
+        self.assertEqual(generate.call_count, 2)
+        fn.__globals__["get_system_instruction"].assert_not_called()
+        http = module.genai.Client.call_args.kwargs["http_options"]
+        self.assertEqual(http["timeout"], 12000)
+        self.assertEqual(http["retry_options"]["attempts"], 1)
+        self.assertIn("One recorded night", generate.call_args.kwargs["config"]["system_instruction"])
+
 
 if __name__ == "__main__":
     unittest.main()

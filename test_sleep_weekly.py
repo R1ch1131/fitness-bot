@@ -160,6 +160,9 @@ def fake_coach(configured=True):
 
 
 class WeeklyTests(unittest.TestCase):
+    def setUp(self):
+        weekly._analysis_cache.clear()
+
     def test_actual_calendar_week_and_only_logged_days_in_average(self):
         report = weekly._collect(fake_coach(), date(2026, 10, 19), date(2026, 10, 26))
         self.assertEqual((report["period_start"], report["period_end"]), ("2026-10-19", "2026-10-25"))
@@ -211,6 +214,7 @@ class WeeklyTests(unittest.TestCase):
         fn = isolated_function("api.py", "analyze_week", {
             "Request": object, "Optional": __import__("typing").Optional, "coach": fake_coach(),
             "_sleep_access": lambda *args: None, "json": __import__("json"),
+            "time": __import__("time"),
             "timedelta": __import__("datetime").timedelta, "HTTPException": RuntimeError})
         with patch.dict(sys.modules, {"bot": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", return_value=report):
             result = fn(object(), "2026-10-19")
@@ -236,12 +240,32 @@ class WeeklyTests(unittest.TestCase):
         fn = isolated_function("api.py", "analyze_week", {
             "Request": object, "Optional": __import__("typing").Optional, "coach": fake_coach(),
             "_sleep_access": lambda *args: health, "json": __import__("json"),
+            "time": __import__("time"),
             "timedelta": __import__("datetime").timedelta, "HTTPException": RuntimeError})
         with patch.dict(sys.modules, {"bot": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", return_value={}):
             fn(types.SimpleNamespace(headers={"authorization": secret}), "2026-10-19", "sleep")
         self.assertIn("сон", ask.call_args.args[0])
         self.assertIn('"average_minutes": 450', ask.call_args.kwargs["extra_context"])
         self.assertNotIn(secret, str(ask.call_args))
+
+    def test_sleep_analysis_does_not_fetch_nutrition_and_reuses_successful_reply(self):
+        ask = Mock(return_value="Одна ночь записана; вывод о всей неделе сделать нельзя.")
+        health = {"tracked_nights": 1, "average_minutes": 480, "nights": [{"date": "2026-10-22", "sleep_minutes": 480}]}
+        fn = isolated_function("api.py", "analyze_week", {
+            "Request": object, "Optional": __import__("typing").Optional, "coach": fake_coach(),
+            "_sleep_access": lambda *args: health, "json": __import__("json"), "time": __import__("time"),
+            "timedelta": __import__("datetime").timedelta, "HTTPException": RuntimeError})
+        with patch.dict(sys.modules, {"bot": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", side_effect=AssertionError("No YAZIO calls for sleep")):
+            first = fn(object(), "2026-10-19", "sleep")
+            second = fn(object(), "2026-10-19", "sleep")
+            self.assertFalse(first["cached"])
+            self.assertTrue(second["cached"])
+            self.assertEqual(ask.call_count, 1)
+            self.assertTrue(ask.call_args.kwargs["context_only"])
+            health["average_minutes"] = 420
+            third = fn(object(), "2026-10-19", "sleep")
+            self.assertFalse(third["cached"])
+            self.assertEqual(ask.call_count, 2)
 
 
 if __name__ == "__main__":

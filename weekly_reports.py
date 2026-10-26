@@ -1,5 +1,6 @@
 """Calendar-week facts and reproducible report images for the PWA."""
 import io
+import hashlib
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -8,6 +9,37 @@ from notification_settings import TZ
 
 _cache = {}
 _lock = threading.Lock()
+_analysis_cache = {}
+_analysis_lock = threading.Lock()
+
+
+def cached_analysis(context, question):
+    key = hashlib.sha256((question + "\n" + context).encode()).hexdigest()
+    with _analysis_lock:
+        entry = _analysis_cache.get(key)
+        if entry and time.monotonic() - entry[0] < 600:
+            return entry[1]
+    return None
+
+
+def remember_analysis(context, question, reply):
+    key = hashlib.sha256((question + "\n" + context).encode()).hexdigest()
+    with _analysis_lock:
+        if len(_analysis_cache) >= 32:
+            del _analysis_cache[next(iter(_analysis_cache))]
+        _analysis_cache[key] = (time.monotonic(), reply)
+
+
+def sleep_workout_context(coach, start):
+    """Use already loaded Hevy records; never fetch YAZIO for a sleep question."""
+    from analyzer import parse_iso
+    end = start + timedelta(days=6)
+    sessions = []
+    for workout in coach.workouts:
+        when = parse_iso(workout.get("end_time"))
+        if when and start <= when.astimezone(TZ).date() <= end:
+            sessions.append({"title": workout.get("title"), "start": workout.get("start_time"), "end": workout["end_time"]})
+    return {"period_start": start.isoformat(), "period_end": end.isoformat(), "workouts": sessions}
 
 
 def week_start(value=None):

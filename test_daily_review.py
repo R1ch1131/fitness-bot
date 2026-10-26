@@ -84,6 +84,22 @@ class DailyReviewTests(unittest.TestCase):
         self.assertTrue(reply.endswith(reading))
         self.assertNotIn(self.book["title"], generate.call_args.kwargs["contents"])
 
+    def test_workout_review_keeps_habits_nutrition_sleep_and_reading_after_sleep_optimization(self):
+        generate = Mock(return_value=types.SimpleNamespace(text="Краткий итог дня"))
+        from test_response_style import ResponseStyleTests
+        fn, module = ResponseStyleTests().feedback(generate)
+        facts, reading = collect_daily_review(self.coach, self.hm, self.bm, self.today)
+        with patch.dict(sys.modules, {"google": module}):
+            reply = fn("Ноги устали", daily_context=facts, reading_progress=reading,
+                       extra_context='Сон Apple Watch: 480 минут, одна ночь с данными.')
+        prompt = generate.call_args.kwargs["contents"]
+        self.assertIn('"completed": ["Зал", "Чтение"]', prompt)
+        self.assertIn('"not_marked_today": ["Кодинг"]', prompt)
+        self.assertIn('"calories": 1800', prompt)
+        self.assertIn('Сон Apple Watch: 480 минут', prompt)
+        self.assertIn('170/384', reply)
+        self.assertTrue(reply.endswith(reading))
+
     def test_app_routes_checkin_with_fresh_context_and_does_not_acknowledge_a_book_question(self):
         for message, is_feedback in [("После жима чувствую усталость", True), ("Какую книгу почитать?", False)]:
             pending = {"responded": False, "due_time": time.time(), "workout_id": "w1"}

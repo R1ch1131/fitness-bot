@@ -379,19 +379,29 @@ def analyze_week(request: Request, week_start: Optional[str] = None, focus: Opti
     from bot import ask_gemini_ai
     try:
         start = weekly_reports.week_start(week_start)
-        report = weekly_reports.summary(coach, start)
         sleep = _sleep_access(request, start, start + timedelta(days=6))
+        if focus == "sleep":
+            if not sleep or not sleep["tracked_nights"]:
+                raise HTTPException(status_code=400, detail="За выбранную неделю нет записей сна для разбора.")
+            report = weekly_reports.sleep_workout_context(coach, start)
+        else:
+            report = weekly_reports.summary(coach, start)
         context = "Факты именно выбранной недели; для разбора используй этот период, а не текущую неделю:\n" + json.dumps(report, ensure_ascii=False)
         context += "\n" + (sleep_data.ai_context(sleep) if sleep else "Пользователь не подключил данные сна. Не делай выводов о его сне.")
         question = ("Разбери сон за выбранную неделю: длительность, регулярность, полноту данных и связь с тренировками. "
                     "Если данных мало, явно скажи об этом. Предложи практичные изменения режима и спроси о самочувствии."
                     if focus == "sleep" else "Разбери выбранную неделю: что получилось, что ограничивает прогресс и три конкретные задачи на следующую.")
-        reply = ask_gemini_ai(question + " "
-                              "Отделяй факты от предположений, учитывай пропуски данных и неполную неделю. Не приписывай изменение веса потере жира без оснований.",
-                              force_llm=True, extra_context=context)
+        question += " Отделяй факты от предположений, учитывай пропуски данных и неполную неделю. Не приписывай изменение веса потере жира без оснований."
+        cached = weekly_reports.cached_analysis(context, question)
+        if cached:
+            return {"reply": cached, "period_start": start.isoformat(), "cached": True}
+        started = time.monotonic()
+        reply = ask_gemini_ai(question, force_llm=True, extra_context=context, context_only=True)
+        print(f"[WEEKLY-AI] focus={focus or 'week'} elapsed={time.monotonic() - started:.1f}s")
         if not reply or reply.startswith("⚠️"):
             raise HTTPException(status_code=503, detail="ИИ временно недоступен. Картинка и показатели недели доступны отдельно.")
-        return {"reply": reply, "period_start": start.isoformat()}
+        weekly_reports.remember_analysis(context, question, reply)
+        return {"reply": reply, "period_start": start.isoformat(), "cached": False}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

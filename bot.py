@@ -62,7 +62,7 @@ _context_cache = {
     "instruction": ""
 }
 
-# Reliable active Gemini models in priority order (3.5-flash-lite has best uptime and zero 503 errors)
+# Gemini model IDs in priority order.
 MODELS_CASCADE = [
     "gemini-3.5-flash-lite",
     "gemini-flash-lite-latest",
@@ -349,7 +349,7 @@ def get_system_instruction() -> str:
         print(f"Error building system instruction: {e}")
         return _context_cache["instruction"] or "Ты — персональный спортивный тренер атлета."
 
-def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional[List[Dict[str, str]]] = None, extra_context: str = "") -> str:
+def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional[List[Dict[str, str]]] = None, extra_context: str = "", context_only: bool = False) -> str:
     """Uses Gemini API with cascaded model fallbacks, multi-turn history context, and robust error handling."""
     q_lower = user_question.lower().strip()
 
@@ -391,9 +391,14 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
             from google import genai
             client = genai.Client(
                 api_key=GEMINI_KEY,
-                http_options={"timeout": 18_000}  # 18 sec timeout
+                http_options={"timeout": 12_000 if context_only else 18_000,
+                              "retry_options": {"attempts": 1}}
             )
-            system_instruction = get_system_instruction()
+            system_instruction = (
+                "Ты — персональный спортивный наставник. Отвечай на русском. Используй только переданные факты выбранного периода. "
+                "Не считай отсутствие записей нулевым сном и не ставь диагноз по часам."
+                if context_only else get_system_instruction()
+            )
             if extra_context:
                 system_instruction += "\n\nДополнительные данные для этого запроса:\n" + extra_context
 
@@ -412,7 +417,10 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
                     history_context = "\n".join(valid_turns)
                     contents_text = f"Контекст последних сообщений диалога:\n{history_context}\n\nНовый вопрос атлета: {user_question}"
 
-            for model_name in MODELS_CASCADE:
+            # Focused reports have all their facts already: at most two explicit requests, no hidden SDK retries.
+            models = ([model for model in MODELS_CASCADE if not model.endswith("-latest")][:2]
+                      or MODELS_CASCADE[:1]) if context_only else MODELS_CASCADE
+            for model_name in models:
                 try:
                     response = client.models.generate_content(
                         model=model_name,
