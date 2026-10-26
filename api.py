@@ -542,14 +542,16 @@ def get_vapid_key():
 
 @app.get("/api/notifications/settings")
 def notification_preferences():
-    from notification_settings import get_settings
-    return {"settings": get_settings(), "timezone": "Asia/Omsk"}
+    from notification_settings import get_settings, schedule_status
+    settings = get_settings()
+    return {"settings": settings, "timezone": "Asia/Omsk", "schedule": schedule_status(settings)}
 
 @app.post("/api/notifications/settings")
 def update_notification_preferences(req: Dict[str, Any]):
-    from notification_settings import save_settings
+    from notification_settings import save_settings, schedule_status
     try:
-        return {"status": "ok", "settings": save_settings(req), "timezone": "Asia/Omsk"}
+        settings = save_settings(req)
+        return {"status": "ok", "settings": settings, "timezone": "Asia/Omsk", "schedule": schedule_status(settings)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except (RuntimeError, OSError) as exc:
@@ -563,6 +565,38 @@ def subscribe_push(req: Dict[str, Any]):
     if not success:
         raise HTTPException(status_code=400, detail="Некорректная push-подписка")
     return {"status": "ok"}
+
+def _custom_reminder_result(operation=None, *args):
+    from custom_reminders import list_reminders
+    try:
+        if operation:
+            operation(*args)
+        return {"status": "ok", "reminders": list_reminders(), "timezone": "Asia/Omsk"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Напоминание не найдено") from exc
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail="Не удалось сохранить напоминания. Повторите попытку.") from exc
+
+@app.get("/api/notifications/reminders")
+def custom_notification_list():
+    return _custom_reminder_result()
+
+@app.post("/api/notifications/reminders")
+def custom_notification_create(req: Dict[str, Any]):
+    from custom_reminders import create_reminder
+    return _custom_reminder_result(create_reminder, req)
+
+@app.put("/api/notifications/reminders/{reminder_id}")
+def custom_notification_update(reminder_id: str, req: Dict[str, Any]):
+    from custom_reminders import update_reminder
+    return _custom_reminder_result(update_reminder, reminder_id, req)
+
+@app.delete("/api/notifications/reminders/{reminder_id}")
+def custom_notification_delete(reminder_id: str):
+    from custom_reminders import delete_reminder
+    return _custom_reminder_result(delete_reminder, reminder_id)
 
 @app.post("/api/notifications/unsubscribe")
 def unsubscribe_push(req: Dict[str, Any]):

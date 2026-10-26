@@ -17,6 +17,9 @@ DEFAULTS = {
 }
 _lock = threading.RLock()
 _delivery_memory = None
+_delivery_dirty = False
+_last_schedule_check = None
+CATCH_UP_SECONDS = 3600
 
 
 def validate_settings(value):
@@ -75,6 +78,9 @@ def get_settings():
 def save_settings(value):
     settings = validate_settings(value)
     with _lock:
+        # Bind legacy date-only records to their old time before saving a new time.
+        _load_delivery(get_settings())
+        _flush_delivery()
         _write("notification_settings", settings)
     return settings
 
@@ -114,35 +120,98 @@ MESSAGES = {
 }
 
 
+def _allowed_day(name, day):
+    return not ((name == "gym" and day.weekday() >= 5) or (name == "weekly" and day.weekday() != 6))
+
+
+def _load_delivery(settings):
+    global _delivery_memory, _delivery_dirty
+    if _delivery_memory is None:
+        _delivery_memory = _read("notification_delivery", {})
+    # Older versions only stored YYYY-MM-DD, which blocked every new time that day.
+    for name in MESSAGES:
+        legacy = _delivery_memory.get(name)
+        if isinstance(legacy, str):
+            _delivery_memory[name] = {"scheduled_for": f"{legacy}T{settings[name]['time']}:00+06:00", "accepted_at": None}
+            _delivery_dirty = True
+    return _delivery_memory
+
+
+def _flush_delivery():
+    global _delivery_dirty
+    if _delivery_dirty:
+        _write("notification_delivery", _delivery_memory)
+        _delivery_dirty = False
+
+
+def _already_sent(records, name, due):
+    record = records.get(name)
+    return isinstance(record, dict) and (record.get("scheduled_for") == due.isoformat() or due.isoformat() in record.get("recent", {}))
+
+
+def schedule_status(settings=None, now=None):
+    """User-facing next run and accepted-at times; never expose subscription keys."""
+    settings = settings or get_settings()
+    now = (now or datetime.now(TZ)).astimezone(TZ)
+    with _lock:
+        records = copy.deepcopy(_load_delivery(settings))
+    items = {}
+    for name in MESSAGES:
+        item = settings[name]
+        next_run = None
+        if item["enabled"]:
+            hour, minute = map(int, item["time"].split(":"))
+            for offset in range(-1, 8):
+                day = now + timedelta(days=offset)
+                due = day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if _allowed_day(name, day) and due > now - timedelta(seconds=CATCH_UP_SECONDS) and not _already_sent(records, name, due):
+                    next_run = due.isoformat()
+                    break
+        record = records.get(name)
+        items[name] = {"next_run": next_run, "last_accepted_at": record.get("accepted_at") if isinstance(record, dict) else None}
+    return {"server_time": now.isoformat(), "timezone": "Asia/Omsk", "last_checked_at": _last_schedule_check, "items": items}
+
+
 def dispatch_scheduled_push(now=None):
-    global _delivery_memory
+    global _delivery_dirty, _last_schedule_check
     from push_service import send_push_notification
     now = (now or datetime.now(TZ)).astimezone(TZ)
     settings = get_settings()
+    _last_schedule_check = now.isoformat()
     with _lock:
-        if _delivery_memory is None:
-            _delivery_memory = _read("notification_delivery", {})
-        sent = _delivery_memory
+        sent = _load_delivery(settings)
+        # Retry journal writes after a storage failure without sending the push twice.
+        _flush_delivery()
     for name, (title, body, tab) in MESSAGES.items():
         item = settings[name]
-        if not item["enabled"] or (name == "gym" and now.weekday() >= 5) or (name == "weekly" and now.weekday() != 6):
+        if not item["enabled"]:
             continue
         hour, minute = map(int, item["time"].split(":"))
         due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        # Allow a small catch-up window after a brief restart, never hours-old reminders.
-        if not 0 <= (now - due).total_seconds() < 300 or sent.get(name) == now.date().isoformat():
+        # Include yesterday near midnight; do not lose a late 23:xx notification.
+        if due > now:
+            due -= timedelta(days=1)
+        if not _allowed_day(name, due) or not 0 <= (now - due).total_seconds() < CATCH_UP_SECONDS or _already_sent(sent, name, due):
             continue
         if send_push_notification(title, body, url=f"/?tab={tab}", tag=name + "-reminder"):
-            sent[name] = now.date().isoformat()
             with _lock:
-                _write("notification_delivery", sent)
+                previous = sent.get(name)
+                recent = dict(previous.get("recent", {})) if isinstance(previous, dict) else {}
+                if isinstance(previous, dict) and previous.get("scheduled_for"):
+                    recent[previous["scheduled_for"]] = previous.get("accepted_at")
+                recent[due.isoformat()] = now.isoformat()
+                recent = dict(sorted(recent.items())[-32:])
+                sent[name] = {"scheduled_for": due.isoformat(), "accepted_at": now.isoformat(), "recent": recent}
+                _delivery_dirty = True
+                _flush_delivery()
 
 
 def start_push_scheduler():
     def worker():
         from push_test_queue import dispatch_test_pushes
+        from custom_reminders import dispatch_custom_pushes
         while True:
-            for dispatch in (dispatch_scheduled_push, dispatch_test_pushes):
+            for dispatch in (dispatch_scheduled_push, dispatch_custom_pushes, dispatch_test_pushes):
                 try:
                     dispatch()
                 except Exception as exc:
