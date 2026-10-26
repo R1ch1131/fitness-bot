@@ -6,7 +6,7 @@
   "scripts": {
     "test": "node --test test-*.mjs",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node prepare-sw.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },

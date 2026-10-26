@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePushNotifications } from './usePushNotifications';
+import { useServerConnection } from './useServerConnection';
 import { readSnapshot, writeSnapshot, isHabits, isDashboard } from './snapshot';
 import { Header } from './components/Header';
 import { NotificationSchedule } from './components/NotificationSchedule';
@@ -73,6 +74,7 @@ export const App: React.FC = () => {
   const [isBooksLoading, setIsBooksLoading] = useState<boolean>(false);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(true);
   const push = usePushNotifications();
+  const serverStatus = useServerConnection();
   const [showPushSettings, setShowPushSettings] = useState(false);
   const [checkinToast, setCheckinToast] = useState<CheckinNotificationData | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string | null>(null);
@@ -338,6 +340,19 @@ export const App: React.FC = () => {
     if (currentTab === 'library') void loadBooks();
   }, [currentTab]);
 
+  useEffect(() => {
+    const recovered = () => {
+      void loadDashboard();
+      void loadHabits();
+      void checkWorkoutNotifications();
+      if (currentTab === 'workouts') void loadWorkouts();
+      if (currentTab === 'weekly') void loadWeekly();
+      if (currentTab === 'library') void loadBooks();
+    };
+    window.addEventListener('fitpulse:server-ready', recovered);
+    return () => window.removeEventListener('fitpulse:server-ready', recovered);
+  }, [currentTab]);
+
   // Habit Actions
   const handleToggleHabit = async (habitId: string, dateStr: string) => {
     // Optimistic UI update
@@ -566,7 +581,7 @@ export const App: React.FC = () => {
         onSync={handleSync}
       />
 
-      {showPushSettings && (
+      {showPushSettings && serverStatus === 'ready' && (
         <section className="mx-4 my-3 p-4 rounded-2xl bg-[#111726] border border-[#1e293b] text-sm text-white space-y-3 max-h-[60dvh] overflow-y-auto shrink-0" aria-label="Уведомления">
           <p className="font-semibold">{push.ready ? 'Уведомления подключены' : 'Уведомления не подключены'}</p>
           <p role="status" className="text-[#94a3b8]">{push.blocked || push.message}</p>
@@ -579,8 +594,19 @@ export const App: React.FC = () => {
         </section>
       )}
 
+      {serverStatus !== 'ready' && (
+        <p role="status" className="mx-4 my-2 p-3 text-xs text-[#94a3b8] rounded-xl bg-[#111726] shrink-0">
+          {serverStatus === 'offline'
+            ? 'Нет подключения. Показываем сохранённые данные. Изменения будут доступны после подключения.'
+            : serverStatus === 'waking'
+              ? 'Сервер запускается. Показываем сохранённые данные и автоматически обновим их после подключения.'
+              : 'Подключаемся к серверу…'}
+        </p>
+      )}
+
       {/* Main Content Area */}
       <main className={`w-full ${isChatTab ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1'}`}>
+        <fieldset disabled={serverStatus !== 'ready'} className="contents">
         {currentTab === 'dashboard' && (
           <DashboardTab
             data={dashboardData}
@@ -635,6 +661,7 @@ export const App: React.FC = () => {
             isLoading={!weeklyData}
           />
         )}
+        </fieldset>
       </main>
 
       {/* Sticky Mobile Bottom Navigation */}
