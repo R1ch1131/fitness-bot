@@ -225,6 +225,8 @@ class BooksManager:
             target["notes"] = notes.strip() if notes else None
 
         tot = target.get("total_pages", 300)
+        if status == 'finished' and target.get('status') != 'finished' and (current_page is None or int(current_page) < tot):
+            raise ValueError('Чтобы завершить книгу, укажите прогресс до последней страницы')
 
         if current_page is not None:
             parsed_cur = max(0, int(current_page))
@@ -239,6 +241,8 @@ class BooksManager:
                 target["finished_date"] = target.get("finished_date") or now_str
                 target["current_page"] = tot
                 self._mark_reading_habit_for_today()
+            elif status == "reading":
+                target["finished_date"] = None
             elif status == "planned":
                 target["finished_date"] = None
                 target["current_page"] = 0

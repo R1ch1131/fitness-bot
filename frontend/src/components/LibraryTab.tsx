@@ -34,10 +34,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 }) => {
   const [filter, setFilter] = useState<'all' | 'reading' | 'finished' | 'planned'>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [finishingBook, setFinishingBook] = useState<BookItem | null>(null);
   const [editingBook, setEditingBook] = useState<BookItem | null>(null);
-  const [rating, setRating] = useState<number>(8.5);
-  const [insightNote, setInsightNote] = useState<string>('');
   const [justMarkedHabit, setJustMarkedHabit] = useState(false);
 
   // Inline custom progress logging state
@@ -159,22 +156,6 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
     });
 
     setEditingBook(null);
-  };
-
-  const handleFinishSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!finishingBook) return;
-
-    await onUpdateBook(finishingBook.id, {
-      status: 'finished',
-      rating,
-      notes: insightNote.trim() || finishingBook.notes,
-      current_page: finishingBook.total_pages || 300,
-      finished_date: new Date().toISOString().slice(0, 10),
-    });
-
-    setFinishingBook(null);
-    setInsightNote('');
   };
 
   const handleQuickAddPages = async (bookId: string, pages: number) => {
@@ -411,7 +392,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                       <span className="text-[10px] text-[#94a3b8] bg-[#0b0f19] px-2 py-0.5 rounded-full border border-[#1e293b]">
                         {book.category}
                       </span>
-                      {book.finished_date && (
+                      {isFinished && book.finished_date && (
                         <span className="text-[10px] text-[#64748b]">
                           Завершено: {book.finished_date}
                         </span>
@@ -536,17 +517,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                         <span>Стр.</span>
                       </button>
 
-                      <button
-                        onClick={() => {
-                          setFinishingBook(book);
-                          setRating(5);
-                          setInsightNote(book.notes || '');
-                        }}
-                        className="flex items-center space-x-1.5 bg-[#6366f1]/20 hover:bg-[#6366f1]/30 border border-[#6366f1]/40 text-[#a5b4fc] px-3 py-1.5 rounded-xl text-xs font-bold transition-all ml-auto active:scale-95"
-                      >
-                        <Award className="w-3.5 h-3.5" />
-                        <span>Завершить 🏆</span>
-                      </button>
+
                     </div>
 
                     {/* Inline custom page adder form */}
@@ -725,7 +696,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                       className={`py-2 rounded-xl text-xs font-semibold border transition-all ${
                         newStatus === s.id
                           ? 'bg-[#00d084]/20 border-[#00d084] text-[#00d084]'
-                          : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8]'
+                          : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8] disabled:opacity-30 disabled:cursor-not-allowed'
                       }`}
                     >
                       {s.label}
@@ -970,11 +941,13 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                     <button
                       key={s.id}
                       type="button"
+                      disabled={s.id === 'finished' && editingBook.status !== 'finished'}
+                      title={s.id === 'finished' && editingBook.status !== 'finished' ? 'Книга завершится, когда будет прочитана последняя страница' : undefined}
                       onClick={() => setEditStatus(s.id as any)}
                       className={`py-2 rounded-xl text-xs font-semibold border transition-all ${
                         editStatus === s.id
                           ? 'bg-[#38bdf8]/20 border-[#38bdf8] text-[#38bdf8]'
-                          : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8]'
+                          : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8] disabled:opacity-30 disabled:cursor-not-allowed'
                       }`}
                     >
                       {s.label}
@@ -1104,118 +1077,6 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
         </div>
       )}
 
-      {/* MODAL: Finish Book with Rating and Insight */}
-      {finishingBook && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[#111726] border border-[#1e293b] w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-[#1e293b] pb-3">
-              <div className="flex items-center space-x-2">
-                <Award className="w-5 h-5 text-[#f59e0b]" />
-                <h3 className="text-base font-bold text-white">Книга прочитана! 🏆</h3>
-              </div>
-              <button
-                onClick={() => setFinishingBook(null)}
-                className="w-8 h-8 rounded-xl bg-[#0b0f19] text-[#94a3b8] hover:text-white flex items-center justify-center"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-[#94a3b8]">
-              Поздравляем с завершением книги <strong className="text-white">«{finishingBook.title}»</strong>! Поставь оценку и зафиксируй главный инсайт.
-            </p>
-
-            <form onSubmit={handleFinishSubmit} className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-semibold text-[#94a3b8]">
-                    Твоя оценка (по 10-балльной шкале, например 5.5, 9.5)
-                  </label>
-                  <span className="text-xs font-bold text-[#f59e0b] flex items-center space-x-1">
-                    <Star className="w-3.5 h-3.5 fill-[#f59e0b]" />
-                    <span>{rating} / 10</span>
-                  </span>
-                </div>
-
-                <div className="flex items-center space-x-3 bg-[#0b0f19] p-2.5 rounded-2xl border border-[#1e293b]">
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    step="0.5"
-                    value={rating}
-                    onChange={(e) => setRating(parseFloat(e.target.value))}
-                    className="w-full accent-[#f59e0b] cursor-pointer"
-                  />
-                  <div className="flex items-center space-x-1 shrink-0">
-                    <input
-                      type="number"
-                      min="1"
-                      max="10"
-                      step="0.1"
-                      value={rating}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (!isNaN(val)) setRating(Math.max(1, Math.min(10, val)));
-                      }}
-                      className="w-14 bg-[#111726] border border-[#1e293b] rounded-xl px-2 py-1 text-xs text-center font-bold text-[#f59e0b] focus:outline-none focus:border-[#f59e0b]"
-                    />
-                    <span className="text-xs text-[#64748b]">/10</span>
-                  </div>
-                </div>
-
-                {/* Quick Preset Pills */}
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  {[5, 5.5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((val) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setRating(val)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-all ${
-                        rating === val
-                          ? 'bg-[#f59e0b]/20 border-[#f59e0b] text-[#f59e0b]'
-                          : 'bg-[#0b0f19] border-[#1e293b] text-[#94a3b8] hover:text-white'
-                      }`}
-                    >
-                      {val}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
-                  Главный инсайт / Ключевой урок
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="Что самое ценное ты вынес из этой книги?"
-                  value={insightNote}
-                  onChange={(e) => setInsightNote(e.target.value)}
-                  className="w-full bg-[#0b0f19] border border-[#1e293b] rounded-2xl p-3 text-xs text-white placeholder-[#475569] focus:outline-none focus:border-[#00d084] resize-none"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setFinishingBook(null)}
-                  className="w-1/2 py-2.5 rounded-2xl bg-[#0b0f19] text-[#94a3b8] font-semibold text-xs border border-[#1e293b]"
-                >
-                  Отмена
-                </button>
-                <button
-                  type="submit"
-                  className="w-1/2 py-2.5 rounded-2xl bg-[#00d084] hover:bg-[#00b573] text-[#0b0f19] font-bold text-xs shadow-lg shadow-[#00d084]/20"
-                >
-                  Зафиксировать успех 🚀
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
