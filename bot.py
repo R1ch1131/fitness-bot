@@ -333,7 +333,7 @@ def get_system_instruction() -> str:
    - Советуй сильные книги по продуктивности, дисциплине, психологии, биохакингу, бизнесу и IT.
    - Никаких спойлеров для читаемых и запланированных книг: ни событий, ни концовок, ни судеб персонажей, ни намёков на будущее.
    - Номер страницы не определяет пройденный сюжет: издания отличаются. Не заявляй, что знаешь, какие события уже прочитаны.
-   - Комментируй страницу и прогресс. Содержание обсуждай только в пределах текста и событий, которые сам пользователь привёл; не добавляй неизвестные ему детали из памяти.
+   - Комментируй прогресс и добавляй живые отсылки к уже знакомым пользователю деталям по правилам ответа ниже. Не раскрывай неизвестные ему события.
 5. ТРЕКЕР ПРИВЫЧЕК И ДИСЦИПЛИНА:
    - Поддерживай стрики атлета, подбадривай, хвали за регулярность.
    - Если атлет пишет во второй половине дня, а важные привычки (зал, чтение, кодинг, питание) еще не отмечены — дружески и ненавязчиво напомни закрыть их.
@@ -401,8 +401,8 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
             if extra_context:
                 system_instruction += "\n\nДополнительные данные для этого запроса:\n" + extra_context
 
-            from response_style import CONCISE_STYLE
-            system_instruction += "\n\n" + CONCISE_STYLE
+            from response_style import RESPONSE_STYLE
+            system_instruction += "\n\n" + RESPONSE_STYLE
 
             contents_text = f"Вопрос атлета: {user_question}"
             if history and isinstance(history, list):
@@ -496,7 +496,7 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
                         )
                         if resp and resp.text:
                             print(f"[FEEDBACK] Model {model_name} responded OK, length: {len(resp.text)}")
-                            return f"📋 *Тренировка и итоги дня:*\n\n{resp.text}" + (f"\n\n{reading_progress}" if reading_progress else "")
+                            return f"📋 *Тренировка и итоги дня:*\n\n{resp.text}"
                     except Exception as model_err:
                         print(f"Model {model_name} failed for feedback analysis: {model_err}")
                         continue

@@ -1,4 +1,4 @@
-"""Fresh daily facts and a deterministic reading comment, with no book plot generation."""
+"""Fresh daily facts and reading progress for a personalized, spoiler-free review."""
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -84,7 +84,16 @@ def collect_daily_review(coach, habits=None, books=None, now=None):
         current = next((book for book in books.get_books() if book.get("status") == "reading"), None)
         if current:
             comment = reading_comment(current, reading_done)
+            # Only bibliographic facts: arbitrary notes may contain unknown plot details.
+            total = max(1, int(current.get("total_pages") or 1))
+            page = min(total, max(0, int(current.get("current_page") or 0)))
+            facts["reading"] = {
+                "title": str(current.get("title", ""))[:300],
+                "author": str(current.get("author", ""))[:200],
+                "current_page": page, "total_pages": total,
+                "percent": round(page / total * 100), "marked_today": reading_done,
+            }
     except Exception:
         facts["library_status"] = "unavailable"
-    # Titles, notes and book content stay out of the generative post-workout prompt.
+    # The fallback keeps a deterministic progress line; successful AI replies use the reading facts.
     return json.dumps(facts, ensure_ascii=False), comment

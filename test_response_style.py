@@ -1,11 +1,11 @@
-"""Verify the live AI call paths receive the concise policy, without starting a bot or contacting Gemini."""
+"""Verify the live AI call paths receive the detailed policy, without starting a bot or contacting Gemini."""
 import sys
 import types
 import unittest
 from typing import Dict, List, Optional
 from unittest.mock import Mock, patch
 
-from response_style import CONCISE_STYLE, WORKOUT_FOCUS
+from response_style import RESPONSE_STYLE, WORKOUT_FOCUS
 from test_push import isolated_function
 
 
@@ -20,7 +20,7 @@ class ResponseStyleTests(unittest.TestCase):
         })
         return fn, module
 
-    def test_app_chat_and_sleep_analysis_keep_question_history_and_facts_with_concise_style(self):
+    def test_app_chat_and_sleep_analysis_keep_question_history_and_facts_with_detailed_style(self):
         generate = Mock(return_value=types.SimpleNamespace(text="Короткий ответ"))
         fn, module = self.general(generate)
         with patch.dict(sys.modules, {"google": module}):
@@ -30,9 +30,9 @@ class ResponseStyleTests(unittest.TestCase):
         self.assertEqual(answer, "Короткий ответ")
         args = generate.call_args.kwargs
         system = args["config"]["system_instruction"]
-        self.assertIn(CONCISE_STYLE, system)
+        self.assertIn(RESPONSE_STYLE, system)
         self.assertIn("Sleep: one recorded night, 482 minutes", system)
-        self.assertGreater(system.index(CONCISE_STYLE), system.index("482 minutes"))
+        self.assertGreater(system.index(RESPONSE_STYLE), system.index("482 minutes"))
         self.assertIn("Что скажешь о моём сне?", args["contents"])
         self.assertIn("Предыдущий длинный ответ", args["contents"])
 
@@ -44,7 +44,7 @@ class ResponseStyleTests(unittest.TestCase):
             self.assertEqual(fn(question, force_llm=True), "Подробный ответ")
         self.assertEqual(generate.call_count, 2)
         for call in generate.call_args_list:
-            self.assertIn(CONCISE_STYLE, call.kwargs["config"]["system_instruction"])
+            self.assertIn(RESPONSE_STYLE, call.kwargs["config"]["system_instruction"])
             self.assertIn(question, call.kwargs["contents"])
 
     def feedback(self, generate, configured=True):
@@ -62,7 +62,7 @@ class ResponseStyleTests(unittest.TestCase):
         from functools import partial
         return partial(fn, daily_context='{"completed": ["Зал"], "not_marked_today": ["Кодинг"]}'), module
 
-    def test_workout_feedback_no_longer_requires_four_generic_sections(self):
+    def test_workout_feedback_uses_personalized_thematic_sections(self):
         generate = Mock(return_value=types.SimpleNamespace(text="Разберём пропущенное упражнение."))
         fn, module = self.feedback(generate)
         feedback = "Не сделал становую: штанга была занята. Что изменить?"
@@ -73,8 +73,13 @@ class ResponseStyleTests(unittest.TestCase):
         self.assertIn(feedback, prompt)
         self.assertIn("13,000", prompt)
         self.assertIn("77.5", prompt)
-        self.assertIn(CONCISE_STYLE, prompt)
+        self.assertIn(RESPONSE_STYLE, prompt)
         self.assertIn(WORKOUT_FOCUS, prompt)
+        self.assertIn("Используй тематические разделы", prompt)
+        self.assertIn("Чтение и личный комментарий", prompt)
+        self.assertIn("Уотни", prompt)
+        self.assertNotIn("70–120 слов", prompt)
+        self.assertNotIn("обычно до 100 слов", prompt)
         self.assertNotIn("Сформируй структурированный", prompt)
         self.assertNotIn("Если суставы в порядке — похвали технику", prompt)
 

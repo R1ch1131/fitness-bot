@@ -43,10 +43,12 @@ class DailyReviewTests(unittest.TestCase):
         updated, _ = collect_daily_review(self.coach, self.hm, self.bm, self.today)
         self.assertIn("Кодинг", json.loads(updated)["completed"])
 
-    def test_book_title_notes_and_plot_never_enter_generative_daily_prompt(self):
+    def test_current_book_progress_enters_prompt_but_unverified_notes_do_not(self):
         text, reading = collect_daily_review(self.coach, self.hm, self.bm, self.today)
         prompt = post_workout_prompt("Тренировка: ноги", "Все нормально", text)
-        self.assertNotIn(self.book["title"], prompt)
+        self.assertIn(self.book["title"], prompt)
+        self.assertEqual(json.loads(text)["reading"]["current_page"], 170)
+        self.assertEqual(json.loads(text)["reading"]["percent"], 44)
         self.assertNotIn(self.book["notes"], prompt)
         self.assertNotIn(self.book["notes"], reading)
         self.assertNotIn("сегодня прочитал 170", reading)
@@ -74,15 +76,25 @@ class DailyReviewTests(unittest.TestCase):
         self.assertFalse(is_workout_checkin("После жима устал", dict(pending, responded=True), 10100))
         self.assertFalse(is_workout_checkin("Нормально", pending, 100000))
 
-    def test_bot_feedback_appends_only_the_server_generated_reading_line(self):
+    def test_successful_feedback_does_not_append_duplicate_reading_line(self):
         generate = Mock(return_value=types.SimpleNamespace(text="Зал отмечен. Кодинг пока не отмечен."))
         from test_response_style import ResponseStyleTests
         fn, module = ResponseStyleTests().feedback(generate)
-        _, reading = collect_daily_review(self.coach, self.hm, self.bm, self.today)
+        facts, reading = collect_daily_review(self.coach, self.hm, self.bm, self.today)
         with patch.dict(sys.modules, {"google": module}):
-            reply = fn("Ноги устали", reading_progress=reading)
+            reply = fn("Ноги устали", daily_context=facts, reading_progress=reading)
+        self.assertFalse(reply.endswith(reading))
+        self.assertIn(self.book["title"], generate.call_args.kwargs["contents"])
+
+    def test_unavailable_ai_still_shows_factual_reading_progress(self):
+        from test_response_style import ResponseStyleTests
+        fn, module = ResponseStyleTests().feedback(Mock(), configured=False)
+        facts, reading = collect_daily_review(self.coach, self.hm, self.bm, self.today)
+        with patch.dict(sys.modules, {"google": module}):
+            reply = fn("Ноги устали", daily_context=facts, reading_progress=reading)
+        self.assertIn("ИИ сейчас недоступен", reply)
         self.assertTrue(reply.endswith(reading))
-        self.assertNotIn(self.book["title"], generate.call_args.kwargs["contents"])
+        self.assertNotIn(self.book["notes"], reply)
 
     def test_workout_review_keeps_habits_nutrition_sleep_and_reading_after_sleep_optimization(self):
         generate = Mock(return_value=types.SimpleNamespace(text="Краткий итог дня"))
@@ -97,8 +109,8 @@ class DailyReviewTests(unittest.TestCase):
         self.assertIn('"not_marked_today": ["Кодинг"]', prompt)
         self.assertIn('"calories": 1800', prompt)
         self.assertIn('Сон Apple Watch: 480 минут', prompt)
-        self.assertIn('170/384', reply)
-        self.assertTrue(reply.endswith(reading))
+        self.assertIn('"current_page": 170', prompt)
+        self.assertFalse(reply.endswith(reading))
 
     def test_app_routes_checkin_with_fresh_context_and_does_not_acknowledge_a_book_question(self):
         for message, is_feedback in [("После жима чувствую усталость", True), ("Какую книгу почитать?", False)]:
