@@ -163,6 +163,47 @@ class WeeklyTests(unittest.TestCase):
     def setUp(self):
         weekly._analysis_cache.clear()
 
+    def test_goal_uses_measured_trend_and_milestones(self):
+        result = weekly.goal_forecast([('2026-10-01', 98.1), ('2026-10-08', 97.3),
+                                       ('2026-10-15', 96.5), ('2026-10-22', 95.7), ('2026-10-29', 70)], date(2026, 10, 22))
+        self.assertEqual(result['current_weight'], 95.7)
+        self.assertAlmostEqual(result['rate_kg_week'], 0.8)
+        self.assertEqual(result['status'], 'projected')
+        self.assertAlmostEqual(result['progress_percent'], 31.7)
+        self.assertEqual(result['milestones'][0]['eta'], '2026-10-28')
+        self.assertEqual(result['milestones'][-1]['weight'], 80)
+
+    def test_no_invented_default_rate_or_date_for_missing_flat_or_stale_weights(self):
+        for points, status in [([], 'insufficient'), ([('2026-10-21', 95)], 'insufficient'),
+                               ([('2026-10-14', 95), ('2026-10-21', 95)], 'not_losing'),
+                               ([('2026-10-14', 95), ('2026-10-21', 96)], 'not_losing'),
+                               ([('2026-10-01', 96), ('2026-10-08', 95)], 'stale')]:
+            with self.subTest(status=status, points=points):
+                result = weekly.goal_forecast(points, date(2026, 10, 22))
+                self.assertEqual(result['status'], status)
+                self.assertTrue(all(m['eta'] is None for m in result['milestones']))
+        self.assertIsNone(weekly.goal_forecast([], date(2026, 10, 22))['current_weight'])
+
+    def test_reached_goal_and_invalid_measurements(self):
+        points = [('2026-10-20', float('nan')), ('2026-10-21', -1), ('2026-10-22', 79.9)]
+        result = weekly.goal_forecast(points, date(2026, 10, 22))
+        self.assertEqual(result['status'], 'reached')
+        self.assertEqual(result['progress_percent'], 100)
+        self.assertEqual(result['remaining_kg'], 0)
+        self.assertTrue(all(m['reached'] for m in result['milestones']))
+
+    def test_forecast_history_does_not_change_selected_week_weight_delta(self):
+        coach = fake_coach()
+        coach.yazio.client = object()
+        coach.yazio._execute_with_retry = Mock(return_value={'2026-10-01': 99, '2026-10-19': 96, '2026-10-25': 95.5})
+        exporter = types.SimpleNamespace(fetch_weight_range=Mock())
+        with patch.dict(sys.modules, {'yazio_exporter.export_body': exporter}):
+            report = weekly._collect(coach, date(2026, 10, 19), date(2026, 10, 26))
+        self.assertEqual(report['weight_change'], -0.5)
+        self.assertEqual(report['weight_measurements'], 2)
+        self.assertEqual(report['goal_forecast']['sample_count'], 3)
+        self.assertEqual(coach.yazio._execute_with_retry.call_count, 1)
+
     def test_actual_calendar_week_and_only_logged_days_in_average(self):
         report = weekly._collect(fake_coach(), date(2026, 10, 19), date(2026, 10, 26))
         self.assertEqual((report["period_start"], report["period_end"]), ("2026-10-19", "2026-10-25"))

@@ -76,7 +76,7 @@ export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
     setBusy(true); setError(''); setSleep(null);
     fetch(`/api/health/sleep?week_start=${weekStart}`, { headers: healthHeaders(), cache: 'no-store', signal: controller.signal })
       .then(async r => { if (!r.ok) throw await responseError(r); return r.json(); })
-      .then(setSleep).catch(e => { if (!controller.signal.aborted) setError(e.message); })
+      .then(data => { if (!controller.signal.aborted) setSleep(data); }).catch(e => { if (!controller.signal.aborted) setError(e.message); })
       .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => controller.abort();
   }, [connected, weekStart, revision]);
@@ -109,11 +109,12 @@ export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
   const dates = Array.from({ length: 7 }, (_, index) => new Date(Date.parse(weekStart + 'T12:00:00Z') + index * 86400000).toISOString().slice(0, 10));
   const activeDate = selectedDate && dates.includes(selectedDate) ? selectedDate : nights[0]?.date || weekStart;
   const activeNight = nights.find(night => night.date === activeDate);
-  return <section aria-label="Сон Apple Watch" aria-busy={blocked} className="bg-[#111726] border border-[#1e293b] rounded-3xl p-4 sm:p-5 space-y-4">
+  return <section aria-label="Сон Apple Watch" aria-busy={blocked} className="bg-[#111726] border border-[#1e293b] rounded-3xl p-4 sm:p-5 h-[600px] flex flex-col gap-4">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-2xl bg-[#a78bfa]/10 border border-[#a78bfa]/20 flex items-center justify-center"><Moon className="w-5 h-5 text-[#c4b5fd]" /></div><div><h2 className="font-bold text-white text-sm">Сон</h2><p className="text-[10px] text-[#64748b] mt-0.5 flex items-center gap-1"><Watch className="w-3 h-3" />Apple Watch · Омск</p></div></div>
       {connected && <button aria-label="Настройки сна" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(v => !v)} className="w-10 h-10 rounded-xl flex items-center justify-center text-[#64748b] hover:text-white hover:bg-[#192235] transition"><SlidersHorizontal className="w-4 h-4" /></button>}
     </div>
+    <div className="flex-1 min-h-0 overflow-y-auto space-y-4 [scrollbar-width:thin]">
     {error && <p role="alert" className="text-xs text-rose-300 rounded-xl bg-rose-500/5 p-3">{error}</p>}
     {!connected ? <div className="space-y-3">
       <p className="text-xs text-[#94a3b8]">Подключи сон для просмотра и разбора с ИИ.</p>
@@ -122,7 +123,7 @@ export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
       <button onClick={connect} disabled={blocked || token.trim().length < 32} className="w-full px-4 py-3 rounded-xl bg-[#00d084] text-[#0b0f19] text-xs font-semibold disabled:opacity-40">{busy ? 'Подключаем…' : 'Подключить сон'}</button>
       <a href="/api/health/setup" target="_blank" rel="noreferrer" className={`${secondary} w-full`}>Как подключить</a>
     </div> : <>
-      {busy && <p role="status" className="text-xs text-[#94a3b8] flex items-center gap-2"><RefreshCw className="w-3 h-3 animate-spin" />Обновляем сон…</p>}
+      {busy && !sleep && <div role="status" aria-label="Загрузка сна" className="space-y-4 animate-pulse"><p className="text-xs text-[#94a3b8]">Обновляем сон…</p><div className="h-14 bg-[#192235] rounded-xl" /><div className="grid grid-cols-7 gap-1">{Array.from({ length: 7 }, (_, i) => <div key={i} className="h-20 rounded-xl bg-[#192235]" />)}</div><div className="h-64 bg-[#0b101d] rounded-2xl" /></div>}
       {sleep && <>
         {sleep.tracked_nights > 0 && <div className="flex items-end justify-between gap-2 px-1"><div><p className="text-[10px] uppercase tracking-wider text-[#64748b]">Средний сон</p><p className="text-3xl font-bold tracking-tight text-[#ddd6fe] mt-1">{duration(sleep.average_minutes)}</p></div><div className="text-right pb-1"><p className="text-sm font-semibold text-[#cbd5e1]">{sleep.tracked_nights} / 7</p><p className="text-[10px] text-[#64748b]">ночей с данными</p></div></div>}
         <div role="group" aria-label="Дни сна" className="grid grid-cols-7 gap-1">
@@ -156,5 +157,6 @@ export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
         {confirmDelete && <div className="text-xs space-y-3 p-1"><p className="text-[#94a3b8]">Удалить все записи сна с сервера?</p><div className="grid grid-cols-2 gap-2"><button disabled={blocked} onClick={remove} className="rounded-xl bg-rose-500/15 text-rose-300 py-2.5 disabled:opacity-40">Удалить окончательно</button><button disabled={blocked} onClick={() => setConfirmDelete(false)} className={secondary}>Отмена</button></div></div>}
       </div>}
     </>}
+    </div>
   </section>;
 }

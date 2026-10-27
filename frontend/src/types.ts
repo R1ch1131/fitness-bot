@@ -118,7 +118,24 @@ export interface WeeklyDayItem {
   tonnage_kg: number;
 }
 
+export interface GoalForecast {
+  as_of: string;
+  measured_on: string | null;
+  start_weight: number;
+  current_weight: number | null;
+  goal_weight: number;
+  lost_kg: number | null;
+  remaining_kg: number | null;
+  progress_percent: number | null;
+  rate_kg_week: number | null;
+  status: 'insufficient' | 'stale' | 'reached' | 'projected' | 'not_losing';
+  sample_count: number;
+  span_days: number;
+  milestones: { weight: number; reached: boolean; eta: string | null; weeks: number | null }[];
+}
+
 export interface WeeklyResponse {
+  goal_forecast?: GoalForecast;
   period_start: string;
   period_end: string;
   as_of: string;

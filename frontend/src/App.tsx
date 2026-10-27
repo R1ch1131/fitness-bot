@@ -756,6 +756,7 @@ export const App: React.FC = () => {
         {currentTab === 'weekly' && (
           <WeeklyTab
             data={weeklyData}
+            selectedWeek={selectedWeek}
             isLoading={weeklyLoading}
             error={weeklyError}
             onRetry={() => void loadWeekly(selectedWeek, true)}

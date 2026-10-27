@@ -1,5 +1,6 @@
 """Calendar-week facts and reproducible report images for the PWA."""
 import io
+import math
 import hashlib
 import threading
 import time
@@ -68,6 +69,52 @@ def clear_cache():
         _cache.clear()
 
 
+def goal_forecast(weights, as_of, start_weight=103.0, goal_weight=80.0):
+    """Project from measured weights only; historical weeks never use later records."""
+    samples = []
+    for day, value in weights:
+        try:
+            measured = date.fromisoformat(day)
+            if type(value) in (int, float) and math.isfinite(value) and 20 <= value <= 400 and measured <= as_of:
+                samples.append((measured, float(value)))
+        except (ValueError, TypeError):
+            continue
+    samples = sorted(dict(samples).items())
+    current = samples[-1][1] if samples else None
+    measured_on = samples[-1][0] if samples else None
+    recent = [(day, value) for day, value in samples if day >= as_of - timedelta(days=28)]
+    span = (recent[-1][0] - recent[0][0]).days if len(recent) >= 2 else 0
+    rate = None
+    if span >= 7:
+        xs = [(d - recent[0][0]).days for d, _ in recent]
+        ys = [v for _, v in recent]
+        xm, ym = sum(xs) / len(xs), sum(ys) / len(ys)
+        slope = sum((x - xm) * (y - ym) for x, y in zip(xs, ys)) / sum((x - xm) ** 2 for x in xs)
+        rate = -slope * 7
+    status = 'insufficient'
+    if current is not None and current <= goal_weight:
+        status = 'reached'
+    elif measured_on and (as_of - measured_on).days > 7:
+        status = 'stale'
+    elif rate is not None:
+        status = 'projected' if rate >= 0.05 else 'not_losing'
+    milestones = []
+    for target in (95.0, 90.0, 85.0, goal_weight):
+        reached = current is not None and current <= target
+        weeks = (current - target) / rate if status == 'projected' and not reached else None
+        # Very distant extrapolations are not useful as calendar promises.
+        eta = measured_on + timedelta(days=round(weeks * 7)) if weeks is not None and weeks <= 260 else None
+        milestones.append({'weight': target, 'reached': reached, 'eta': eta.isoformat() if eta else None,
+                           'weeks': round(weeks, 1) if eta else None})
+    return {'as_of': as_of.isoformat(), 'measured_on': measured_on.isoformat() if measured_on else None,
+            'start_weight': start_weight, 'current_weight': current, 'goal_weight': goal_weight,
+            'lost_kg': round(max(0, start_weight - current), 1) if current is not None else None,
+            'remaining_kg': round(max(0, current - goal_weight), 1) if current is not None else None,
+            'progress_percent': round(max(0, min(100, (start_weight - current) / (start_weight - goal_weight) * 100)), 1) if current is not None else None,
+            'rate_kg_week': round(rate, 2) if rate is not None else None, 'status': status,
+            'sample_count': len(recent), 'span_days': span, 'milestones': milestones}
+
+
 def _collect(coach, start, today):
     from analyzer import parse_iso
     end = start + timedelta(days=6)
@@ -105,16 +152,18 @@ def _collect(coach, start, today):
         try:
             from yazio_exporter.export_body import fetch_weight_range
             raw = coach.yazio._execute_with_retry(fetch_weight_range, coach.yazio.client,
-                                                  start.isoformat(), (min(end, today) + timedelta(days=1)).isoformat()) or {}
+                                                  (min(end, today) - timedelta(days=28)).isoformat(), (min(end, today) + timedelta(days=1)).isoformat()) or {}
             weights = [(day, value) for day, value in sorted(raw.items())
-                       if start.isoformat() <= day <= min(end, today).isoformat() and isinstance(value, (int, float)) and value > 0]
+                       if (min(end, today) - timedelta(days=28)).isoformat() <= day <= min(end, today).isoformat() and type(value) in (int, float) and math.isfinite(value) and 20 <= value <= 400]
         except Exception:
             warnings.add("История веса временно недоступна")
+    week_weights = [(day, value) for day, value in weights if day >= start.isoformat()]
     return {"period_start": start.isoformat(), "period_end": end.isoformat(), "as_of": datetime.now(TZ).isoformat(),
             "days": days, "averages": averages, "workout_count": sum(d["workout_count"] for d in days),
             "tonnage_kg": sum(d["tonnage_kg"] for d in days),
-            "weight_change": round(weights[-1][1] - weights[0][1], 1) if len(weights) >= 2 else None,
-            "weight_measurements": len(weights), "warnings": sorted(warnings), "report_markdown": ""}
+            "weight_change": round(week_weights[-1][1] - week_weights[0][1], 1) if len(week_weights) >= 2 else None,
+            "goal_forecast": goal_forecast(weights, min(end, today)),
+            "weight_measurements": len(week_weights), "warnings": sorted(warnings), "report_markdown": ""}
 
 
 def render_image(report, sleep=None):
@@ -145,7 +194,7 @@ def render_image(report, sleep=None):
     cards = [("ТРЕНИРОВКИ", str(report["workout_count"]), f"Тоннаж: {number(report['tonnage_kg'], ' кг')}", green),
              ("ДИНАМИКА ВЕСА", "Нет данных" if delta is None else f"{delta:+.1f} кг", "По замерам внутри недели", "#a78bfa"),
              ("КАЛОРИИ / ДЕНЬ", number(avg["calories"], " ккал"), f"Записано дней: {avg['tracked_days']} из 7", "#f59e0b"),
-             ("БЕЛОК / ДЕНЬ", number(avg["protein"], " г"), "Среднее по записанным дням", "#38bdf8")]
+             ("БЕЛОК / ДЕНЬ", number(avg["protein"], " г"), f"Ж {number(avg['fat'], ' г')}  /  У {number(avg['carbs'], ' г')}", "#38bdf8")]
     for idx, (label, value, note, accent) in enumerate(cards):
         x, y = 52 + (idx % 2) * 500, 236 + (idx // 2) * 174
         draw.rounded_rectangle((x, y, x + 476, y + 150), 22, fill="#111726", outline="#273449", width=2)
@@ -164,14 +213,18 @@ def render_image(report, sleep=None):
     text(410, 711, "БЕЛОК", 20, muted, True)
     text(585, 711, "ТРЕНИРОВКА", 20, muted, True)
     for idx, day in enumerate(report["days"]):
-        y = 760 + idx * 76
-        draw.rounded_rectangle((52, y, 1028, y + 64), 14, fill="#111726")
-        text(72, y + 15, day["weekday"], 25, green, True)
-        text(130, y + 19, day["date"][8:10] + "." + day["date"][5:7], 20, muted)
-        text(235, y + 16, number(day["calories"]) if day["is_logged"] else "—", 24)
-        text(410, y + 16, number(day["protein"], " г") if day["is_logged"] else "—", 24)
+        y = 750 + idx * 78
+        draw.rounded_rectangle((52, y, 1028, y + 70), 14, fill="#111726")
+        text(72, y + 7, day["weekday"], 25, green, True)
+        text(130, y + 10, day["date"][8:10] + "." + day["date"][5:7], 20, muted)
+        text(235, y + 7, number(day["calories"]) if day["is_logged"] else "—", 24)
+        text(410, y + 7, number(day["protein"], " г") if day["is_logged"] else "—", 24)
         title = ", ".join(day["workout_titles"]) if day["workout_count"] else ("Впереди" if day["is_future"] else "Нет записи")
-        text(585, y + 17, fit(title, 410), 23, "#c4b5fd" if day["workout_count"] else muted)
+        text(585, y + 8, fit(title, 410), 23, "#c4b5fd" if day["workout_count"] else muted)
+        if day['is_logged']:
+            text(72, y + 43, f"Жиры {number(day['fat'], ' г')}  ·  Углеводы {number(day['carbs'], ' г')}", 18, muted)
+        if day['workout_count']:
+            text(585, y + 43, f"{day['workout_count']} трен.  ·  {number(day['tonnage_kg'], ' кг')}", 18, muted)
     text(52, 1340, "Честный отчёт по твоим записям", 28, bold=True)
     text(52, 1391, "Пропуски не считаются нулями. Средние — по дням с питанием.", 22, muted)
     text(52, 1430, "Разбор прогресса и план на следующую неделю — у AI-тренера.", 22, muted)
