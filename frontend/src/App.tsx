@@ -174,7 +174,7 @@ export const App: React.FC = () => {
   const loadDashboard = async () => {
     setDashboardRefreshing(true);
     try {
-      const res = await fetch('/api/dashboard');
+      const res = await fetch('/api/dashboard', { headers: healthHeaders() });
       if (res.ok) {
         const data: DashboardData = await res.json();
         writeSnapshot('dashboard', data);
@@ -221,7 +221,7 @@ export const App: React.FC = () => {
       const query = new URLSearchParams();
       if (week) query.set('week_start', week);
       if (refresh) query.set('refresh', 'true');
-      const res = await fetch(`/api/weekly?${query}`, { signal: controller.signal });
+      const res = await fetch(`/api/weekly?${query}`, { headers: healthHeaders(), signal: controller.signal });
       if (!res.ok) throw await responseError(res);
       const data = await res.json();
       setWeeklyData(data);
@@ -376,7 +376,8 @@ export const App: React.FC = () => {
       if (currentTab === 'library') void loadBooks();
     };
     window.addEventListener('fitpulse:server-ready', recovered);
-    return () => window.removeEventListener('fitpulse:server-ready', recovered);
+    window.addEventListener('fitpulse:health-changed', recovered);
+    return () => { window.removeEventListener('fitpulse:server-ready', recovered); window.removeEventListener('fitpulse:health-changed', recovered); };
   }, [currentTab, selectedWeek]);
 
   // Habit Actions

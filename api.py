@@ -109,7 +109,7 @@ def logs_endpoint():
         return f"Logs unavailable: {e}"
 
 @app.get("/api/dashboard")
-def get_dashboard():
+def get_dashboard(request: Request):
     """Returns today's nutrition, next workout, weight status and recent weight trend."""
     # Auto-sync habits from Hevy and YAZIO
     try:
@@ -204,6 +204,8 @@ def get_dashboard():
         print(f"Dashboard workout fetch error: {e}")
 
     # 3. Weight and profile
+    health = _sleep_access(request)
+    health_weights = health.get("weight_history", []) if health else []
     profile_data = {
         "current_weight": 96.0,
         "start_weight": 103.0,
@@ -211,20 +213,21 @@ def get_dashboard():
         "weight_history": []
     }
 
-    try:
-        prof = coach.yazio.get_user_profile()
-        profile_data["current_weight"] = prof.get("current_weight", 96.0)
-        profile_data["start_weight"] = prof.get("start_weight", 103.0)
-        profile_data["goal_weight"] = prof.get("goal_weight", 80.0)
-    except Exception as e:
-        print(f"Profile fetch error: {e}")
+    if not health_weights:
+        try:
+            prof = coach.yazio.get_user_profile()
+            profile_data["current_weight"] = prof.get("current_weight_kg", prof.get("current_weight", 96.0))
+            profile_data["start_weight"] = prof.get("start_weight_kg", prof.get("start_weight", 103.0))
+            profile_data["goal_weight"] = prof.get("goal_weight", 80.0)
+        except Exception as e:
+            print(f"Profile fetch error: {e}")
 
     # Weight history (past 14 days)
     try:
         from yazio_exporter.export_body import fetch_weight_range
         start_d = (today_date - timedelta(days=14)).strftime("%Y-%m-%d")
         end_d = today_date.strftime("%Y-%m-%d")
-        w_map = coach.yazio._execute_with_retry(fetch_weight_range, coach.yazio.client, start_d, end_d)
+        w_map = {} if health_weights else coach.yazio._execute_with_retry(fetch_weight_range, coach.yazio.client, start_d, end_d)
         sorted_weights = sorted(
             [{"date": k, "weight": round(v, 2)} for k, v in w_map.items()],
             key=lambda x: x["date"]
@@ -232,6 +235,13 @@ def get_dashboard():
         profile_data["weight_history"] = sorted_weights
     except Exception as e:
         print(f"Weight history fetch error: {e}")
+
+    if health_weights:
+        profile_data['current_weight'] = health_weights[-1]['weight']
+        profile_data['weight_history'] = health_weights
+        profile_data['weight_source'] = 'apple_health'
+    else:
+        profile_data['weight_source'] = 'yazio'
 
     weekdays_short = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     today_weekday_short = weekdays_short[now_gmt6.weekday()]
@@ -284,13 +294,18 @@ def get_workouts():
     }
 
 @app.get("/api/weekly")
-def get_weekly(week_start: Optional[str] = None, refresh: bool = False):
+def get_weekly(request: Request, week_start: Optional[str] = None, refresh: bool = False):
     """Calendar-week facts; missing measurements are never replaced with demo values."""
     try:
         import weekly_reports
         if refresh:
             weekly_reports.clear_cache()
-        return weekly_reports.summary(coach, weekly_reports.week_start(week_start))
+        start = weekly_reports.week_start(week_start)
+        health = _sleep_access(request, start, start + timedelta(days=6))
+        from health_weights import apply_report
+        return JSONResponse(apply_report(weekly_reports.summary(coach, start, include_weights=not bool(health and health.get("weight_history"))), health), headers={"Cache-Control": "private, no-store"})
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -365,7 +380,8 @@ def get_weekly_image(request: Request, week_start: Optional[str] = None):
     try:
         start = weekly_reports.week_start(week_start)
         sleep = _sleep_access(request, start, start + timedelta(days=6))
-        report = weekly_reports.summary(coach, start)
+        from health_weights import apply_report
+        report = apply_report(weekly_reports.summary(coach, start, include_weights=not bool(sleep and sleep.get("weight_history"))), sleep)
         return Response(weekly_reports.render_image(report, sleep), media_type="image/png", headers={
             "Cache-Control": "private, no-store", "Content-Disposition": f'inline; filename="fitpulse-{start}.png"'})
     except ValueError as e:
@@ -385,7 +401,8 @@ def analyze_week(request: Request, week_start: Optional[str] = None, focus: Opti
                 raise HTTPException(status_code=400, detail="За выбранную неделю нет записей сна для разбора.")
             report = weekly_reports.sleep_workout_context(coach, start)
         else:
-            report = weekly_reports.summary(coach, start)
+            from health_weights import apply_report
+            report = apply_report(weekly_reports.summary(coach, start, include_weights=not bool(sleep and sleep.get("weight_history"))), sleep)
         context = "Факты именно выбранной недели; для разбора используй этот период, а не текущую неделю:\n" + json.dumps(report, ensure_ascii=False)
         context += "\n" + (sleep_data.ai_context(sleep) if sleep else "Пользователь не подключил данные сна. Не делай выводов о его сне.")
         question = ("Разбери сон за выбранную неделю: длительность, регулярность, полноту данных и связь с тренировками. "

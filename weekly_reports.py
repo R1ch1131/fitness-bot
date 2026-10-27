@@ -51,14 +51,14 @@ def week_start(value=None):
     return chosen - timedelta(days=chosen.weekday())
 
 
-def summary(coach, start):
+def summary(coach, start, include_weights=True):
     today = datetime.now(TZ).date()
-    key = (id(coach), start.isoformat(), today.isoformat())
+    key = (id(coach), start.isoformat(), today.isoformat(), include_weights)
     with _lock:
         entry = _cache.get(key)
         if entry and time.monotonic() - entry[0] < 300:
             return entry[1]
-        result = _collect(coach, start, today)
+        result = _collect(coach, start, today, include_weights=include_weights)
         _cache.clear()
         _cache[key] = (time.monotonic(), result)
         return result
@@ -115,7 +115,7 @@ def goal_forecast(weights, as_of, start_weight=103.0, goal_weight=80.0):
             'sample_count': len(recent), 'span_days': span, 'milestones': milestones}
 
 
-def _collect(coach, start, today):
+def _collect(coach, start, today, include_weights=True):
     from analyzer import parse_iso
     end = start + timedelta(days=6)
     workouts = {}
@@ -148,7 +148,7 @@ def _collect(coach, start, today):
                 for k in ("calories", "protein", "fat", "carbs")}
     averages["tracked_days"] = len(tracked)
     weights = []
-    if coach.yazio.is_configured() and coach.yazio.client:
+    if include_weights and coach.yazio.is_configured() and coach.yazio.client:
         try:
             from yazio_exporter.export_body import fetch_weight_range
             raw = coach.yazio._execute_with_retry(fetch_weight_range, coach.yazio.client,

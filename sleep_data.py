@@ -95,7 +95,7 @@ def _export_candidates(value, lower, upper, zone):
 
 
 def normalize_payload(payload):
-    """Accept our minimal format or Health Export Kit schema 2; discard all non-sleep fields."""
+    """Accept our minimal format or Health Export Kit schema 2; normalize sleep independently of the selected weight fields."""
     if not isinstance(payload, dict):
         raise ValueError("Ожидается JSON-объект с данными сна")
     if "samples" in payload:
@@ -151,9 +151,14 @@ def normalize_payload(payload):
 
 def import_samples(payload, now=None):
     now = now or datetime.now(TZ)
-    payload = normalize_payload(payload)
+    from health_weights import normalize_weights
+    weights = normalize_weights(payload, now)
+    # Weight-only exports are useful even when the Watch has no new sleep sessions.
+    no_sleep = isinstance(payload, dict) and 'samples' not in payload and (
+        'sleep' not in payload or isinstance(payload.get('sleep'), dict) and payload['sleep'].get('sessions') == [])
+    payload = {'samples': []} if weights and no_sleep else normalize_payload(payload)
     samples = payload.get("samples")
-    if not isinstance(samples, list) or not 1 <= len(samples) <= 10000:
+    if not isinstance(samples, list) or not (0 if weights else 1) <= len(samples) <= 10000:
         raise ValueError("Нужно от 1 до 10000 интервалов сна. Пустой импорт не удаляет историю")
     groups = {}
     for sample in samples:
@@ -189,9 +194,14 @@ def import_samples(payload, now=None):
         saved = {item["date"]: item for item in doc.get("nights", [])}
         # Each imported sleep day is a complete snapshot; retries replace it rather than adding totals.
         saved.update({item["date"]: item for item in nights})
-        doc = {"nights": [saved[key] for key in sorted(saved)[-400:]], "imported_at": now.isoformat()}
+        doc = {**doc, "nights": [saved[key] for key in sorted(saved)[-400:]], "imported_at": now.isoformat()}
+        if weights:
+            saved_weights = {item['date']: item for item in doc.get('weights', [])}
+            saved_weights.update({item['date']: item for item in weights})
+            doc['weights'] = [saved_weights[key] for key in sorted(saved_weights)[-400:]]
+            doc['weight_imported_at'] = now.isoformat()
         _write("apple_sleep", doc)
-    return {"status": "ok", "imported_nights": len(nights), "imported_at": doc["imported_at"]}
+    return {"status": "ok", "imported_nights": len(nights), "imported_weights": len(weights), "imported_at": doc["imported_at"]}
 
 
 def get_summary(start=None, end=None):
@@ -201,22 +211,25 @@ def get_summary(start=None, end=None):
         doc = _read("apple_sleep", {"nights": []})
     nights = [n for n in doc.get("nights", []) if start.isoformat() <= n["date"] <= end.isoformat()]
     measured = [n for n in nights if n.get("sleep_minutes") is not None]
-    return {"nights": nights, "tracked_nights": len(measured),
+    weight_history = [w for w in doc.get('weights', []) if (start - timedelta(days=28)).isoformat() <= w['date'] <= end.isoformat()]
+    return {"nights": nights, "weight_history": weight_history, "weight_source": "apple_health" if weight_history else None,
+            "tracked_nights": len(measured),
             "average_minutes": round(sum(n["sleep_minutes"] for n in measured) / len(measured)) if measured else None,
             "imported_at": doc.get("imported_at"), "timezone": "Asia/Omsk"}
 
 
 def delete_data():
     with _lock:
-        _write("apple_sleep", {"nights": []})
+        doc = _read("apple_sleep", {"nights": []})
+        _write("apple_sleep", {**doc, "nights": []})
 
 
 def ai_context(summary):
-    if not summary["tracked_nights"]:
+    if not summary["tracked_nights"] and not summary.get("weight_history"):
         return "Данных сна за выбранный период нет. Не делай выводов о качестве сна."
     import json
-    return ("Измерения сна Apple Watch из Apple Health (пользователь разрешил передачу ИИ):\n"
+    return ("Данные Apple Health: сон Apple Watch и вес из экспорта (пользователь разрешил передачу ИИ):\n"
             + json.dumps(summary, ensure_ascii=False)
-            + "\nЭто оценки часов, не диагноз. Учитывай длительность, регулярность и полноту данных. "
+            + "\nДля веса приоритетны эти датированные замеры, а не старый профиль YAZIO. Если замеров веса нет, не придумывай их. Это оценки часов, не диагноз. Учитывай длительность, регулярность и полноту данных. "
               "Не считай время в постели сном и отсутствие записи бессонницей. "
               "По одной ночи и процентам фаз не делай категоричных выводов; при необходимости спроси о самочувствии.")

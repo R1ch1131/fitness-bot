@@ -119,6 +119,7 @@ export interface WeeklyDayItem {
 }
 
 export interface GoalForecast {
+  source?: 'apple_health' | 'yazio';
   as_of: string;
   measured_on: string | null;
   start_weight: number;
