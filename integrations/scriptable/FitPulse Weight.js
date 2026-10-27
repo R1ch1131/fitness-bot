@@ -45,7 +45,7 @@ function progress(pct) {
 }
 function messageWidget(message) {
   const w = new ListWidget();
-  w.backgroundColor = new Color(color.bg); w.setPadding(14, 14, 14, 14);
+  w.backgroundColor = new Color(color.bg); w.setPadding(18, 18, 18, 18);
   text(w, "FITPULSE", 11, color.green, true); w.addSpacer(10);
   const t = text(w, message, 13, color.muted); t.lineLimit = 5;
   w.url = URLScheme.forRunningScript();
@@ -56,13 +56,13 @@ function render(data, offline = false, savedAt = null) {
   if (data.status === "empty") return messageWidget("Пока нет веса. Запусти команду Health Export Kit на iPhone.");
   const small = config.widgetFamily === "small";
   const w = new ListWidget();
-  w.backgroundColor = new Color(color.bg); w.setPadding(14, 14, 14, 14);
+  w.backgroundColor = new Color(color.bg); w.setPadding(small ? 18 : 16, 18, small ? 18 : 16, 18);
   w.url = SERVER + "/?tab=weekly";
   w.refreshAfterDate = new Date(Date.now() + 30 * 60000);
   const head = w.addStack(); head.centerAlignContent();
   text(head, "FITPULSE", 10, color.green, true); head.addSpacer();
   text(head, `ЦЕЛЬ ${number(data.goal_weight)} КГ`, small ? 9 : 10, color.muted);
-  w.addSpacer(small ? 7 : 8);
+  w.addSpacer(10);
   const row = w.addStack(); row.centerAlignContent();
   text(row, `${number(data.current_weight)} кг`, small ? 30 : 36, color.text, true);
   if (!small) {
@@ -71,10 +71,10 @@ function render(data, offline = false, savedAt = null) {
     text(right, `${number(data.progress_percent)}%`, 22, color.green, true);
     text(right, "пути пройдено", 10, color.muted);
   }
-  w.addSpacer(8);
+  w.addSpacer(12);
   const bar = w.addImage(progress(data.progress_percent));
-  bar.imageSize = new Size(small ? 120 : 280, 6);
-  w.addSpacer(6);
+  bar.imageSize = new Size(small ? 112 : 276, 6);
+  w.addSpacer(8);
   if (small) {
     text(w, `${number(data.progress_percent)}% · осталось ${number(data.remaining_kg)} кг`, 10, color.green);
   } else {
