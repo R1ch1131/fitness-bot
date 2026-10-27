@@ -109,7 +109,7 @@ export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
   const dates = Array.from({ length: 7 }, (_, index) => new Date(Date.parse(weekStart + 'T12:00:00Z') + index * 86400000).toISOString().slice(0, 10));
   const activeDate = selectedDate && dates.includes(selectedDate) ? selectedDate : nights[0]?.date || weekStart;
   const activeNight = nights.find(night => night.date === activeDate);
-  return <section aria-label="Сон Apple Watch" aria-busy={blocked} className="bg-[#111726] border border-[#1e293b] rounded-3xl p-4 sm:p-5 h-[600px] flex flex-col gap-4">
+  return <section aria-label="Сон Apple Watch" aria-busy={blocked} className="bg-[#111726] border border-[#1e293b] rounded-3xl p-4 sm:p-5 h-[560px] flex flex-col gap-4">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-2xl bg-[#a78bfa]/10 border border-[#a78bfa]/20 flex items-center justify-center"><Moon className="w-5 h-5 text-[#c4b5fd]" /></div><div><h2 className="font-bold text-white text-sm">Сон</h2><p className="text-[10px] text-[#64748b] mt-0.5 flex items-center gap-1"><Watch className="w-3 h-3" />Apple Watch · Омск</p></div></div>
       {connected && <button aria-label="Настройки сна" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(v => !v)} className="w-10 h-10 rounded-xl flex items-center justify-center text-[#64748b] hover:text-white hover:bg-[#192235] transition"><SlidersHorizontal className="w-4 h-4" /></button>}

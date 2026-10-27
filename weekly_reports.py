@@ -176,12 +176,6 @@ def render_image(report, sleep=None):
     def text(x, y, value, size=24, fill=white, bold=False):
         draw.text((x, y), str(value), font=_get_font(size, bold), fill=fill)
 
-    def fit(value, width, size=23):
-        font = _get_font(size)
-        while value and draw.textlength(value, font=font) > width:
-            value = value[:-2].rstrip() + "…"
-        return value
-
     def number(value, unit=""):
         return "Нет данных" if value is None else f"{value:,.0f}".replace(",", " ") + unit
 
@@ -208,23 +202,26 @@ def render_image(report, sleep=None):
         sleep_text = f"Сон · в среднем {minutes // 60} ч {minutes % 60:02d} мин · ночей с данными: {sleep['tracked_nights']}"
     draw.rounded_rectangle((52, 596, 1028, 665), 18, fill="#182037")
     text(78, 614, sleep_text, 24, "#c4b5fd")
-    text(52, 708, "ПО ДНЯМ", 26, bold=True)
-    text(235, 711, "ККАЛ", 20, muted, True)
-    text(410, 711, "БЕЛОК", 20, muted, True)
-    text(585, 711, "ТРЕНИРОВКА", 20, muted, True)
+    # One row per day, with equally readable values in seven distinct columns.
+    columns = [(98, "ДЕНЬ"), (194, "ДАТА"), (326, "ККАЛ"), (460, "БЕЛКИ"),
+               (590, "ЖИРЫ"), (734, "УГЛЕВОДЫ"), (932, "ТОННАЖ")]
+
+    def centered(x, y, value, size=28, fill=white, bold=False):
+        font = _get_font(size, bold)
+        draw.text((x - draw.textlength(str(value), font=font) / 2, y), str(value), font=font, fill=fill)
+
+    for x, label in columns:
+        centered(x, 710, label, 21, muted, True)
     for idx, day in enumerate(report["days"]):
         y = 750 + idx * 78
         draw.rounded_rectangle((52, y, 1028, y + 70), 14, fill="#111726")
-        text(72, y + 7, day["weekday"], 25, green, True)
-        text(130, y + 10, day["date"][8:10] + "." + day["date"][5:7], 20, muted)
-        text(235, y + 7, number(day["calories"]) if day["is_logged"] else "—", 24)
-        text(410, y + 7, number(day["protein"], " г") if day["is_logged"] else "—", 24)
-        title = ", ".join(day["workout_titles"]) if day["workout_count"] else ("Впереди" if day["is_future"] else "Нет записи")
-        text(585, y + 8, fit(title, 410), 23, "#c4b5fd" if day["workout_count"] else muted)
-        if day['is_logged']:
-            text(72, y + 43, f"Жиры {number(day['fat'], ' г')}  ·  Углеводы {number(day['carbs'], ' г')}", 18, muted)
-        if day['workout_count']:
-            text(585, y + 43, f"{day['workout_count']} трен.  ·  {number(day['tonnage_kg'], ' кг')}", 18, muted)
+        centered(columns[0][0], y + 19, day['weekday'], 28, green, True)
+        centered(columns[1][0], y + 21, day['date'][8:10] + '.' + day['date'][5:7], 26, muted)
+        for index, key in enumerate(('calories', 'protein', 'fat', 'carbs'), start=2):
+            value = number(day[key], '' if key == 'calories' else ' г') if day['is_logged'] else '—'
+            centered(columns[index][0], y + 19, value, 28, white if day['is_logged'] else muted)
+        tonnage = number(day['tonnage_kg'], ' кг') if day['workout_count'] else '—'
+        centered(columns[6][0], y + 19, tonnage, 28, '#c4b5fd' if day['workout_count'] else muted)
     text(52, 1340, "Честный отчёт по твоим записям", 28, bold=True)
     text(52, 1391, "Пропуски не считаются нулями. Средние — по дням с питанием.", 22, muted)
     text(52, 1430, "Разбор прогресса и план на следующую неделю — у AI-тренера.", 22, muted)
