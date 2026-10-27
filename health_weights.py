@@ -76,3 +76,17 @@ def apply_report(report, health):
     result['goal_forecast']['source'] = 'apple_health'
     result['warnings'] = [w for w in result.get('warnings', []) if w != 'История веса временно недоступна']
     return result
+
+
+def widget_snapshot(today=None):
+    """Small local/cloud snapshot. Never calls Hevy, Gemini or YAZIO."""
+    from datetime import datetime
+    from notification_settings import TZ, _read
+    from weekly_reports import goal_forecast
+    today = today or datetime.now(TZ).date()
+    doc = _read('apple_sleep', {'weights': []})
+    forecast = goal_forecast([(w.get('date'), w.get('weight')) for w in doc.get('weights', []) if isinstance(w, dict)], today)
+    return {'status': 'ok' if forecast['current_weight'] is not None else 'empty',
+            'source': 'apple_health', 'measured_on': forecast['measured_on'],
+            **{k: forecast[k] for k in ('start_weight', 'current_weight', 'goal_weight', 'lost_kg', 'remaining_kg', 'progress_percent')},
+            'as_of': datetime.now(TZ).isoformat()}

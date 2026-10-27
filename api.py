@@ -348,6 +348,32 @@ def get_sleep(request: Request, week_start: Optional[str] = None):
                         headers={"Cache-Control": "private, no-store"})
 
 
+@app.get("/api/widgets/weight")
+def weight_widget(request: Request):
+    import sleep_data
+    from health_weights import widget_snapshot
+    try:
+        sleep_data.authorize(request.headers.get('authorization'))
+        return JSONResponse(widget_snapshot(), headers={"Cache-Control": "private, no-store"})
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get("/api/widgets/weight/script")
+def weight_widget_script():
+    return FileResponse(BASE_DIR / 'integrations' / 'scriptable' / 'FitPulse Weight.js',
+                        media_type='text/javascript; charset=utf-8', filename='FitPulse Weight.js',
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/widgets/weight")
+def weight_widget_setup():
+    return FileResponse(BASE_DIR / 'integrations' / 'scriptable' / 'setup.html', media_type='text/html; charset=utf-8',
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.post("/api/health/sleep")
 async def import_sleep(request: Request):
     import sleep_data

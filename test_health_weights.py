@@ -123,6 +123,36 @@ class HealthWeightTests(unittest.TestCase):
             self.assertIsNone(access(types.SimpleNamespace(headers={})))
             read.assert_not_called()
 
+    def test_widget_snapshot_returns_only_weight_fields_and_latest_nonfuture_record(self):
+        from notification_settings import _read
+        document = {'nights': [{'private': 'sleep details'}], 'weights': [
+            {'date': '2026-10-19', 'weight': 96}, {'date': '2026-10-26', 'weight': 95},
+            {'date': '2026-10-28', 'weight': 80}]}
+        with patch('notification_settings._read', return_value=document):
+            result = weight.widget_snapshot(date(2026, 10, 27))
+        self.assertEqual(result['current_weight'], 95)
+        self.assertEqual(result['measured_on'], '2026-10-26')
+        self.assertEqual(result['status'], 'ok')
+        self.assertNotIn('nights', result)
+        self.assertNotIn('weights', result)
+        with patch('notification_settings._read', return_value={'weights': []}):
+            empty = weight.widget_snapshot(date(2026, 10, 27))
+        self.assertEqual(empty['status'], 'empty')
+        self.assertIsNone(empty['current_weight'])
+
+    def test_widget_requires_authorization_before_loading_any_weight(self):
+        class HttpError(Exception):
+            def __init__(self, status_code, detail): self.status_code = status_code
+        fn = isolated_function('api.py', 'weight_widget', {'Request': object, 'HTTPException': HttpError,
+                                                         'JSONResponse': lambda data, **kw: data})
+        with patch.object(sleep, 'authorize', side_effect=PermissionError('wrong')), patch.object(weight, 'widget_snapshot') as read:
+            with self.assertRaises(HttpError) as raised:
+                fn(types.SimpleNamespace(headers={}))
+            self.assertEqual(raised.exception.status_code, 401)
+            read.assert_not_called()
+        with patch.object(sleep, 'authorize'), patch.object(weight, 'widget_snapshot', return_value={'current_weight': 95}):
+            self.assertEqual(fn(types.SimpleNamespace(headers={'authorization': 'Bearer test'}))['current_weight'], 95)
+
     def test_health_report_skips_unneeded_yazio_weight_fetch(self):
         coach = fake_coach()
         coach.yazio.client = object()
