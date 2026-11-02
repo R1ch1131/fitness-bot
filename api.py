@@ -19,6 +19,7 @@ from config import BASE_DIR, DATA_DIR, WORKOUTS_CACHE_FILE, ROUTINES_CACHE_FILE
 
 from habits_manager import HabitsManager
 from books_manager import BooksManager
+from media_library import router as media_router
 
 # Initialize Coach singleton
 coach = AIHevyCoach(auto_sync=False)
@@ -26,6 +27,7 @@ habits_mgr = HabitsManager()
 books_mgr = BooksManager()
 
 app = FastAPI(title="Hevy & YAZIO AI Coach PWA", version="1.0.0")
+app.include_router(media_router)
 
 # Enable CORS for local dev (Vite running on localhost:5173)
 app.add_middleware(
