@@ -12,7 +12,7 @@ const statuses = { planned: 'В планах', active: 'В процессе', fi
 type Kind = keyof typeof kinds;
 type Status = keyof typeof statuses;
 type MediaDraft = { title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string };
-type MediaItem = MediaDraft & { id: string; updated_at: string };
+type MediaItem = MediaDraft & { id: string; updated_at: string; steam_appid?: number; steam_playtime_minutes?: number };
 const emptyDraft = (kind: Kind): MediaDraft => ({ title: '', kind, status: 'planned', progress: 0, total: null, rating: null, notes: '' });
 const inputClass = 'w-full rounded-xl bg-[#0b0f19] border border-[#334155] p-3 text-white';
 const cacheKey = 'fitpulse_media_backup_v1';
@@ -33,6 +33,7 @@ export function MediaTab() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
   const [draft, setDraft] = useState<MediaDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<MediaItem | null>(null);
@@ -82,13 +83,19 @@ export function MediaTab() {
   async function mutate(path: string, method: string, value?: MediaDraft) {
     setBusy(true);
     setError('');
+    setSyncMessage('');
     // A stale list response must never overwrite a completed mutation.
     controller.current?.abort();
     setLoading(false);
     try {
       const response = await fetch(path, { method, headers: { ...healthHeaders(), 'Content-Type': 'application/json' }, body: value ? JSON.stringify(value) : undefined });
       if (!response.ok) throw await responseError(response);
-      accept(await response.json());
+      const data = await response.json();
+      accept(data);
+      if (data.steam_sync) {
+        const { added, updated, matched } = data.steam_sync;
+        setSyncMessage(matched ? `Steam: добавлено ${added}, обновлено ${updated}.` : 'В Steam нет доступных игр с временем больше 5 часов. Проверь также, что время в играх не скрыто.');
+      }
       setDraft(null);
       setDeleting(null);
     } catch (err) { setError((err as Error).message); }
@@ -112,6 +119,11 @@ export function MediaTab() {
         return <button key={key} aria-pressed={kind === key} onClick={() => setKind(key)} className={`flex flex-col items-center gap-2 rounded-2xl py-3 text-xs border ${kind === key ? 'border-emerald-400 text-emerald-400 bg-emerald-400/10' : 'border-[#1e293b] bg-[#111726] text-[#94a3b8]'}`}><Icon size={20} />{kinds[key].label}</button>;
       })}
     </div>
+    {kind === 'game' && <div className="rounded-2xl bg-[#111726] border border-[#1e293b] p-4 space-y-2">
+      <button disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="rounded-xl px-4 py-2 bg-emerald-400/15 text-emerald-400 text-sm disabled:opacity-40">{busy ? 'Подожди…' : 'Синхронизировать Steam'}</button>
+      <p className="text-xs text-[#94a3b8]">Импорт игр, в которых больше 5 часов. Оценки, заметки и прогресс сохраняются.</p>
+      {syncMessage && <p role="status" className="text-sm text-emerald-400">{syncMessage}</p>}
+    </div>}
     <div className="grid grid-cols-3 gap-2">
       {(Object.keys(statuses) as Status[]).map(status => <div key={status} className="rounded-2xl bg-[#111726] p-3 text-center"><p className="text-xl font-bold">{categoryItems.filter(item => item.status === status).length}</p><p className="text-xs text-[#94a3b8]">{statuses[status]}</p></div>)}
     </div>
@@ -127,6 +139,7 @@ export function MediaTab() {
         <div className="flex shrink-0 gap-1"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => { setEditingId(item.id); setDraft({ ...item }); }} className="p-2 text-[#94a3b8] disabled:opacity-40"><Pencil size={17} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)} className="p-2 text-[#94a3b8] disabled:opacity-40"><Trash2 size={17} /></button></div>
       </div>
       {item.kind !== 'movie' && <div><p className="text-xs text-[#94a3b8] mb-2">{item.kind === 'game' ? `${item.progress}% пройдено` : `${item.progress}${item.total ? ` из ${item.total}` : ''} серий`}</p>{item.total && <progress className="w-full h-2 accent-emerald-400" aria-label={`Прогресс: ${item.title}`} value={item.progress} max={item.total} />}</div>}
+      {item.kind === 'game' && item.steam_playtime_minutes !== undefined && <p className="text-sm text-[#94a3b8]">Steam · {Math.floor(item.steam_playtime_minutes / 60)} ч {item.steam_playtime_minutes % 60} мин{item.steam_appid && <a href={`https://store.steampowered.com/app/${item.steam_appid}/`} target="_blank" rel="noopener noreferrer" className="ml-2 underline">Страница игры</a>}</p>}
       {item.rating !== null && <p className="text-sm text-amber-300">★ {item.rating} / 10</p>}
       {item.notes && <p className="text-sm text-[#94a3b8] whitespace-pre-wrap break-words">{item.notes}</p>}
     </article>)}

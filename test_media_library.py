@@ -69,6 +69,37 @@ class MediaTests(unittest.TestCase):
         self.mocks[1].return_value = []
         self.assertEqual(MediaLibrary(self.path).items(), [])
 
+    def test_steam_sync_is_idempotent_and_preserves_personal_fields(self):
+        manual = self.client.post('/api/media', json={
+            'title': 'My Game', 'kind': 'game', 'rating': 9, 'notes': 'Keep', 'status': 'finished'}).json()['items'][0]
+        games = [{'appid': 10, 'name': 'My Game', 'minutes': 301}, {'appid': 20, 'name': 'New Game', 'minutes': 800}]
+        with patch('steam_client.get_played_games', return_value=('76561198800622628', games)):
+            result = self.client.post('/api/media/steam/sync').json()
+            self.assertEqual(result['steam_sync'], {'added': 1, 'updated': 1, 'matched': 2})
+            self.assertEqual(len(result['items']), 2)
+            item = result['items'][0]
+            self.assertEqual((item['id'], item['rating'], item['notes'], item['status']),
+                             (manual['id'], 9, 'Keep', 'finished'))
+            # Editing in the regular UI must retain Steam metadata.
+            edited = self.client.put('/api/media/' + item['id'], json={
+                'title': 'Custom title', 'kind': 'game', 'notes': 'Edited'}).json()['items'][0]
+            self.assertEqual(edited['steam_appid'], 10)
+            games[0]['minutes'] = 500
+            result = self.client.post('/api/media/steam/sync').json()
+            self.assertEqual(result['steam_sync'], {'added': 0, 'updated': 2, 'matched': 2})
+            self.assertEqual(result['items'][0]['title'], 'Custom title')
+            self.assertEqual(result['items'][0]['steam_playtime_minutes'], 500)
+        with patch('steam_client.get_played_games', return_value=('76561198800622628', [])):
+            self.assertEqual(len(self.client.post('/api/media/steam/sync').json()['items']), 2)
+
+    def test_steam_failure_does_not_change_collection(self):
+        from fastapi import HTTPException
+        self.client.post('/api/media', json={'title': 'Keep', 'kind': 'movie'})
+        before = self.path.read_text(encoding='utf-8')
+        with patch('steam_client.get_played_games', side_effect=HTTPException(403, 'Hidden')):
+            self.assertEqual(self.client.post('/api/media/steam/sync').status_code, 403)
+        self.assertEqual(self.path.read_text(encoding='utf-8'), before)
+
 
 if __name__ == '__main__':
     unittest.main()

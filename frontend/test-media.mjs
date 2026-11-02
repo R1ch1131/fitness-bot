@@ -10,7 +10,7 @@ const source = ts.transpileModule(readFileSync(new URL('./src/components/MediaTa
 const tick = () => new Promise(setImmediate);
 const sample = { id: '1', title: 'Игра', kind: 'game', status: 'planned', progress: 0, total: 100, rating: null, notes: '', updated_at: '2026-11-03' };
 
-async function panel({ failLoad = false, failSave = false } = {}) {
+async function panel({ failLoad = false, failSave = false, failSteam = false } = {}) {
   const state = [], effects = [], requests = [], storage = new Map();
   let index = 0, first = true;
   const jsx = (type, props) => ({ type, props });
@@ -31,6 +31,7 @@ async function panel({ failLoad = false, failSave = false } = {}) {
     fetch: async (url, options) => {
       requests.push({ url, options });
       const saving = options.method;
+      if (url === '/api/media/steam/sync') return { ok: !failSteam, json: async () => ({ items: [{ ...sample, steam_appid: 10, steam_playtime_minutes: 301 }], steam_sync: { added: 1, updated: 0, matched: 1 } }) };
       return { ok: !(saving ? failSave : failLoad), json: async () => ({ items: saving === 'DELETE' ? [] : saving ? [{ ...sample, ...JSON.parse(options.body) }] : [sample] }) };
     },
   };
@@ -85,4 +86,26 @@ test('category filter switches games to movies without another request', async (
   find(p.render(), n => n.type === 'button' && Array.isArray(n.props.children) && n.props.children.includes('Фильмы')).props.onClick();
   assert.equal(find(p.render(), n => n.type === 'h3'), undefined);
   assert.equal(p.requests.length, 1);
+});
+
+
+test('Steam sync displays exact time and confirms counts after server success', async () => {
+  const p = await panel();
+  button(p.render(), 'Синхронизировать Steam').props.onClick();
+  await tick();
+  assert.equal(p.requests.at(-1).url, '/api/media/steam/sync');
+  assert.equal(p.requests.at(-1).options.method, 'POST');
+  assert.ok(find(p.render(), n => n.props?.role === 'status' && n.props.children === 'Steam: добавлено 1, обновлено 0.'));
+  assert.match(p.storage.get('fitpulse_media_backup_v1'), /steam_playtime_minutes/);
+  assert.ok(find(p.render(), n => n.type === 'p' && Array.isArray(n.props.children) && n.props.children.includes(5) && n.props.children.includes(1)));
+});
+
+test('Steam failure leaves the existing collection and backup intact', async () => {
+  const p = await panel({ failSteam: true });
+  const before = p.storage.get('fitpulse_media_backup_v1');
+  button(p.render(), 'Синхронизировать Steam').props.onClick();
+  await tick();
+  assert.ok(find(p.render(), n => n.props?.role === 'alert'));
+  assert.equal(p.storage.get('fitpulse_media_backup_v1'), before);
+  assert.ok(find(p.render(), n => n.type === 'h3' && n.props.children === 'Игра'));
 });

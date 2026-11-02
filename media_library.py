@@ -73,11 +73,41 @@ class MediaLibrary:
             if item_id is not None and old is None:
                 raise HTTPException(404, 'Запись не найдена')
             now = datetime.now(timezone.utc).isoformat()
-            item = {**value.model_dump(), 'id': item_id or str(uuid4()),
+            item = {**(old or {}), **value.model_dump(), 'id': item_id or str(uuid4()),
                     'created_at': old['created_at'] if old else now, 'updated_at': now}
+            if value.kind != 'game':
+                item = {key: val for key, val in item.items() if not key.startswith('steam_')}
             items = [item if entry['id'] == item_id else entry for entry in items] if old else [*items, item]
             self._save(items)
             return {'items': items}
+
+    def sync_steam(self, steam_id, games):
+        with self.lock:
+            items = self.items()
+            added = updated = 0
+            now = datetime.now(timezone.utc).isoformat()
+            for game in games:
+                existing = next((item for item in items if item['kind'] == 'game'
+                                 and item.get('steam_appid') == game['appid']
+                                 and item.get('steam_id') == steam_id), None)
+                if existing is None:
+                    # Link a single manually added game without resetting its personal fields.
+                    matches = [item for item in items if item['kind'] == 'game'
+                               and not item.get('steam_appid')
+                               and item['title'].strip().casefold() == game['name'].casefold()]
+                    existing = matches[0] if len(matches) == 1 else None
+                if existing is None:
+                    existing = {**MediaInput(title=game['name'], kind='game', status='active').model_dump(),
+                                'id': str(uuid4()), 'created_at': now}
+                    items.append(existing)
+                    added += 1
+                else:
+                    updated += 1
+                existing.update(steam_appid=game['appid'], steam_id=steam_id,
+                                steam_playtime_minutes=game['minutes'], steam_synced_at=now, updated_at=now)
+            if games:
+                self._save(items)
+            return {'items': items, 'steam_sync': {'added': added, 'updated': updated, 'matched': len(games)}}
 
     def delete(self, item_id: str):
         with self.lock:
@@ -101,6 +131,13 @@ def list_media():
 @router.post('')
 def create_media(value: MediaInput):
     return library.save(value)
+
+
+@router.post('/steam/sync')
+def sync_steam():
+    from steam_client import get_played_games
+    steam_id, games = get_played_games()
+    return library.sync_steam(steam_id, games)
 
 
 @router.put('/{item_id}')
