@@ -25,7 +25,7 @@ interface DashboardTabProps {
   onAddHabit: (title: string, category: string) => void;
   onDeleteHabit: (habitId: string) => void;
   onOpenChat: (query?: string) => void;
-  onOpenWorkouts: () => void;
+  onOpenWeekly: () => void;
 }
 
 export const DashboardTab: React.FC<DashboardTabProps> = ({
@@ -39,7 +39,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   onAddHabit,
   onDeleteHabit,
   onOpenChat,
-  onOpenWorkouts,
+  onOpenWeekly,
 }) => {
   const [chartMode, setChartMode] = useState<'combo' | 'curve' | 'bars'>('combo');
   const [newHabitTitle, setNewHabitTitle] = useState('');
@@ -358,7 +358,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
         {/* Card 4: Объем за неделю */}
         <div 
-          onClick={() => onOpenWorkouts()}
+          onClick={() => onOpenWeekly()}
           className="bg-[#111726] border border-[#1e293b] hover:border-[#06b6d4]/40 cursor-pointer rounded-3xl p-4 flex flex-col justify-between shadow-lg relative overflow-hidden transition-all"
         >
           <div className="flex items-center justify-between">

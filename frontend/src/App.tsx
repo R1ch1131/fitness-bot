@@ -9,12 +9,12 @@ import { BottomNav } from './components/BottomNav';
 import type { TabType } from './components/BottomNav';
 import { DashboardTab } from './components/DashboardTab';
 import { CoachChatTab } from './components/CoachChatTab';
-import { WorkoutsTab } from './components/WorkoutsTab';
+import { MediaTab } from './components/MediaTab';
 import { WeeklyTab } from './components/WeeklyTab';
 import { LibraryTab } from './components/LibraryTab';
 import { WorkoutCheckinToast } from './components/WorkoutCheckinToast';
 import type { CheckinNotificationData } from './components/WorkoutCheckinToast';
-import type { DashboardData, WorkoutsResponse, WeeklyResponse, WeeklyAnalysisRequest, HabitItem, BookItem, BooksResponse, ChatMessage } from './types';
+import type { DashboardData, WeeklyResponse, WeeklyAnalysisRequest, HabitItem, BookItem, BooksResponse, ChatMessage } from './types';
 
 type AppPage = TabType | 'notifications';
 
@@ -62,7 +62,7 @@ export const App: React.FC = () => {
   const initialGmt6 = getGMT6Info();
   const [currentTab, setCurrentTab] = useState<AppPage>(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'chat', 'workouts', 'weekly', 'library', 'notifications'].includes(tab || '') ? tab as AppPage : 'dashboard';
+    return ['dashboard', 'chat', 'media', 'weekly', 'library', 'notifications'].includes(tab || '') ? tab as AppPage : 'dashboard';
   });
   const [todayKey, setTodayKey] = useState<string>(initialGmt6.dayKey);
   const [selectedDay, setSelectedDay] = useState<string>(initialGmt6.dayKey);
@@ -70,7 +70,6 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(() => readSnapshot<DashboardData>('dashboard', isDashboard));
-  const [workoutsData, setWorkoutsData] = useState<WorkoutsResponse | null>(null);
   const [weeklyData, setWeeklyData] = useState<WeeklyResponse | null>(null);
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [weeklyError, setWeeklyError] = useState('');
@@ -194,19 +193,6 @@ export const App: React.FC = () => {
       console.warn('Dashboard fetch offline', err);
     } finally {
       setDashboardRefreshing(false);
-    }
-  };
-
-  // 2. Fetch Workouts data
-  const loadWorkouts = async () => {
-    try {
-      const res = await fetch('/api/workouts');
-      if (res.ok) {
-        const data = await res.json();
-        setWorkoutsData(data);
-      }
-    } catch (err) {
-      console.warn('Workouts fetch note', err);
     }
   };
 
@@ -361,7 +347,6 @@ export const App: React.FC = () => {
 
   // Load heavier sections only when the user opens them.
   useEffect(() => {
-    if (currentTab === 'workouts') void loadWorkouts();
     if (currentTab === 'weekly') void loadWeekly();
     if (currentTab === 'library') void loadBooks();
   }, [currentTab]);
@@ -371,7 +356,6 @@ export const App: React.FC = () => {
       void loadDashboard();
       void loadHabits();
       void checkWorkoutNotifications();
-      if (currentTab === 'workouts') void loadWorkouts();
       if (currentTab === 'weekly') void loadWeekly();
       if (currentTab === 'library') void loadBooks();
     };
@@ -451,8 +435,9 @@ export const App: React.FC = () => {
     setIsSyncing(true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadDashboard(), loadWorkouts(), loadWeekly(), loadHabits(), loadBooks()]);
+      await Promise.all([loadDashboard(), loadWeekly(), loadHabits(), loadBooks()]);
       await checkWorkoutNotifications();
+      window.dispatchEvent(new Event('fitpulse:media-refresh'));
     } catch (err) {
       console.error('Sync failed', err);
     } finally {
@@ -718,16 +703,11 @@ export const App: React.FC = () => {
               if (prompt) setChatInitialPrompt(prompt);
               setCurrentTab('chat');
             }}
-            onOpenWorkouts={() => setCurrentTab('workouts')}
+            onOpenWeekly={() => setCurrentTab('weekly')}
           />
         )}
 
-        {currentTab === 'workouts' && (
-          <WorkoutsTab
-            data={workoutsData}
-            isLoading={!workoutsData}
-          />
-        )}
+        {currentTab === 'media' && <MediaTab />}
 
         {currentTab === 'library' && (
           <LibraryTab

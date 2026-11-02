@@ -1,7 +1,7 @@
 import React from 'react';
-import { LayoutDashboard, Dumbbell, BookOpen, MessageSquare, Calendar } from 'lucide-react';
+import { LayoutDashboard, Gamepad2, BookOpen, MessageSquare, Calendar } from 'lucide-react';
 
-export type TabType = 'dashboard' | 'workouts' | 'library' | 'chat' | 'weekly';
+export type TabType = 'dashboard' | 'media' | 'library' | 'chat' | 'weekly';
 
 interface BottomNavProps {
   currentTab: TabType | null;
@@ -11,7 +11,7 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onTabChange }) => {
   const tabs = [
     { id: 'dashboard', label: 'Обзор', icon: LayoutDashboard },
-    { id: 'workouts', label: 'Зал', icon: Dumbbell },
+    { id: 'media', label: 'Досуг', icon: Gamepad2 },
     { id: 'library', label: 'Книги', icon: BookOpen },
     { id: 'chat', label: 'AI Тренер', icon: MessageSquare },
     { id: 'weekly', label: 'Неделя', icon: Calendar },
