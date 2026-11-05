@@ -77,4 +77,54 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(catalog_details('series','../configuration'),{})
             get.assert_not_called()
 
+class AnimePosterTests(unittest.TestCase):
+    anime = {'id':1535,'kind':'tv','name':'Death Note','russian':'Тетрадь смерти','aired_on':'2006-10-04','image':{'original':'/assets/globals/missing_original.jpg'}}
+    def candidate(self, **changes):
+        return {'id':13916,'name':'Тетрадь смерти','original_name':'Death Note','first_air_date':'2006-10-04','genre_ids':[16],'poster_path':'/poster.jpg',**changes}
+    def run_search(self, candidates):
+        from catalog import anime_posters
+        with patch.dict('os.environ',{'TMDB_READ_TOKEN':'secret'}),patch('catalog._get',return_value={'results':candidates}):
+            return anime_posters(self.anime)
+    def test_unique_title_and_year_match_is_automatic(self):
+        result=self.run_search([self.candidate()])
+        self.assertEqual(result['poster_state'],'matched')
+        self.assertEqual(result['image'],'https://image.tmdb.org/t/p/w500/poster.jpg')
+        self.assertEqual(result['poster_source'],'TMDB')
+    def test_same_title_different_year_requires_choice(self):
+        result=self.run_search([self.candidate(first_air_date='2017-01-01')])
+        self.assertEqual(result['poster_state'],'choose')
+        self.assertNotIn('image',result)
+    def test_two_exact_matches_require_choice(self):
+        result=self.run_search([self.candidate(),self.candidate(id=2)])
+        self.assertEqual(result['poster_state'],'choose')
+        self.assertEqual(len(result['poster_options']),2)
+    def test_live_action_is_not_offered(self):
+        result=self.run_search([self.candidate(genre_ids=[18])])
+        self.assertEqual(result['poster_state'],'not_found')
+    def test_unknown_year_never_automatches(self):
+        from catalog import anime_posters
+        with patch.dict('os.environ',{'TMDB_READ_TOKEN':'secret'}),patch('catalog._get',return_value={'results':[self.candidate()]}):
+            result=anime_posters({**self.anime,'aired_on':None})
+        self.assertEqual(result['poster_state'],'choose')
+    def test_optional_tmdb_failure_does_not_lose_anime_details(self):
+        def get(url, headers=None):
+            if 'shikimori' in url:return {**self.anime,'description':'Описание','episodes':37}
+            raise HTTPException(502,'Unavailable')
+        with patch.dict('os.environ',{'TMDB_READ_TOKEN':'secret'}),patch('catalog._get',side_effect=get):
+            result=catalog_details('anime','1535')
+        self.assertEqual(result['description'],'Описание')
+        self.assertEqual(result['episodes'],37)
+        self.assertEqual(result['poster_state'],'unavailable')
+    def test_existing_shikimori_art_does_not_query_tmdb(self):
+        with patch('catalog._get',return_value={**self.anime,'image':{'original':'/system/animes/original/1535.jpg'}}) as get:
+            result=catalog_details('anime','1535')
+        self.assertEqual(get.call_count,1)
+        self.assertNotIn('poster_state',result)
+    def test_missing_key_does_not_query_tmdb(self):
+        from catalog import anime_posters
+        with patch.dict('os.environ',{'TMDB_READ_TOKEN':''}),patch('catalog._get') as get:
+            result=anime_posters(self.anime)
+        get.assert_not_called()
+        self.assertEqual(result['poster_state'],'no_key')
+
 if __name__=='__main__':unittest.main()

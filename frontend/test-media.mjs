@@ -146,3 +146,24 @@ test('catalog selection fills full title and episodes but preserves personal fie
   assert.equal(saved.catalog.score,8.5);
   assert.equal(saved.progress,0);
 });
+
+test('choosing a replacement anime poster preserves title, episodes, notes and rating', async () => {
+  const p = await panel();
+  button(p.render(), 'Аниме').props.onClick();
+  button(p.render(), 'Добавить').props.onClick();
+  find(p.render(), n=>n.type==='CatalogPicker').props.onSelect({source:'Shikimori',external_id:'1535',title:'Тетрадь смерти',episodes:37,score:8.6});
+  find(p.render(), n=>n.type==='textarea').props.onChange({target:{value:'Моя заметка'}});
+  find(p.render(), n=>n.type==='input' && n.props?.step===0.5).props.onChange({target:{value:'9'}});
+  find(p.render(), n=>n.type==='input' && n.props?.value===37).props.onChange({target:{value:'40'}});
+  find(p.render(), n=>n.type==='CatalogPicker').props.onPoster('https://image.tmdb.org/t/p/w500/poster.jpg');
+  find(p.render(), n=>n.type==='form').props.onSubmit({preventDefault(){}});
+  await tick();
+  const saved=JSON.parse(p.requests.at(-1).options.body);
+  assert.equal(saved.title,'Тетрадь смерти');
+  assert.equal(saved.total,40);
+  assert.equal(saved.rating,9);
+  assert.equal(saved.notes,'Моя заметка');
+  assert.equal(saved.catalog.source,'Shikimori');
+  assert.equal(saved.catalog.poster_source,'TMDB');
+  assert.equal(saved.cover_image,'https://image.tmdb.org/t/p/w500/poster.jpg');
+});
