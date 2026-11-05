@@ -1,0 +1,19 @@
+.dark-select { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 13px 15px; background: #0b151b; border: 1px solid #30403e; border-radius: 13px; color: #dce8e2; text-align: left; font-size: 13px; transition: background .15s, border-color .15s, box-shadow .15s; cursor: pointer; }
+.dark-select:hover { border-color: #547b6a; background: #101f23; }
+.dark-select:focus-visible, .dark-select.is-open { outline: none; border-color: #91c8ae; box-shadow: 0 0 0 3px #a3e0bf12; }
+.dark-select:disabled { opacity: .4; cursor: default; }
+.dark-select-value, .dark-select-option-content { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dark-select-value > span, .dark-select-option-content > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dark-select-value > svg, .dark-select-option-content > svg { flex-shrink: 0; color: #8ca79a; width: 15px; height: 15px; }
+.dark-select-chevron { color: #7b988b; flex-shrink: 0; transition: transform .15s; }
+.dark-select.is-open .dark-select-chevron { transform: rotate(180deg); }
+.dark-select.is-compact { width: auto; padding: 8px 11px; font-size: 11px; border-color: #ffffff10; background: #122024; min-width: 155px; }
+.dark-select-menu { position: fixed; z-index: 100; padding: 6px; overflow-y: auto; overscroll-behavior: contain; background: #142320; border: 1px solid #709b853d; border-radius: 14px; box-shadow: 0 18px 60px #0009, 0 3px 12px #0004; color: #cbd9d1; }
+.dark-select-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 11px; min-height: 44px; border-radius: 9px; font-size: 12px; line-height: 20px; cursor: pointer; user-select: none; }
+.dark-select-option.is-active { background: #29463a; color: #e0f5e8; }
+.dark-select-option.is-selected { color: #b3e9c8; }
+.dark-select-option.is-selected > svg { flex-shrink: 0; color: #a6dfbe; }
+.select-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #9baaab; display: inline-block; flex-shrink: 0; box-shadow: 0 0 0 4px #9baaab0b; }
+.select-status-dot.active { background: #a2dcad; box-shadow: 0 0 0 4px #a2dcad0c; }
+.select-status-dot.finished { background: #d1c38d; box-shadow: 0 0 0 4px #d1c38d0c; }
+@media (prefers-reduced-motion: reduce) { .dark-select, .dark-select-chevron { transition: none; } }

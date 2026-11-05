@@ -100,6 +100,36 @@ class MediaTests(unittest.TestCase):
             self.assertEqual(self.client.post('/api/media/steam/sync').status_code, 403)
         self.assertEqual(self.path.read_text(encoding='utf-8'), before)
 
+    def test_details_cache_preserves_manual_fields_and_does_not_resurrect_deleted_game(self):
+        game = self.manager.sync_steam('123', [{'appid': 620, 'name': 'Portal', 'minutes': 500}])['items'][0]
+        detail = {'store': {'header_image': 'https://cdn.akamai.steamstatic.com/art.jpg', 'genres': ['Puzzle']},
+                  'achievements': {'state': 'ready', 'unlocked': 2, 'total': 10, 'entries': []}}
+        with patch('steam_details.get_game_details', return_value=detail):
+            response = self.client.get(f"/api/media/{game['id']}/details")
+            self.assertEqual(response.status_code, 200)
+            cached = self.manager.items()[0]
+            self.assertEqual(cached['steam_achievements'], {'unlocked': 2, 'total': 10})
+            self.assertEqual(cached['progress'], 0)
+        def deleted_during_fetch(*_):
+            self.manager.delete(game['id'])
+            return detail
+        with patch('steam_details.get_game_details', side_effect=deleted_during_fetch):
+            self.client.get(f"/api/media/{game['id']}/details")
+        self.assertEqual(self.manager.items(), [])
+        self.assertEqual(self.client.get('/api/media/missing/details').status_code, 404)
+
+    def test_manual_cover_is_saved_without_steam_binding_and_can_be_removed(self):
+        cover = 'https://cdn.akamai.steamstatic.com/steam/apps/620/header.jpg'
+        value = {'title': 'Bought elsewhere', 'kind': 'game', 'cover_image': cover}
+        item = self.client.post('/api/media', json=value).json()['items'][0]
+        self.assertEqual(item['cover_image'], cover)
+        self.assertNotIn('steam_appid', item)
+        value.pop('cover_image')
+        response = self.client.put('/api/media/' + item['id'], json=value)
+        self.assertEqual(response.json()['items'][0]['cover_image'], cover)
+        response = self.client.put('/api/media/' + item['id'], json={**value, 'cover_image': None})
+        self.assertIsNone(response.json()['items'][0]['cover_image'])
+
 
 if __name__ == '__main__':
     unittest.main()

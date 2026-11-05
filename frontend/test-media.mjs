@@ -15,6 +15,7 @@ async function panel({ failLoad = false, failSave = false, failSteam = false } =
   let index = 0, first = true;
   const jsx = (type, props) => ({ type, props });
   const hooks = {
+    useCallback: value => value,
     useState(initial) {
       const slot = index++;
       if (first) state[slot] = typeof initial === 'function' ? initial() : initial;
@@ -31,6 +32,7 @@ async function panel({ failLoad = false, failSave = false, failSteam = false } =
     fetch: async (url, options) => {
       requests.push({ url, options });
       const saving = options.method;
+      if (url.startsWith('/api/media/covers?')) return { ok: true, json: async () => ({ results: [{ title: 'Игра — полное название', image: 'https://cdn.akamai.steamstatic.com/steam/apps/620/header.jpg' }] }) };
       if (url === '/api/media/steam/sync') return { ok: !failSteam, json: async () => ({ items: [{ ...sample, steam_appid: 10, steam_playtime_minutes: 301 }], steam_sync: { added: 1, updated: 0, matched: 1 } }) };
       return { ok: !(saving ? failSave : failLoad), json: async () => ({ items: saving === 'DELETE' ? [] : saving ? [{ ...sample, ...JSON.parse(options.body) }] : [sample] }) };
     },
@@ -48,7 +50,8 @@ function nodes(tree) {
   return Array.isArray(tree) ? tree.flatMap(nodes) : [tree, ...nodes(tree.props?.children)];
 }
 const find = (tree, predicate) => nodes(tree).find(predicate);
-const button = (tree, text) => find(tree, node => node.type === 'button' && node.props.children === text);
+const label = value => Array.isArray(value) ? value.map(label).join('') : value && typeof value === 'object' ? label(value.props?.children) : value == null || typeof value === 'boolean' ? '' : String(value);
+const button = (tree, text) => find(tree, node => node.type === 'button' && label(node.props.children) === text);
 
 test('failed initial load cannot overwrite saved collection', async () => {
   const p = await panel({ failLoad: true });
@@ -97,7 +100,7 @@ test('Steam sync displays exact time and confirms counts after server success', 
   assert.equal(p.requests.at(-1).options.method, 'POST');
   assert.ok(find(p.render(), n => n.props?.role === 'status' && n.props.children === 'Steam: добавлено 1, обновлено 0.'));
   assert.match(p.storage.get('fitpulse_media_backup_v1'), /steam_playtime_minutes/);
-  assert.ok(find(p.render(), n => n.type === 'p' && Array.isArray(n.props.children) && n.props.children.includes(5) && n.props.children.includes(1)));
+  assert.ok(find(p.render(), n => n.type === 'span' && label(n.props.children) === '5 ч 1 мин'));
 });
 
 test('Steam failure leaves the existing collection and backup intact', async () => {
@@ -108,4 +111,19 @@ test('Steam failure leaves the existing collection and backup intact', async () 
   assert.ok(find(p.render(), n => n.props?.role === 'alert'));
   assert.equal(p.storage.get('fitpulse_media_backup_v1'), before);
   assert.ok(find(p.render(), n => n.type === 'h3' && n.props.children === 'Игра'));
+});
+
+
+test('manual cover selection saves artwork without linking a Steam account', async () => {
+  const p = await panel();
+  find(p.render(), n => n.props?.['aria-label'] === 'Редактировать Игра').props.onClick();
+  await button(p.render(), 'Найти по названию').props.onClick();
+  await tick();
+  find(p.render(), n => n.props?.['aria-label'] === 'Выбрать обложку: Игра — полное название').props.onClick();
+  find(p.render(), n => n.type === 'form').props.onSubmit({ preventDefault() {} });
+  await tick();
+  const saved = JSON.parse(p.requests.at(-1).options.body);
+  assert.equal(saved.title, 'Игра — полное название');
+  assert.equal(saved.cover_image, 'https://cdn.akamai.steamstatic.com/steam/apps/620/header.jpg');
+  assert.equal(saved.steam_appid, undefined);
 });
