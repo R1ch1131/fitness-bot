@@ -15,6 +15,7 @@ class CatalogInfo(BaseModel):
     external_id: str = Field(max_length=100)
     title: str = Field(max_length=300)
     image: str | None = Field(default=None, max_length=2000)
+    poster_source: Literal['TMDB'] | None = None
     author: str = Field(default='', max_length=500)
     year: str = Field(default='', max_length=50)
     description: str = Field(default='', max_length=10000)
@@ -85,6 +86,45 @@ def search_catalog(kind, title):
         raise HTTPException(422, 'Неизвестная категория')
     return {'results': [CatalogInfo(**item).model_dump() for item in results]}
 
+def _title_key(value):
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFKC', value).casefold() if c.isalnum())
+
+
+def anime_posters(item):
+    """Use the authoritative anime title, date and format, never a client URL."""
+    token = os.getenv('TMDB_READ_TOKEN', '').strip()
+    if not token:
+        return {'poster_state': 'no_key', 'poster_options': []}
+    category = 'movie' if item.get('kind') == 'movie' else 'tv'
+    titles = [item.get('russian'), item.get('name'), *(item.get('english') or []), *(item.get('japanese') or [])]
+    titles = [title for title in titles if title]
+    year = (item.get('aired_on') or '')[:4]
+    options = {}
+    try:
+        # Russian name catches localized titles; English/romaji handles missing translations.
+        for title in list(dict.fromkeys(titles))[:3]:
+            query = urllib.parse.urlencode({'query': title, 'language': 'ru-RU', 'include_adult': 'false'})
+            payload = _get(f'https://api.themoviedb.org/3/search/{category}?' + query, {'Authorization': 'Bearer ' + token})
+            for result in payload.get('results', [])[:20]:
+                path = result.get('poster_path')
+                # Do not offer live-action adaptations. An uncertain animation match is manual only.
+                if not path or 16 not in result.get('genre_ids', []) or not re.fullmatch(r'/[A-Za-z0-9_.-]+', path):
+                    continue
+                name = result.get('title') or result.get('name') or ''
+                original = result.get('original_title') or result.get('original_name') or ''
+                date = (result.get('release_date') or result.get('first_air_date') or '')[:4]
+                exact_title = bool({_title_key(t) for t in titles} & {_title_key(name), _title_key(original)})
+                options[result['id']] = {'id': result['id'], 'title': name, 'year': date, 'image': 'https://image.tmdb.org/t/p/w500' + path, 'exact': bool(exact_title and year and date == year), 'url': f"https://www.themoviedb.org/{category}/{result['id']}"}
+    except HTTPException:
+        return {'poster_state': 'unavailable', 'poster_options': []}
+    choices = sorted(options.values(), key=lambda result: not result['exact'])[:8]
+    exact = [result for result in options.values() if result['exact']]
+    if len(exact) == 1:
+        return {'poster_state': 'matched', 'image': exact[0]['image'], 'poster_source': 'TMDB', 'poster_options': choices}
+    return {'poster_state': 'choose' if choices else 'not_found', 'poster_options': choices}
+
+
 def catalog_details(kind, external_id):
     if kind == 'book' and re.fullmatch(r'/books/OL\d+M', external_id):
         item = _get('https://openlibrary.org' + external_id + '.json')
@@ -95,7 +135,11 @@ def catalog_details(kind, external_id):
     if kind == 'anime' and external_id.isdigit():
         item = _get('https://shikimori.one/api/animes/' + external_id)
         description = re.sub(r'\[/?[^\]]+\]', '', item.get('description') or '')
-        return {'description': description[:10000], 'genres': [g.get('russian') or g['name'] for g in item.get('genres', [])], 'studio': ', '.join(g['name'] for g in item.get('studios', []))[:500], 'runtime': _positive(item.get('duration')), 'episodes': _positive(item.get('episodes'))}
+        result = {'description': description[:10000], 'genres': [g.get('russian') or g['name'] for g in item.get('genres', [])], 'studio': ', '.join(g['name'] for g in item.get('studios', []))[:500], 'runtime': _positive(item.get('duration')), 'episodes': _positive(item.get('episodes'))}
+        path = item.get('image', {}).get('original') or ''
+        if not path.startswith('/system/'):
+            result.update(anime_posters(item))
+        return result
     if kind in ('movie', 'series') and external_id.isdigit():
         token = os.getenv('TMDB_READ_TOKEN', '').strip()
         if not token:
@@ -112,3 +156,8 @@ def search(kind: Literal['book', 'movie', 'series', 'anime'], title: str = Query
 @router.get('/details')
 def details(kind: Literal['book', 'movie', 'series', 'anime'], external_id: str = Query(max_length=100)):
     return catalog_details(kind, external_id)
+
+@router.get('/anime-posters')
+def find_anime_posters(external_id: str = Query(pattern=r'^\d+$', max_length=20)):
+    item = _get('https://shikimori.one/api/animes/' + external_id)
+    return anime_posters(item)
