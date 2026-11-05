@@ -172,6 +172,8 @@ export interface HabitsResponse {
 }
 
 export interface BookItem {
+  catalog?: import('./components/CatalogPicker').CatalogInfo | null;
+  cover_image?: string | null;
   id: string;
   title: string;
   author: string;

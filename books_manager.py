@@ -137,7 +137,9 @@ class BooksManager:
         status: str = "reading",
         current_page: Optional[int] = None,
         rating: Optional[float] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        catalog: Optional[dict] = None,
+        cover_image: Optional[str] = None
     ) -> Dict[str, Any]:
         books = self.get_books()
         now_str = datetime.now(TZ_GMT6).strftime("%Y-%m-%d")
@@ -179,6 +181,9 @@ class BooksManager:
             "finished_date": final_finished_date,
             "created_at": now_str
         }
+        from media_covers import normalize_cover
+        new_book["cover_image"] = normalize_cover(cover_image)
+        new_book["catalog"] = catalog
         books.append(new_book)
         self._save(books)
         return new_book
@@ -193,7 +198,9 @@ class BooksManager:
         current_page: Optional[int] = None,
         total_pages: Optional[int] = None,
         rating: Optional[float] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        catalog: Optional[dict] = None,
+        cover_image: Optional[str] = None
     ) -> Dict[str, Any]:
         books = self.get_books()
         target = None
@@ -205,6 +212,11 @@ class BooksManager:
         if not target:
             raise ValueError(f"Book with id {book_id} not found")
 
+        from media_covers import normalize_cover
+        if cover_image is not None:
+            target["cover_image"] = normalize_cover(cover_image)
+        if catalog is not None:
+            target["catalog"] = catalog
         old_page = target.get("current_page", 0)
         now_str = datetime.now(TZ_GMT6).strftime("%Y-%m-%d")
 

@@ -20,6 +20,7 @@ from config import BASE_DIR, DATA_DIR, WORKOUTS_CACHE_FILE, ROUTINES_CACHE_FILE
 from habits_manager import HabitsManager
 from books_manager import BooksManager
 from media_library import router as media_router
+from catalog import router as catalog_router, CatalogInfo
 
 # Initialize Coach singleton
 coach = AIHevyCoach(auto_sync=False)
@@ -28,6 +29,7 @@ books_mgr = BooksManager()
 
 app = FastAPI(title="Hevy & YAZIO AI Coach PWA", version="1.0.0")
 app.include_router(media_router)
+app.include_router(catalog_router)
 
 # Enable CORS for local dev (Vite running on localhost:5173)
 app.add_middleware(
@@ -59,6 +61,8 @@ class EditHabitRequest(BaseModel):
     target_days: Optional[int] = None
 
 class CreateBookRequest(BaseModel):
+    catalog: Optional[CatalogInfo] = None
+    cover_image: Optional[str] = None
     title: str
     author: str
     category: Optional[str] = "Саморазвитие"
@@ -69,6 +73,8 @@ class CreateBookRequest(BaseModel):
     notes: Optional[str] = None
 
 class UpdateBookRequest(BaseModel):
+    catalog: Optional[CatalogInfo] = None
+    cover_image: Optional[str] = None
     title: Optional[str] = None
     author: Optional[str] = None
     category: Optional[str] = None
@@ -892,7 +898,9 @@ def create_book(req: CreateBookRequest):
             status=req.status or "reading",
             current_page=req.current_page or 0,
             rating=req.rating,
-            notes=req.notes
+            notes=req.notes,
+            catalog=req.catalog.model_dump() if req.catalog else None,
+            cover_image=req.cover_image
         )
         return {"status": "ok", "book": b, "books": books_mgr.get_books(), "stats": books_mgr.get_stats()}
     except Exception as e:
@@ -911,7 +919,9 @@ def update_book(book_id: str, req: UpdateBookRequest):
             current_page=req.current_page,
             total_pages=req.total_pages,
             rating=req.rating,
-            notes=req.notes
+            notes=req.notes,
+            catalog=req.catalog.model_dump() if req.catalog else None,
+            cover_image=req.cover_image
         )
         return {
             "status": "ok",

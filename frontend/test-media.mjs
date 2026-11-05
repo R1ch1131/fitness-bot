@@ -127,3 +127,22 @@ test('manual cover selection saves artwork without linking a Steam account', asy
   assert.equal(saved.cover_image, 'https://cdn.akamai.steamstatic.com/steam/apps/620/header.jpg');
   assert.equal(saved.steam_appid, undefined);
 });
+
+test('catalog selection fills full title and episodes but preserves personal fields', async () => {
+  const p = await panel();
+  button(p.render(), 'Аниме').props.onClick();
+  button(p.render(), 'Добавить').props.onClick();
+  const input = (type, value) => find(p.render(), n=>n.type===type && n.props?.value===value);
+  input('textarea', '').props.onChange({target:{value:'Моя заметка'}});
+  find(p.render(), n=>n.type==='input' && n.props?.step===0.5).props.onChange({target:{value:'9'}});
+  find(p.render(), n=>n.type==='CatalogPicker').props.onSelect({source:'Shikimori',external_id:'52991',title:'Полное название',image:'https://shikimori.one/system/animes/original/52991.jpg',episodes:28,score:8.5});
+  find(p.render(), n=>n.type==='form').props.onSubmit({preventDefault(){}});
+  await tick();
+  const saved=JSON.parse(p.requests.at(-1).options.body);
+  assert.equal(saved.title,'Полное название');
+  assert.equal(saved.total,28);
+  assert.equal(saved.notes,'Моя заметка');
+  assert.equal(saved.rating,9);
+  assert.equal(saved.catalog.score,8.5);
+  assert.equal(saved.progress,0);
+});
