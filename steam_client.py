@@ -52,4 +52,7 @@ def get_played_games():
             if not isinstance(name, str) or not name.strip():
                 raise HTTPException(502, 'Steam не вернул название игры. Повтори позже.')
             selected[appid] = {'appid': appid, 'name': name.strip(), 'minutes': minutes}
+            for field in ('rtime_last_played', 'playtime_2weeks'):
+                if type(game.get(field)) is int and game[field] >= 0:
+                    selected[appid][field] = game[field]
     return steam_id, list(selected.values())

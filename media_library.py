@@ -6,7 +6,7 @@ from threading import RLock
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from cloud_storage import get_cloud_data, set_cloud_data
@@ -21,9 +21,13 @@ class MediaInput(BaseModel):
     total: int | None = Field(default=None, gt=0)
     rating: float | None = Field(default=None, ge=0, le=10)
     notes: str = Field(default='', max_length=10000)
+    cover_image: str | None = Field(default=None, max_length=3_000_000)
 
     @model_validator(mode='after')
     def normalize(self):
+        from media_covers import normalize_cover
+        if 'cover_image' in self.model_fields_set:
+            self.cover_image = normalize_cover(self.cover_image)
         self.title = self.title.strip()
         if not self.title:
             raise ValueError('Укажи название')
@@ -75,6 +79,8 @@ class MediaLibrary:
             now = datetime.now(timezone.utc).isoformat()
             item = {**(old or {}), **value.model_dump(), 'id': item_id or str(uuid4()),
                     'created_at': old['created_at'] if old else now, 'updated_at': now}
+            if old and 'cover_image' not in value.model_fields_set:
+                item['cover_image'] = old.get('cover_image')
             if value.kind != 'game':
                 item = {key: val for key, val in item.items() if not key.startswith('steam_')}
             items = [item if entry['id'] == item_id else entry for entry in items] if old else [*items, item]
@@ -105,6 +111,10 @@ class MediaLibrary:
                     updated += 1
                 existing.update(steam_appid=game['appid'], steam_id=steam_id,
                                 steam_playtime_minutes=game['minutes'], steam_synced_at=now, updated_at=now)
+                if 'rtime_last_played' in game:
+                    existing['steam_last_played'] = game['rtime_last_played']
+                if 'playtime_2weeks' in game:
+                    existing['steam_recent_minutes'] = game['playtime_2weeks']
             if games:
                 self._save(items)
             return {'items': items, 'steam_sync': {'added': added, 'updated': updated, 'matched': len(games)}}
@@ -117,6 +127,29 @@ class MediaLibrary:
             items = [item for item in items if item['id'] != item_id]
             self._save(items)
             return {'items': items}
+
+    def game_details(self, item_id):
+        from steam_details import get_game_details
+        item = next((item for item in self.items() if item['id'] == item_id), None)
+        if not item or item['kind'] != 'game' or not item.get('steam_appid'):
+            raise HTTPException(404, 'Для этой записи нет данных Steam')
+        result = get_game_details(item['steam_appid'], item.get('steam_id', ''))
+        # Keep a small summary for library cards; full achievement lists stay cached.
+        with self.lock:
+            items = self.items()
+            current = next((entry for entry in items if entry['id'] == item_id), None)
+            if current and current.get('steam_appid') == item['steam_appid'] and current.get('steam_id') == item.get('steam_id'):
+                summary = {}
+                if result['store']:
+                    summary['steam_header_image'] = result['store']['header_image']
+                    summary['steam_genres'] = result['store']['genres']
+                achievement = result['achievements']
+                if achievement['state'] == 'ready':
+                    summary['steam_achievements'] = {key: achievement[key] for key in ('unlocked', 'total')}
+                if any(current.get(key) != value for key, value in summary.items()):
+                    current.update(summary)
+                    self._save(items)
+        return result
 
 
 library = MediaLibrary()
@@ -133,6 +166,12 @@ def create_media(value: MediaInput):
     return library.save(value)
 
 
+@router.get('/covers')
+def search_covers(title: str = Query(min_length=2, max_length=200)):
+    from media_covers import find_covers
+    return find_covers(title)
+
+
 @router.post('/steam/sync')
 def sync_steam():
     from steam_client import get_played_games
@@ -143,6 +182,11 @@ def sync_steam():
 @router.put('/{item_id}')
 def update_media(item_id: str, value: MediaInput):
     return library.save(value, item_id)
+
+
+@router.get('/{item_id}/details')
+def game_details(item_id: str):
+    return library.game_details(item_id)
 
 
 @router.delete('/{item_id}')

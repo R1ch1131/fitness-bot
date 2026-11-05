@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck } from 'lucide-react';
 import { healthHeaders, responseError } from '../healthConnection';
+import { GameArt, GameDetailsDialog } from './GameDetailsDialog';
+import type { GameDetails } from './GameDetailsDialog';
+import './games.css';
+import { prepareCover } from '../coverImage';
+import { DarkSelect } from './DarkSelect';
 
 const kinds = {
   game: { label: 'Игры', icon: Gamepad2 },
@@ -11,8 +16,8 @@ const kinds = {
 const statuses = { planned: 'В планах', active: 'В процессе', finished: 'Завершено' };
 type Kind = keyof typeof kinds;
 type Status = keyof typeof statuses;
-type MediaDraft = { title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string };
-type MediaItem = MediaDraft & { id: string; updated_at: string; steam_appid?: number; steam_playtime_minutes?: number };
+type MediaDraft = { title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string; cover_image?: string | null };
+type MediaItem = MediaDraft & { id: string; updated_at: string; steam_appid?: number; steam_playtime_minutes?: number; steam_last_played?: number; steam_recent_minutes?: number; steam_header_image?: string | null; steam_genres?: string[]; steam_achievements?: { unlocked: number; total: number } };
 const emptyDraft = (kind: Kind): MediaDraft => ({ title: '', kind, status: 'planned', progress: 0, total: null, rating: null, notes: '' });
 const inputClass = 'w-full rounded-xl bg-[#0b0f19] border border-[#334155] p-3 text-white';
 const cacheKey = 'fitpulse_media_backup_v1';
@@ -34,9 +39,55 @@ export function MediaTab() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
+  const [selectedGame, setSelectedGame] = useState<MediaItem | null>(null);
+  const [sort, setSort] = useState('recent');
+  const [enrichmentVersion, setEnrichmentVersion] = useState(0);
+  const attemptedDetails = useRef(new Set<string>());
   const [draft, setDraft] = useState<MediaDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<MediaItem | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverError, setCoverError] = useState('');
+  const [coverResults, setCoverResults] = useState<{ title: string; image: string }[]>([]);
+  const coverSearch = useRef<AbortController | null>(null);
+  const formSession = useRef(0);
+  const formOpen = !!draft;
+  useEffect(() => {
+    formSession.current += 1;
+    if (!formOpen) { coverSearch.current?.abort(); setCoverError(''); setCoverResults([]); setCoverBusy(false); }
+    return () => coverSearch.current?.abort();
+  }, [formOpen]);
+
+  async function searchCover() {
+    if (!draft || draft.title.trim().length < 2) { setCoverError('Сначала введи название — хотя бы 2 символа.'); return; }
+    coverSearch.current?.abort();
+    const request = new AbortController();
+    coverSearch.current = request;
+    setCoverBusy(true); setCoverError(''); setCoverResults([]);
+    try {
+      const response = await fetch(`/api/media/covers?title=${encodeURIComponent(draft.title.trim())}`, { headers: healthHeaders(), signal: request.signal });
+      if (!response.ok) throw await responseError(response);
+      const data = await response.json();
+      if (!request.signal.aborted) {
+        setCoverResults(data.results);
+        if (!data.results.length) setCoverError('Не нашли обложку. Можно загрузить свою картинку.');
+      }
+    } catch (error) { if (!request.signal.aborted) setCoverError((error as Error).message); }
+    finally { if (coverSearch.current === request) setCoverBusy(false); }
+  }
+
+  async function uploadCover(file?: File) {
+    if (!file) return;
+    const session = formSession.current;
+    setCoverBusy(true); setCoverError(''); coverSearch.current?.abort();
+    try {
+      const image = await prepareCover(file);
+      if (session !== formSession.current) return;
+      setDraft(current => current ? { ...current, cover_image: image } : current);
+      setCoverResults([]);
+    } catch (error) { if (session === formSession.current) setCoverError((error as Error).message); }
+    finally { if (session === formSession.current) setCoverBusy(false); }
+  }
   const controller = useRef<AbortController | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
 
@@ -93,6 +144,8 @@ export function MediaTab() {
       const data = await response.json();
       accept(data);
       if (data.steam_sync) {
+        attemptedDetails.current.clear();
+        setEnrichmentVersion(value => value + 1);
         const { added, updated, matched } = data.steam_sync;
         setSyncMessage(matched ? `Steam: добавлено ${added}, обновлено ${updated}.` : 'В Steam нет доступных игр с временем больше 5 часов. Проверь также, что время в играх не скрыто.');
       }
@@ -105,10 +158,48 @@ export function MediaTab() {
   const categoryItems = items.filter(item => item.kind === kind);
   const priority = { active: 0, planned: 1, finished: 2 };
   const visible = categoryItems.filter(item => (filter === 'all' || item.status === filter) && item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
-    .sort((a, b) => priority[a.status] - priority[b.status] || b.updated_at.localeCompare(a.updated_at));
+    .sort((a, b) => kind !== 'game' ? priority[a.status] - priority[b.status] || b.updated_at.localeCompare(a.updated_at) : sort === 'hours' ? (b.steam_playtime_minutes || 0) - (a.steam_playtime_minutes || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at));
   const episodic = draft?.kind === 'series' || draft?.kind === 'anime';
 
-  return <section className="max-w-3xl mx-auto px-4 pt-5 pb-32 space-y-5 text-white" aria-label="Досуг">
+  const featured = categoryItems.filter(item => item.steam_appid && item.status === 'active').sort((a, b) => (b.steam_last_played || 0) - (a.steam_last_played || 0))[0];
+  const totalMinutes = categoryItems.reduce((sum, item) => sum + (item.steam_playtime_minutes || 0), 0);
+  const steamGames = categoryItems.filter(item => item.steam_appid);
+  const knownAchievements = steamGames.filter(item => item.steam_achievements);
+  const unlocked = knownAchievements.reduce((sum, item) => sum + (item.steam_achievements?.unlocked || 0), 0);
+  const edit = (item: MediaItem) => { setEditingId(item.id); setDraft({ ...item }); };
+  const openGame = (item: MediaItem) => item.steam_appid ? setSelectedGame(item) : edit(item);
+  const detailsLoaded = useCallback((id: string, details: GameDetails) => {
+    setItems(current => current.map(item => item.id === id ? {
+      ...item,
+      ...(details.store ? { steam_header_image: details.store.header_image, steam_genres: details.store.genres } : {}),
+      ...(details.achievements.state === 'ready' ? { steam_achievements: { unlocked: details.achievements.unlocked || 0, total: details.achievements.total || 0 } } : {}),
+    } : item));
+  }, []);
+  const visibleSteamKey = kind === 'game' ? visible.filter(item => item.steam_appid).slice(0, 12).map(item => item.id).join(',') : '';
+  useEffect(() => {
+    if (!visibleSteamKey) return;
+    const request = new AbortController();
+    const pending = visibleSteamKey.split(',').filter(id => !attemptedDetails.current.has(id));
+    // Artwork and achievement summaries fill in without blocking the collection.
+    const worker = async () => {
+      while (pending.length && !request.signal.aborted) {
+        const id = pending.shift()!;
+        attemptedDetails.current.add(id);
+        try {
+          const response = await fetch(`/api/media/${encodeURIComponent(id)}/details`, { headers: healthHeaders(), signal: request.signal });
+          if (!response.ok) continue;
+          const data: GameDetails = await response.json();
+          if (!request.signal.aborted) detailsLoaded(id, data);
+        } catch { /* Optional game data must never interrupt the library. */ }
+        finally { if (request.signal.aborted) attemptedDetails.current.delete(id); }
+      }
+    };
+    void worker();
+    void worker();
+    return () => request.abort();
+  }, [visibleSteamKey, enrichmentVersion, detailsLoaded]);
+
+  return <section className={`mx-auto px-4 pt-5 pb-32 space-y-5 text-white ${kind === 'game' ? 'game-library' : 'max-w-3xl'}`} aria-label="Досуг">
     <div className="flex items-start justify-between gap-3">
       <div><h2 className="text-xl font-bold">Досуг</h2><p className="text-sm text-[#94a3b8] mt-1">Игры и истории, к которым хочется вернуться</p></div>
       <button disabled={!ready || busy || loading} className="flex gap-1 items-center bg-emerald-400 text-[#0b0f19] p-3 rounded-xl disabled:opacity-40" onClick={() => { setEditingId(null); setDraft(emptyDraft(kind)); }}><Plus size={18} />Добавить</button>
@@ -119,11 +210,35 @@ export function MediaTab() {
         return <button key={key} aria-pressed={kind === key} onClick={() => setKind(key)} className={`flex flex-col items-center gap-2 rounded-2xl py-3 text-xs border ${kind === key ? 'border-emerald-400 text-emerald-400 bg-emerald-400/10' : 'border-[#1e293b] bg-[#111726] text-[#94a3b8]'}`}><Icon size={20} />{kinds[key].label}</button>;
       })}
     </div>
-    {kind === 'game' && <div className="rounded-2xl bg-[#111726] border border-[#1e293b] p-4 space-y-2">
-      <button disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="rounded-xl px-4 py-2 bg-emerald-400/15 text-emerald-400 text-sm disabled:opacity-40">{busy ? 'Подожди…' : 'Синхронизировать Steam'}</button>
-      <p className="text-xs text-[#94a3b8]">Импорт игр, в которых больше 5 часов. Оценки, заметки и прогресс сохраняются.</p>
-      {syncMessage && <p role="status" className="text-sm text-emerald-400">{syncMessage}</p>}
-    </div>}
+    {kind === 'game' ? <>
+      <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2><p>Миры, в которых ты уже оставил часть себя.</p></div><button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div>
+      {syncMessage && <p role="status" className="text-sm text-emerald-300">{syncMessage}</p>}
+      <div className="game-overview">
+        <div><span className="game-overview-label"><Gamepad2 size={13} />В коллекции</span><strong>{categoryItems.length}<small> игр</small></strong></div>
+        <div><span className="game-overview-label"><Clock3 size={13} />Время в мирах</span><strong>{Math.floor(totalMinutes / 60).toLocaleString('ru-RU')}<small> часов</small></strong></div>
+        <div><span className="game-overview-label"><Trophy size={13} />Достижения</span><strong>{knownAchievements.length ? unlocked : '—'}<small>{knownAchievements.length ? ' получено' : ' открой игру'}</small></strong></div>
+      </div>
+      {featured && !search && filter === 'all' && <div className="game-feature">
+        <GameArt appid={featured.steam_appid} image={featured.cover_image || featured.steam_header_image} /><div className="game-feature-shade" />
+        <div className="game-feature-content"><span className="game-eyebrow">{featured.steam_last_played ? 'Последняя активность' : 'Продолжить свою историю'}</span><h3>{featured.title}</h3><p><Clock3 size={13} />{Math.floor((featured.steam_playtime_minutes || 0) / 60)} ч в игре{featured.steam_last_played ? ` · ${new Date(featured.steam_last_played * 1000).toLocaleDateString('ru-RU', { timeZone: 'Asia/Omsk', day: 'numeric', month: 'long' })}` : ''}</p><button onClick={() => openGame(featured)}>Об игре и достижениях<ArrowUpRight size={15} /></button></div>
+      </div>}
+      <div><div className="game-collection-heading"><h3>Все твои миры<span>{visible.length}</span></h3><DarkSelect label="Сортировка игр" value={sort} onChange={setSort} compact options={[{value:'recent',label:'Недавно играл',icon:<Clock3 />},{value:'hours',label:'Больше часов',icon:<Clock3 />},{value:'title',label:'По названию',icon:<Gamepad2 />},{value:'achievements',label:'Больше достижений',icon:<Trophy />}]} /></div>
+        <div className="game-toolbar"><label className="game-search"><Search size={15} /><input aria-label="Поиск по названию" placeholder="Найти свой мир…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="game-filters" aria-label="Статус">{(['all', 'active', 'planned', 'finished'] as const).map(status => <button key={status} aria-pressed={filter === status} onClick={() => setFilter(status)}>{status === 'all' ? 'Все игры' : statuses[status]}</button>)}</div></div>
+        {error && !hasModal && <p role="alert" className="text-sm text-rose-300 mb-4">{error}<button onClick={() => void load()} className="underline ml-2">Повторить</button></p>}
+        {loading && <p role="status" className="game-loading"><RefreshCw size={14} className="animate-spin" />Загружаем коллекцию…</p>}
+        {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#334155] p-8 text-center text-[#94a3b8]">{categoryItems.length ? 'Не нашли такую игру. Попробуй другой поиск или статус.' : 'Твоя история начинается здесь. Добавь игру или синхронизируй Steam.'}</div>}
+        <div className="game-grid">{visible.map(item => <article key={item.id} className="game-card">
+          <button className="game-card-cover" aria-label={`Открыть ${item.title}`} onClick={() => openGame(item)}><GameArt appid={item.steam_appid} image={item.cover_image || item.steam_header_image} /><span className={`game-status ${item.status === 'active' ? 'is-active' : ''}`}>{statuses[item.status]}</span></button>
+          <div className="game-card-body"><button className="game-card-title" onClick={() => openGame(item)}><h3>{item.title}</h3></button><p className="game-card-genre">{item.steam_genres?.slice(0, 2).join(' · ') || (item.steam_appid ? 'Из твоей библиотеки Steam' : 'Добавлено тобой')}</p>
+            <p className="game-card-time"><Clock3 size={12} />{item.steam_playtime_minutes !== undefined ? <span>{Math.floor(item.steam_playtime_minutes / 60)} ч {item.steam_playtime_minutes % 60} мин</span> : <span>Часы не указаны</span>}{!!item.steam_recent_minutes && <small>+{Math.round(item.steam_recent_minutes / 60 * 10) / 10} ч за 2 недели</small>}</p>
+            <div className="game-card-achievements">{item.steam_achievements ? <><div><Trophy size={12} /><span>Достижения</span><strong>{item.steam_achievements.unlocked} / {item.steam_achievements.total}</strong></div><div className="game-mini-progress" role="progressbar" aria-label={`Достижения: ${item.title}`} aria-valuenow={item.steam_achievements.unlocked} aria-valuemin={0} aria-valuemax={item.steam_achievements.total}><div style={{ width: `${item.steam_achievements.total ? item.steam_achievements.unlocked / item.steam_achievements.total * 100 : 0}%` }} /></div></> : <button className="game-card-achievement-link" onClick={() => openGame(item)}>{item.steam_appid ? <><span>Посмотреть достижения</span><ArrowUpRight size={13} /></> : <span>Прогресс отмечается вручную</span>}</button>}</div>
+            <div className="game-card-footer"><span className={item.rating !== null ? 'game-rating' : ''}>{item.rating !== null ? `★ ${item.rating} / 10` : item.progress > 0 ? `Пройдено ${item.progress}%` : 'Твоя оценка: —'}</span><div className="game-card-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={13} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={13} /></button></div></div>
+          </div>
+        </article>)}</div>
+        <p className="game-library-note"><ShieldCheck size={12} />Из Steam — только игры с временем больше 5 часов</p>
+        {!!knownAchievements.length && knownAchievements.length < steamGames.length && <p className="game-library-note">Достижения посчитаны для {knownAchievements.length} из {steamGames.length} игр Steam. Открой остальные карточки, чтобы загрузить данные.</p>}
+      </div>
+    </> : <>
     <div className="grid grid-cols-3 gap-2">
       {(Object.keys(statuses) as Status[]).map(status => <div key={status} className="rounded-2xl bg-[#111726] p-3 text-center"><p className="text-xl font-bold">{categoryItems.filter(item => item.status === status).length}</p><p className="text-xs text-[#94a3b8]">{statuses[status]}</p></div>)}
     </div>
@@ -143,6 +258,8 @@ export function MediaTab() {
       {item.rating !== null && <p className="text-sm text-amber-300">★ {item.rating} / 10</p>}
       {item.notes && <p className="text-sm text-[#94a3b8] whitespace-pre-wrap break-words">{item.notes}</p>}
     </article>)}
+    </>}
+    {selectedGame && <GameDetailsDialog key={selectedGame.id} item={selectedGame} onClose={() => setSelectedGame(null)} onLoaded={detailsLoaded} />}
     {hasModal && <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4" onKeyDown={event => {
       if (event.key !== 'Tab') return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input, select, textarea'));
@@ -156,13 +273,20 @@ export function MediaTab() {
         {deleting ? <><p className="break-words">«{deleting.title}» будет удалено из коллекции.</p><button disabled={busy} className="bg-rose-500 rounded-xl p-3 w-full disabled:opacity-40" onClick={() => void mutate(`/api/media/${deleting.id}`, 'DELETE')}>{busy ? 'Удаляем…' : 'Удалить'}</button></> : draft && <form className="space-y-4" onSubmit={event => { event.preventDefault(); void mutate(editingId ? `/api/media/${editingId}` : '/api/media', editingId ? 'PUT' : 'POST', { ...draft, title: draft.title.trim() }); }}>
           <fieldset disabled={busy} className="space-y-4">
             <label className="block text-sm">Название<input required maxLength={200} value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} className={inputClass} /></label>
-            <label className="block text-sm">Категория<select value={draft.kind} onChange={event => setDraft({ ...draft, kind: event.target.value as Kind, progress: 0, total: null })} className={inputClass}>{(Object.keys(kinds) as Kind[]).map(key => <option key={key} value={key}>{kinds[key].label}</option>)}</select></label>
-            <label className="block text-sm">Статус<select value={draft.status} onChange={event => setDraft({ ...draft, status: event.target.value as Status })} className={inputClass}>{(Object.keys(statuses) as Status[]).map(key => <option key={key} value={key}>{statuses[key]}</option>)}</select></label>
+            {draft.kind === 'game' && <div className="manual-cover-field">
+              <div className="manual-cover-heading"><span>Обложка игры</span>{draft.cover_image && <button type="button" disabled={coverBusy} onClick={() => setDraft({ ...draft, cover_image: null })}>Убрать свою</button>}</div>
+              <GameArt appid={editingId ? items.find(item => item.id === editingId)?.steam_appid : undefined} image={draft.cover_image || (editingId ? items.find(item => item.id === editingId)?.steam_header_image : null)} />
+              <div className="manual-cover-actions"><button type="button" disabled={coverBusy} onClick={() => void searchCover()}>{coverBusy ? 'Подожди…' : 'Найти по названию'}</button><label className={coverBusy ? 'opacity-40' : ''}>Загрузить картинку<input aria-label="Загрузить обложку игры" disabled={coverBusy} type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { void uploadCover(event.target.files?.[0]); event.target.value = ''; }} /></label></div>
+              <p>Из каталога Steam или свой JPG, PNG, WebP — до 10 МБ.</p>
+              {coverError && <p role="alert" className="text-rose-300">{coverError}</p>}
+              {!!coverResults.length && <div className="manual-cover-results" aria-label="Найденные обложки">{coverResults.map(result => <button key={result.image} type="button" aria-label={`Выбрать обложку: ${result.title}`} onClick={() => { setDraft({ ...draft, title: result.title, cover_image: result.image }); setCoverResults([]); }}><GameArt image={result.image} /><span>{result.title}</span></button>)}</div>}
+            </div>}
+            <div className="space-y-2"><span className="block text-sm">Статус</span><DarkSelect label="Статус" value={draft.status} disabled={busy} onChange={value => setDraft({ ...draft, status: value as Status })} options={(Object.keys(statuses) as Status[]).map(key => ({value:key,label:statuses[key],icon:<span className={`select-status-dot ${key}`} />}))} /></div>
             {draft.kind !== 'movie' && <label className="block text-sm">{episodic ? 'Просмотрено серий' : 'Пройдено, %'}<input type="number" min={0} max={episodic ? draft.total ?? undefined : 100} step={1} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: Number(event.target.value) })} className={inputClass} /></label>}
             {episodic && <label className="block text-sm">Всего серий (если известно)<input type="number" min={1} step={1} value={draft.total ?? ''} onChange={event => setDraft({ ...draft, total: event.target.value ? Number(event.target.value) : null })} className={inputClass} /></label>}
             <label className="block text-sm">Оценка от 0 до 10<input type="number" min={0} max={10} step={0.5} value={draft.rating ?? ''} onChange={event => setDraft({ ...draft, rating: event.target.value ? Number(event.target.value) : null })} className={inputClass} /></label>
             <label className="block text-sm">Заметки<textarea rows={3} maxLength={10000} value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} className={inputClass} /></label>
-            <button disabled={busy || !draft.title.trim()} className="w-full rounded-xl bg-emerald-400 text-[#0b0f19] p-3 font-semibold disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
+            <button disabled={busy || coverBusy || !draft.title.trim()} className="w-full rounded-xl bg-emerald-400 text-[#0b0f19] p-3 font-semibold disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
           </fieldset>
         </form>}
       </div>
