@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, ImagePlus, Search } from 'lucide-react';
 import { healthHeaders, responseError } from '../healthConnection';
@@ -12,14 +13,50 @@ export type CatalogInfo = {
 };
 type PosterOption = { id: number; title: string; year: string; image: string; url: string };
 type PosterResponse = { poster_state?: string; poster_options?: PosterOption[]; image?: string; poster_source?: 'TMDB' };
-export function Poster({ image, title = '' }: { image?: string | null; title?: string }) {
+export function Poster({ image, title = '', score }: { image?: string | null; title?: string; score?: number | null }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [image]);
-  return <div className="catalog-poster">{image && !failed ? <img src={image} alt={title} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <div className="catalog-placeholder"><BookOpen size={28} /><span>{title || 'Твоя следующая история'}</span></div>}</div>;
+  return <div className="catalog-poster">{image && !failed ? <img src={image} alt={title} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <div className="catalog-placeholder"><BookOpen size={28} /><span>{title || 'Твоя следующая история'}</span></div>}{score != null && <span className="poster-rating" title="Моя оценка" aria-label={`Моя оценка: ${score.toFixed(1)} из 10`}><span aria-hidden="true">★</span>{score.toFixed(1)}</span>}</div>;
 }
-export function CatalogFacts({ info }: { info?: CatalogInfo | null }) {
+export function WatchTitle({ title }: { title: string }) {
+  const [open, setOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, [open]);
+  return <><h3 className="watch-title"><button type="button" aria-label={`Открыть полное название: ${title}`} aria-haspopup="dialog" onClick={()=>setOpen(true)}><span>{title}</span></button></h3>{open && createPortal(<dialog ref={dialog} className="catalog-title-dialog" aria-label="Полное название" onCancel={()=>setOpen(false)} onClose={()=>setOpen(false)}><div className="catalog-info-heading"><h2>Полное название</h2><button type="button" aria-label="Закрыть название" onClick={()=>setOpen(false)}>✕</button></div><p>{title}</p></dialog>,document.body)}</>;
+}
+export function CatalogFacts({ info, compact = false, title }: { info?: CatalogInfo | null; compact?: boolean; title?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const panel = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!expanded) return;
+    const previous = document.activeElement as HTMLElement | null;
+    panel.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setExpanded(false); } };
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('keydown', escape); previous?.focus(); };
+  }, [expanded]);
   if (!info) return null;
-  return <div className="catalog-facts"><div className="catalog-tags">{[info.year, info.runtime ? `${info.runtime} мин` : '', info.seasons ? `Сезонов: ${info.seasons}` : '', info.studio, info.publisher, ...(info.genres || []).slice(0, 3)].filter(Boolean).map((text, index) => <span key={index}>{text}</span>)}{info.score != null && <span className="catalog-score">★ {info.score.toFixed(1)} · {info.source}</span>}</div>{info.original_title && info.original_title !== info.title && <p>{info.original_title}</p>}{info.description && <details><summary>Описание</summary><p className="catalog-description">{info.description}</p></details>}<small>Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}{info.source === 'Open Library' && ' · Проверь издание и число страниц'}</small></div>;
+  const tags = [info.year, info.runtime ? `${info.runtime} мин` : '', info.seasons ? `Сезонов: ${info.seasons}` : '', info.studio, info.publisher, ...(info.genres || [])].filter(Boolean);
+  if (compact) return <div className="catalog-facts is-compact">
+    <div className="catalog-tags">{tags.slice(0,2).map((tag,index)=><span key={index} title={tag}>{tag}</span>)}{tags.length > 2 && <button type="button" className="catalog-tags-toggle" aria-expanded={expanded} aria-haspopup="dialog" onClick={()=>setExpanded(true)}>+{tags.length-2}</button>}</div>
+    <p className="catalog-original" title={info.original_title}>{info.original_title && info.original_title !== title ? info.original_title : '\u00a0'}</p>
+    <button type="button" className="catalog-more" aria-haspopup="dialog" onClick={()=>setExpanded(true)}>Подробнее</button>
+    <small className="catalog-source">Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}</small>
+    {expanded && createPortal(<div className="catalog-info-overlay" onClick={event=>{if(event.target===event.currentTarget)setExpanded(false);}}><div ref={panel} role="dialog" aria-modal="true" aria-label={title || info.title} className="catalog-info-panel" onKeyDown={event=>{
+      if(event.key!=='Tab')return;
+      const controls=panel.current?.querySelectorAll<HTMLElement>('button, a[href]');
+      const first=controls?.[0],last=controls?.[controls.length-1];
+      if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}
+      else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}
+    }}><div className="catalog-info-heading"><h3>{title || info.title}</h3><button type="button" aria-label="Закрыть подробности" onClick={()=>setExpanded(false)}>✕</button></div><div className="catalog-tags">{tags.map((tag,index)=><span key={index}>{tag}</span>)}</div>{info.original_title && <p>{info.original_title}</p>}{info.description && <p className="catalog-description">{info.description}</p>}<small>Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}</small></div></div>,document.body)}
+  </div>;
+  const shown = tags;
+  return <div className={`catalog-facts ${compact ? 'is-compact' : ''}`}><div className="catalog-tags">{shown.map((text, index) => <span key={index}>{text}</span>)}{compact && tags.length > 2 && <button type="button" className="catalog-tags-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Свернуть' : `+${tags.length - 2}`}</button>}</div>{info.original_title && info.original_title !== info.title && <p>{info.original_title}</p>}{info.description && <details><summary>Описание</summary><p className="catalog-description">{info.description}</p></details>}<small>Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}{info.source === 'Open Library' && ' · Проверь издание и число страниц'}</small></div>;
 }
 export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onBusy, onPoster }: {
   kind: 'book' | 'movie' | 'series' | 'anime'; title: string; info?: CatalogInfo | null; image?: string | null;

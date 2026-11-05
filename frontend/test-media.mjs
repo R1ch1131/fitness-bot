@@ -134,7 +134,7 @@ test('catalog selection fills full title and episodes but preserves personal fie
   button(p.render(), 'Добавить').props.onClick();
   const input = (type, value) => find(p.render(), n=>n.type===type && n.props?.value===value);
   input('textarea', '').props.onChange({target:{value:'Моя заметка'}});
-  find(p.render(), n=>n.type==='input' && n.props?.step===0.5).props.onChange({target:{value:'9'}});
+  find(p.render(), n=>n.type?.name==='RatingInput').props.onChange(9);
   find(p.render(), n=>n.type==='CatalogPicker').props.onSelect({source:'Shikimori',external_id:'52991',title:'Полное название',image:'https://shikimori.one/system/animes/original/52991.jpg',episodes:28,score:8.5});
   find(p.render(), n=>n.type==='form').props.onSubmit({preventDefault(){}});
   await tick();
@@ -153,7 +153,7 @@ test('choosing a replacement anime poster preserves title, episodes, notes and r
   button(p.render(), 'Добавить').props.onClick();
   find(p.render(), n=>n.type==='CatalogPicker').props.onSelect({source:'Shikimori',external_id:'1535',title:'Тетрадь смерти',episodes:37,score:8.6});
   find(p.render(), n=>n.type==='textarea').props.onChange({target:{value:'Моя заметка'}});
-  find(p.render(), n=>n.type==='input' && n.props?.step===0.5).props.onChange({target:{value:'9'}});
+  find(p.render(), n=>n.type?.name==='RatingInput').props.onChange(9);
   find(p.render(), n=>n.type==='input' && n.props?.value===37).props.onChange({target:{value:'40'}});
   find(p.render(), n=>n.type==='CatalogPicker').props.onPoster('https://image.tmdb.org/t/p/w500/poster.jpg');
   find(p.render(), n=>n.type==='form').props.onSubmit({preventDefault(){}});
