@@ -1,3 +1,6 @@
+import { DarkSelect } from './DarkSelect';
+import { CatalogPicker, CatalogFacts, Poster } from './CatalogPicker';
+import type { CatalogInfo } from './CatalogPicker';
 import React, { useState } from 'react';
 import { 
   BookOpen, Plus, CheckCircle2, Star, Trash2, 
@@ -10,6 +13,8 @@ interface LibraryTabProps {
   data: BooksResponse | null;
   isLoading: boolean;
   onAddBook: (book: {
+    catalog?: CatalogInfo | null;
+    cover_image?: string | null;
     title: string;
     author: string;
     category: string;
@@ -44,6 +49,11 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   const [inlineDirectPageInput, setInlineDirectPageInput] = useState<string>('');
 
   // New book form state
+  const [newCatalog, setNewCatalog] = useState<CatalogInfo | null>(null);
+  const [newCover, setNewCover] = useState('');
+  const [editCatalog, setEditCatalog] = useState<CatalogInfo | null>(null);
+  const [editCover, setEditCover] = useState('');
+  const [catalogBusy, setCatalogBusy] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newAuthor, setNewAuthor] = useState('');
   const [newCategory, setNewCategory] = useState('Саморазвитие');
@@ -93,6 +103,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   ];
 
   const handleOpenAddModal = () => {
+    setNewCatalog(null); setNewCover('');
     setNewTitle('');
     setNewAuthor('');
     setNewCategory('Саморазвитие');
@@ -112,6 +123,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
     const cur = newStatus === 'finished' ? tot : (parseInt(newCurrentPage, 10) || 0);
 
     await onAddBook({
+      catalog: newCatalog, cover_image: newCover,
       title: newTitle.trim(),
       author: newAuthor.trim(),
       category: newCategory,
@@ -127,6 +139,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
 
   const handleOpenEditModal = (book: BookItem) => {
     setEditingBook(book);
+    setEditCatalog(book.catalog || null); setEditCover(book.cover_image || '');
     setEditTitle(book.title);
     setEditAuthor(book.author);
     setEditCategory(book.category || 'Саморазвитие');
@@ -145,6 +158,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
     const cur = editStatus === 'finished' ? tot : (parseInt(editCurrentPage, 10) || 0);
 
     await onUpdateBook(editingBook.id, {
+      catalog: editCatalog, cover_image: editCover,
       title: editTitle.trim(),
       author: editAuthor.trim(),
       category: editCategory,
@@ -374,6 +388,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                     : 'border-[#1e293b]'
                 }`}
               >
+                <div className="book-cover-row"><Poster image={book.cover_image} title={book.title} /><div><span className="catalog-eyebrow">{book.status === 'reading' ? 'Между страницами' : 'На моей полке'}</span><CatalogFacts info={book.catalog} /></div></div>
                 {/* Header Row */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
@@ -647,6 +662,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                 />
               </div>
 
+              <CatalogPicker kind="book" title={newTitle} info={newCatalog} image={newCover} onBusy={setCatalogBusy} onImage={setNewCover} onSelect={info => { setNewCatalog(info); setNewCover(info.image || ''); setNewTitle(info.title); setNewAuthor(info.author || ''); if (info.pages) setNewTotalPages(String(info.pages)); }} />
               <div>
                 <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
                   Автор *
@@ -665,17 +681,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                 <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
                   Категория
                 </label>
-                <select
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className="w-full bg-[#0b0f19] border border-[#1e293b] rounded-2xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00d084]"
-                >
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                <DarkSelect label="Категория книги" value={newCategory} onChange={setNewCategory} options={categories.map(value => ({value,label:value}))} />
               </div>
 
               {/* Status Selector */}
@@ -855,6 +861,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                   Отмена
                 </button>
                 <button
+                  disabled={catalogBusy}
                   type="submit"
                   className="w-1/2 py-2.5 rounded-2xl bg-[#00d084] hover:bg-[#00b573] text-[#0b0f19] font-bold text-xs shadow-lg shadow-[#00d084]/20"
                 >
@@ -897,6 +904,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                 />
               </div>
 
+              <CatalogPicker kind="book" title={editTitle} info={editCatalog} image={editCover} onBusy={setCatalogBusy} onImage={setEditCover} onSelect={info => { setEditCatalog(info); setEditCover(info.image || ''); setEditTitle(info.title); setEditAuthor(info.author || ''); if (info.pages) setEditTotalPages(String(info.pages)); }} />
               <div>
                 <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
                   Автор *
@@ -914,17 +922,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                 <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
                   Категория
                 </label>
-                <select
-                  value={editCategory}
-                  onChange={(e) => setEditCategory(e.target.value)}
-                  className="w-full bg-[#0b0f19] border border-[#1e293b] rounded-2xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#38bdf8]"
-                >
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                <DarkSelect label="Категория книги" value={editCategory} onChange={setEditCategory} options={categories.map(value => ({value,label:value}))} />
               </div>
 
               {/* Status Selector */}
@@ -1066,6 +1064,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                   Отмена
                 </button>
                 <button
+                  disabled={catalogBusy}
                   type="submit"
                   className="w-1/2 py-2.5 rounded-2xl bg-[#38bdf8] hover:bg-[#0284c7] text-[#0b0f19] font-bold text-xs shadow-lg shadow-[#38bdf8]/20"
                 >

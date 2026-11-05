@@ -1,3 +1,5 @@
+import { CatalogPicker, CatalogFacts, Poster } from './CatalogPicker';
+import type { CatalogInfo } from './CatalogPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck } from 'lucide-react';
 import { healthHeaders, responseError } from '../healthConnection';
@@ -16,7 +18,7 @@ const kinds = {
 const statuses = { planned: 'В планах', active: 'В процессе', finished: 'Завершено' };
 type Kind = keyof typeof kinds;
 type Status = keyof typeof statuses;
-type MediaDraft = { title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string; cover_image?: string | null };
+type MediaDraft = { title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string; cover_image?: string | null; catalog?: CatalogInfo | null };
 type MediaItem = MediaDraft & { id: string; updated_at: string; steam_appid?: number; steam_playtime_minutes?: number; steam_last_played?: number; steam_recent_minutes?: number; steam_header_image?: string | null; steam_genres?: string[]; steam_achievements?: { unlocked: number; total: number } };
 const emptyDraft = (kind: Kind): MediaDraft => ({ title: '', kind, status: 'planned', progress: 0, total: null, rating: null, notes: '' });
 const inputClass = 'w-full rounded-xl bg-[#0b0f19] border border-[#334155] p-3 text-white';
@@ -239,6 +241,7 @@ export function MediaTab() {
         {!!knownAchievements.length && knownAchievements.length < steamGames.length && <p className="game-library-note">Достижения посчитаны для {knownAchievements.length} из {steamGames.length} игр Steam. Открой остальные карточки, чтобы загрузить данные.</p>}
       </div>
     </> : <>
+    <div className="watch-heading"><span className="catalog-eyebrow">Твоя личная коллекция</span><h2>{kind === 'movie' ? 'Мой кинотеатр' : kind === 'series' ? 'Ещё одна серия' : 'Миры аниме'}</h2><p>Сохраняй находки, отмечай просмотренное и собирай впечатления.</p></div>
     <div className="grid grid-cols-3 gap-2">
       {(Object.keys(statuses) as Status[]).map(status => <div key={status} className="rounded-2xl bg-[#111726] p-3 text-center"><p className="text-xl font-bold">{categoryItems.filter(item => item.status === status).length}</p><p className="text-xs text-[#94a3b8]">{statuses[status]}</p></div>)}
     </div>
@@ -249,15 +252,16 @@ export function MediaTab() {
     {error && !hasModal && <div role="alert" className="text-sm text-rose-300">{error}<button onClick={() => void load()} className="underline ml-2">Повторить</button></div>}
     {loading && <p role="status" className="text-sm text-[#94a3b8]">Загружаем коллекцию…</p>}
     {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#334155] p-8 text-center text-[#94a3b8]">{categoryItems.length ? 'Ничего не найдено. Измени поиск или статус.' : 'Пока пусто. Добавь то, во что хочешь сыграть или что посмотреть.'}</div>}
-    {visible.map(item => <article key={item.id} className="rounded-3xl bg-[#111726] border border-[#1e293b] p-5 space-y-3">
-      <div className="flex justify-between gap-3"><div className="min-w-0"><h3 className="font-semibold break-words">{item.title}</h3><p className="text-xs text-emerald-400 mt-1">{statuses[item.status]}</p></div>
-        <div className="flex shrink-0 gap-1"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => { setEditingId(item.id); setDraft({ ...item }); }} className="p-2 text-[#94a3b8] disabled:opacity-40"><Pencil size={17} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)} className="p-2 text-[#94a3b8] disabled:opacity-40"><Trash2 size={17} /></button></div>
-      </div>
-      {item.kind !== 'movie' && <div><p className="text-xs text-[#94a3b8] mb-2">{item.kind === 'game' ? `${item.progress}% пройдено` : `${item.progress}${item.total ? ` из ${item.total}` : ''} серий`}</p>{item.total && <progress className="w-full h-2 accent-emerald-400" aria-label={`Прогресс: ${item.title}`} value={item.progress} max={item.total} />}</div>}
-      {item.kind === 'game' && item.steam_playtime_minutes !== undefined && <p className="text-sm text-[#94a3b8]">Steam · {Math.floor(item.steam_playtime_minutes / 60)} ч {item.steam_playtime_minutes % 60} мин{item.steam_appid && <a href={`https://store.steampowered.com/app/${item.steam_appid}/`} target="_blank" rel="noopener noreferrer" className="ml-2 underline">Страница игры</a>}</p>}
-      {item.rating !== null && <p className="text-sm text-amber-300">★ {item.rating} / 10</p>}
-      {item.notes && <p className="text-sm text-[#94a3b8] whitespace-pre-wrap break-words">{item.notes}</p>}
-    </article>)}
+    <div className="watch-grid">{visible.map(item => <article key={item.id} className="watch-card">
+      <Poster image={item.cover_image} title={item.title} />
+      <div className="watch-card-body"><p className="text-xs text-emerald-300 mb-2">{statuses[item.status]}</p><h3>{item.title}</h3>
+      <CatalogFacts info={item.catalog} />
+      {item.kind !== 'movie' && <div><p className="text-xs text-[#94a3b8] mb-2">{item.progress}{item.total ? ` из ${item.total}` : ''} серий</p>{item.total && <progress aria-label={`Прогресс: ${item.title}`} value={item.progress} max={item.total} />}{item.status !== 'finished' && <button className="text-xs text-emerald-300 mt-2" disabled={busy || !ready || loading} onClick={() => void mutate(`/api/media/${item.id}`, 'PUT', {...item, progress:item.progress + 1})}>+1 серия</button>}</div>}
+      {item.rating !== null && <p className="text-sm text-amber-300 mt-2">Моя оценка: ★ {item.rating} / 10</p>}
+      {item.notes && <p className="text-xs text-[#94a3b8] whitespace-pre-wrap break-words mt-2">{item.notes}</p>}
+      <div className="watch-card-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={16} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={16} /></button></div></div>
+    </article>)}</div>
+    {(kind === 'movie' || kind === 'series') && <details className="catalog-credits"><summary>О каталогах и источниках</summary><img alt="TMDB" src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" /><a href="https://www.themoviedb.org" target="_blank" rel="noreferrer">Данные и изображения: TMDB</a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></details>}
     </>}
     {selectedGame && <GameDetailsDialog key={selectedGame.id} item={selectedGame} onClose={() => setSelectedGame(null)} onLoaded={detailsLoaded} />}
     {hasModal && <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4" onKeyDown={event => {
@@ -281,6 +285,7 @@ export function MediaTab() {
               {coverError && <p role="alert" className="text-rose-300">{coverError}</p>}
               {!!coverResults.length && <div className="manual-cover-results" aria-label="Найденные обложки">{coverResults.map(result => <button key={result.image} type="button" aria-label={`Выбрать обложку: ${result.title}`} onClick={() => { setDraft({ ...draft, title: result.title, cover_image: result.image }); setCoverResults([]); }}><GameArt image={result.image} /><span>{result.title}</span></button>)}</div>}
             </div>}
+            {draft.kind !== 'game' && <CatalogPicker key={editingId || 'new'} kind={draft.kind} title={draft.title} info={draft.catalog} image={draft.cover_image} onBusy={setCoverBusy} onImage={image => setDraft(current => current ? {...current, cover_image:image} : current)} onSelect={info => setDraft(current => current ? {...current, title:info.title, catalog:info, cover_image:info.image || null, total:info.episodes && info.episodes >= current.progress ? info.episodes : current.total} : current)} />}
             <div className="space-y-2"><span className="block text-sm">Статус</span><DarkSelect label="Статус" value={draft.status} disabled={busy} onChange={value => setDraft({ ...draft, status: value as Status })} options={(Object.keys(statuses) as Status[]).map(key => ({value:key,label:statuses[key],icon:<span className={`select-status-dot ${key}`} />}))} /></div>
             {draft.kind !== 'movie' && <label className="block text-sm">{episodic ? 'Просмотрено серий' : 'Пройдено, %'}<input type="number" min={0} max={episodic ? draft.total ?? undefined : 100} step={1} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: Number(event.target.value) })} className={inputClass} /></label>}
             {episodic && <label className="block text-sm">Всего серий (если известно)<input type="number" min={1} step={1} value={draft.total ?? ''} onChange={event => setDraft({ ...draft, total: event.target.value ? Number(event.target.value) : null })} className={inputClass} /></label>}

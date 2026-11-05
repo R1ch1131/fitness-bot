@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field, model_validator
 
 from cloud_storage import get_cloud_data, set_cloud_data
 from config import DATA_DIR
+from catalog import CatalogInfo
 
 
 class MediaInput(BaseModel):
+    catalog: CatalogInfo | None = None
     title: str = Field(min_length=1, max_length=200)
     kind: Literal['game', 'movie', 'series', 'anime']
     status: Literal['planned', 'active', 'finished'] = 'planned'
@@ -81,6 +83,8 @@ class MediaLibrary:
                     'created_at': old['created_at'] if old else now, 'updated_at': now}
             if old and 'cover_image' not in value.model_fields_set:
                 item['cover_image'] = old.get('cover_image')
+            if old and 'catalog' not in value.model_fields_set:
+                item['catalog'] = old.get('catalog')
             if value.kind != 'game':
                 item = {key: val for key, val in item.items() if not key.startswith('steam_')}
             items = [item if entry['id'] == item_id else entry for entry in items] if old else [*items, item]
