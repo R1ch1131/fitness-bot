@@ -1,4 +1,4 @@
-import { CatalogPicker, CatalogFacts, Poster } from './CatalogPicker';
+import { CatalogPicker, CatalogFacts, Poster, WatchTitle } from './CatalogPicker';
 import type { CatalogInfo } from './CatalogPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck } from 'lucide-react';
@@ -29,6 +29,20 @@ function cachedItems(): MediaItem[] {
     const items = JSON.parse(localStorage.getItem(cacheKey) || '[]');
     return Array.isArray(items) ? items.filter(item => item && item.kind in kinds && item.status in statuses && typeof item.title === 'string' && typeof item.id === 'string') : [];
   } catch { return []; }
+}
+
+function RatingInput({ value, onChange }: { value: number | null; onChange: (value: number | null) => void }) {
+  const [text, setText] = useState(value == null ? '' : String(value));
+  useEffect(() => {
+    setText(current => (current === '' && value == null) || (current !== '' && Number(current.replace(',', '.')) === value) ? current : value == null ? '' : String(value));
+  }, [value]);
+  return <input type="text" inputMode="decimal" pattern="(?:10(?:[.,]0)?|[0-9](?:[.,][0-9])?)" title="Оценка от 0 до 10, например 5.5 или 5,5" placeholder="Например, 5.5" value={text} onChange={event=>{
+    const next=event.target.value;
+    if (!/^\d{0,2}([.,]\d?)?$/.test(next)) return;
+    setText(next);
+    if (next === '') onChange(null);
+    else { const number=Number(next.replace(',', '.')); if (Number.isFinite(number) && number>=0 && number<=10) onChange(number); }
+  }} className={inputClass} />;
 }
 
 export function MediaTab() {
@@ -253,13 +267,12 @@ export function MediaTab() {
     {loading && <p role="status" className="text-sm text-[#94a3b8]">Загружаем коллекцию…</p>}
     {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#334155] p-8 text-center text-[#94a3b8]">{categoryItems.length ? 'Ничего не найдено. Измени поиск или статус.' : 'Пока пусто. Добавь то, во что хочешь сыграть или что посмотреть.'}</div>}
     <div className="watch-grid">{visible.map(item => <article key={item.id} className="watch-card">
-      <Poster image={item.cover_image} title={item.title} />
-      <div className="watch-card-body"><p className="text-xs text-emerald-300 mb-2">{statuses[item.status]}</p><h3>{item.title}</h3>
-      <CatalogFacts info={item.catalog} />
-      {item.kind !== 'movie' && <div><p className="text-xs text-[#94a3b8] mb-2">{item.progress}{item.total ? ` из ${item.total}` : ''} серий</p>{item.total && <progress aria-label={`Прогресс: ${item.title}`} value={item.progress} max={item.total} />}{item.status !== 'finished' && <button className="text-xs text-emerald-300 mt-2" disabled={busy || !ready || loading} onClick={() => void mutate(`/api/media/${item.id}`, 'PUT', {...item, progress:item.progress + 1})}>+1 серия</button>}</div>}
-      {item.rating !== null && <p className="text-sm text-amber-300 mt-2">Моя оценка: ★ {item.rating} / 10</p>}
-      {item.notes && <p className="text-xs text-[#94a3b8] whitespace-pre-wrap break-words mt-2">{item.notes}</p>}
-      <div className="watch-card-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={16} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={16} /></button></div></div>
+      <Poster image={item.cover_image} title={item.title} score={item.rating} />
+      <div className="watch-card-body"><p className="text-xs text-emerald-300 mb-2">{statuses[item.status]}</p><WatchTitle title={item.title} />
+      {item.catalog ? <CatalogFacts info={item.catalog} title={item.title} compact /> : <div className="catalog-facts is-compact" />}
+      {item.kind !== 'movie' ? <div className="watch-card-progress"><div><span>{item.progress}{item.total ? ` из ${item.total}` : ''} серий</span>{item.total && <strong>{Math.min(100, Math.round(item.progress / item.total * 100))}%</strong>}</div>{item.total && <progress aria-label={`Прогресс: ${item.title}`} value={item.progress} max={item.total} />}</div> : <div className="watch-card-progress" />}
+      <p className="watch-card-note" title={item.notes}>{item.notes || '\u00a0'}</p>
+      <div className="watch-card-actions">{item.kind !== 'movie' && item.status !== 'finished' && <button className="watch-next-episode" disabled={busy || !ready || loading} onClick={() => void mutate(`/api/media/${item.id}`, 'PUT', {...item, progress:item.progress + 1})}>+1 серия</button>}<div className="watch-edit-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={16} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={16} /></button></div></div></div>
     </article>)}</div>
     {(kind === 'movie' || kind === 'series' || kind === 'anime') && <details className="catalog-credits"><summary>О каталогах и источниках</summary><img alt="TMDB" src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" /><a href="https://www.themoviedb.org" target="_blank" rel="noreferrer">Данные и изображения: TMDB</a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></details>}
     </>}
@@ -289,7 +302,7 @@ export function MediaTab() {
             <div className="space-y-2"><span className="block text-sm">Статус</span><DarkSelect label="Статус" value={draft.status} disabled={busy} onChange={value => setDraft({ ...draft, status: value as Status })} options={(Object.keys(statuses) as Status[]).map(key => ({value:key,label:statuses[key],icon:<span className={`select-status-dot ${key}`} />}))} /></div>
             {draft.kind !== 'movie' && <label className="block text-sm">{episodic ? 'Просмотрено серий' : 'Пройдено, %'}<input type="number" min={0} max={episodic ? draft.total ?? undefined : 100} step={1} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: Number(event.target.value) })} className={inputClass} /></label>}
             {episodic && <label className="block text-sm">Всего серий (если известно)<input type="number" min={1} step={1} value={draft.total ?? ''} onChange={event => setDraft({ ...draft, total: event.target.value ? Number(event.target.value) : null })} className={inputClass} /></label>}
-            <label className="block text-sm">Оценка от 0 до 10<input type="number" min={0} max={10} step={0.5} value={draft.rating ?? ''} onChange={event => setDraft({ ...draft, rating: event.target.value ? Number(event.target.value) : null })} className={inputClass} /></label>
+            <label className="block text-sm">Оценка от 0 до 10<RatingInput value={draft.rating} onChange={rating => setDraft(current => current ? {...current, rating} : current)} /><span className="block text-xs text-[#94a3b8] mt-1">Можно дробную: 5.5 или 5,5</span></label>
             <label className="block text-sm">Заметки<textarea rows={3} maxLength={10000} value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} className={inputClass} /></label>
             <button disabled={busy || coverBusy || !draft.title.trim()} className="w-full rounded-xl bg-emerald-400 text-[#0b0f19] p-3 font-semibold disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
           </fieldset>
