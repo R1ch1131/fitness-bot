@@ -82,6 +82,20 @@ def _ol_results(data):
     return results
 
 
+def rank_google_books(items, title, author):
+    def words(value):
+        return set(re.findall(r'[a-z0-9]+',romanize(value)))
+    author_words={word for word in words(author) if len(word)>2}
+    title_words=words(title)
+    summary=re.compile(r'кратк(?:ое|ий) (?:изложение|содержание|пересказ)|\bкратко\b|саммари|\bsummary\b|\bsummar(?:y|ized)\b|вся суть из книги',re.I)
+    def priority(item):
+        candidate=words(item['title'])
+        return (bool(summary.search(item['title'])),
+                bool(author_words and not (author_words & words(item.get('author','')))),
+                -len(title_words & candidate),not bool(item.get('image')))
+    return sorted(items,key=priority)
+
+
 def find_books(title, author, get_json):
     results=[]; failures=0; successes=0
     isbn=re.sub(r'[-\s]','',title.strip())
@@ -89,13 +103,13 @@ def find_books(title, author, get_json):
     if os.getenv('GOOGLE_BOOKS_API_KEY','').strip():
         query=title.strip()
         if is_isbn:query='isbn:'+isbn
-        elif author.strip():query += ' '+author.strip()
+        else:query='intitle:"'+title.replace('"',' ').strip()+'"'
         try:
-            payload=_google_get('volumes',{'q':query,'maxResults':8,'printType':'books'},get_json)
-            results=[result for item in payload.get('items',[]) if (result:=google_volume(item))]
+            payload=_google_get('volumes',{'q':query,'maxResults':20,'printType':'books'},get_json)
+            results=rank_google_books([result for item in payload.get('items',[]) if (result:=google_volume(item))],title,author)
             successes+=1
         except HTTPException:failures+=1
-    if len(results)>=8:
+    if results:
         return results[:8]
     fields='key,title,author_name,first_publish_year,cover_i,editions,editions.key,editions.title,editions.cover_i'
     queries=[{'q':'isbn:'+isbn}] if is_isbn else [{'title':title}]

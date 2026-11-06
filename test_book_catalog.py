@@ -43,4 +43,27 @@ class BookCatalogTests(unittest.TestCase):
   with patch.dict('os.environ',{'GOOGLE_BOOKS_API_KEY':''}):items=find_books('12 недель в году','Брайан Моран и Майкл Леннингтон',get)
   self.assertEqual(items[0]['title'],'The 12-week year')
 
+class GoogleRelevanceTests(unittest.TestCase):
+ def test_original_editions_precede_summaries_and_query_is_title_scoped(self):
+  seen=[]
+  def get(url):
+   query=parse_qs(urlsplit(url).query);seen.append(query)
+   return {'items':[
+    {'id':'summary','volumeInfo':{'title':'12 недель в году. Кратко','authors':['Культур-Мультур']}},
+    {'id':'original','volumeInfo':{'title':'12 недель в году','authors':['Брайан Моран']}},
+    {'id':'frankl','volumeInfo':{'title':'Краткая история времени','authors':['Стивен Хокинг']}}
+   ]}
+  with patch.dict('os.environ',{'GOOGLE_BOOKS_API_KEY':'secret'}):items=find_books('12 недель в году','Брайан Моран',get)
+  self.assertEqual(items[0]['external_id'],'google:original')
+  self.assertEqual(seen[0]['q'],['intitle:"12 недель в году"'])
+  self.assertEqual(seen[0]['maxResults'],['20'])
+  self.assertEqual(len(seen),1)
+ def test_isbn_keeps_exact_query(self):
+  seen=[]
+  def get(url):
+   query=parse_qs(urlsplit(url).query);seen.append(query)
+   return {'items':[{'id':'edition','volumeInfo':{'title':'Book'}}]}
+  with patch.dict('os.environ',{'GOOGLE_BOOKS_API_KEY':'secret'}):find_books('978-5-17-112622-3','Other author',get)
+  self.assertEqual(seen[0]['q'],['isbn:9785171126223'])
+
 if __name__=='__main__':unittest.main()
