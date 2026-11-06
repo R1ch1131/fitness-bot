@@ -17,7 +17,7 @@ def normalize_cover(value):
         return None
     if value.startswith('https://'):
         host = urllib.parse.urlparse(value).hostname
-        if not _image(value) and host not in ('covers.openlibrary.org', 'cdn.myanimelist.net', 'image.tmdb.org', 'shikimori.one'):
+        if not _image(value) and host not in ('covers.openlibrary.org', 'cdn.myanimelist.net', 'image.tmdb.org', 'shikimori.one', 'books.google.com', 'books.googleusercontent.com'):
             raise ValueError('Выбери обложку из поиска или загрузи картинку')
         return value
     try:
