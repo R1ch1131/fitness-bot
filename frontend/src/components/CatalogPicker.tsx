@@ -46,7 +46,6 @@ export function CatalogFacts({ info, compact = false, title }: { info?: CatalogI
     <div className="catalog-tags">{tags.slice(0,2).map((tag,index)=><span key={index} title={tag}>{tag}</span>)}{tags.length > 2 && <button type="button" className="catalog-tags-toggle" aria-expanded={expanded} aria-haspopup="dialog" onClick={()=>setExpanded(true)}>+{tags.length-2}</button>}</div>
     <p className="catalog-original" title={info.original_title}>{info.original_title && info.original_title !== title ? info.original_title : '\u00a0'}</p>
     <button type="button" className="catalog-more" aria-haspopup="dialog" onClick={()=>setExpanded(true)}>Подробнее</button>
-    <small className="catalog-source">Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}</small>
     {expanded && createPortal(<div className="catalog-info-overlay" onClick={event=>{if(event.target===event.currentTarget)setExpanded(false);}}><div ref={panel} role="dialog" aria-modal="true" aria-label={title || info.title} className="catalog-info-panel" onKeyDown={event=>{
       if(event.key!=='Tab')return;
       const controls=panel.current?.querySelectorAll<HTMLElement>('button, a[href]');

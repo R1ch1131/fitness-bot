@@ -19,7 +19,7 @@ from config import BASE_DIR, DATA_DIR, WORKOUTS_CACHE_FILE, ROUTINES_CACHE_FILE
 
 from habits_manager import HabitsManager
 from books_manager import BooksManager
-from media_library import router as media_router
+from media_library import router as media_router, library as media_store, RestoreMediaInput, MediaBackupItem
 from catalog import router as catalog_router, CatalogInfo
 
 # Initialize Coach singleton
@@ -986,6 +986,7 @@ class SyncBooksPayload(BaseModel):
     books: List[Dict[str, Any]]
 
 class RestoreBackupPayload(BaseModel):
+    media: Optional[List[MediaBackupItem]] = None
     books: Optional[List[Dict[str, Any]]] = None
     habits: Optional[List[Dict[str, Any]]] = None
 
@@ -1005,12 +1006,15 @@ def get_backup():
     return {
         "timestamp": datetime.now(TZ_GMT6).isoformat(),
         "books": books_mgr.get_books(),
-        "habits": habits_mgr.get_habits()
+        "habits": habits_mgr.get_habits(),
+        "media": media_store.items()
     }
 
 @app.post("/api/restore")
 def restore_backup(req: RestoreBackupPayload):
     """Restores library and habits from JSON backup."""
+    if req.media is not None:
+        media_store.restore(RestoreMediaInput(items=req.media))
     if req.books is not None:
         books_mgr._save(req.books)
     if req.habits is not None:

@@ -1,7 +1,7 @@
 import { CatalogPicker, CatalogFacts, Poster, WatchTitle } from './CatalogPicker';
 import type { CatalogInfo } from './CatalogPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck, Download, Upload } from 'lucide-react';
 import { healthHeaders, responseError } from '../healthConnection';
 import { GameArt, GameDetailsDialog } from './GameDetailsDialog';
 import type { GameDetails } from './GameDetailsDialog';
@@ -45,6 +45,8 @@ function RatingInput({ value, onChange }: { value: number | null; onChange: (val
   }} className={inputClass} />;
 }
 
+type StorageStatus = { backend: 'upstash' | 'local' | 'demo'; state: string; count?: number; message?: string };
+
 export function MediaTab() {
   const [items, setItems] = useState<MediaItem[]>(cachedItems);
   const [kind, setKind] = useState<Kind>('game');
@@ -54,6 +56,9 @@ export function MediaTab() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [storage, setStorage] = useState<StorageStatus | null>(null);
+  const [storageBusy, setStorageBusy] = useState(false);
+  const storageRequest = useRef<AbortController | null>(null);
   const [syncMessage, setSyncMessage] = useState('');
   const [selectedGame, setSelectedGame] = useState<MediaItem | null>(null);
   const [sort, setSort] = useState('recent');
@@ -107,9 +112,46 @@ export function MediaTab() {
   const controller = useRef<AbortController | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
 
-  function accept(data: { items: MediaItem[] }) {
+  function accept(data: { items: MediaItem[]; storage?: StorageStatus }) {
     setItems(data.items);
+    if (data.storage) setStorage(data.storage);
     try { localStorage.setItem(cacheKey, JSON.stringify(data.items)); } catch { /* Server remains authoritative. */ }
+  }
+
+  async function checkStorage() {
+    storageRequest.current?.abort(); const request = new AbortController(); storageRequest.current = request;
+    setStorageBusy(true);
+    try {
+      const response = await fetch('/api/media/storage', {headers:healthHeaders(), signal:request.signal});
+      if (!response.ok) throw await responseError(response);
+      const data: StorageStatus = await response.json();
+      if (!request.signal.aborted) setStorage(data);
+    } catch(err) { if (!request.signal.aborted) setStorage(current=>({...current,backend:current?.backend || 'local',state:'error',message:(err as Error).message})); }
+    finally { if (!request.signal.aborted) setStorageBusy(false); }
+  }
+
+  function exportMedia() {
+    const blob = new Blob([JSON.stringify({version:1,timestamp:new Date().toISOString(),items},null,2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href=url; link.download=`fitpulse-media-${new Date().toISOString().slice(0,10)}.json`;
+    link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
+  async function importMedia(file?: File) {
+    if (!file) return;
+    setError('');
+    try {
+      if (file.size>25_000_000) throw new Error('Файл резервной копии слишком большой — максимум 25 МБ.');
+      const payload = JSON.parse(await file.text());
+      const restored = Array.isArray(payload) ? payload : payload.items ?? payload.media;
+      if (!Array.isArray(restored) || restored.some(item=>!item || typeof item.id!=='string' || typeof item.title!=='string' || !(item.kind in kinds))) throw new Error('В файле нет корректной коллекции «Досуг».');
+      if (!window.confirm(`Заменить всю коллекцию «Досуг» (${items.length} записей) данными из файла (${restored.length} записей)? Перед заменой скачай текущую копию.`)) return;
+      controller.current?.abort(); setLoading(false); setBusy(true);
+      const response = await fetch('/api/media/restore', {method:'POST',headers:{...healthHeaders(),'Content-Type':'application/json'},body:JSON.stringify({items:restored})});
+      if (!response.ok) throw await responseError(response);
+      accept(await response.json()); setReady(true); setSyncMessage(`Коллекция восстановлена: ${restored.length} записей.`);
+    } catch(err) { setError((err as Error).message); }
+    finally { setBusy(false); }
   }
 
   async function load() {
@@ -133,7 +175,7 @@ export function MediaTab() {
     const reload = () => { void load(); };
     const events = ['fitpulse:server-ready', 'fitpulse:health-changed', 'fitpulse:media-refresh'];
     events.forEach(event => window.addEventListener(event, reload));
-    return () => { controller.current?.abort(); events.forEach(event => window.removeEventListener(event, reload)); };
+    return () => { controller.current?.abort(); storageRequest.current?.abort(); events.forEach(event => window.removeEventListener(event, reload)); };
   }, []);
 
   const hasModal = !!draft || !!deleting;
@@ -270,12 +312,17 @@ export function MediaTab() {
       <Poster image={item.cover_image} title={item.title} score={item.rating} />
       <div className="watch-card-body"><p className="text-xs text-emerald-300 mb-2">{statuses[item.status]}</p><WatchTitle title={item.title} />
       {item.catalog ? <CatalogFacts info={item.catalog} title={item.title} compact /> : <div className="catalog-facts is-compact" />}
-      {item.kind !== 'movie' ? <div className="watch-card-progress"><div><span>{item.progress}{item.total ? ` из ${item.total}` : ''} серий</span>{item.total && <strong>{Math.min(100, Math.round(item.progress / item.total * 100))}%</strong>}</div>{item.total && <progress aria-label={`Прогресс: ${item.title}`} value={item.progress} max={item.total} />}</div> : <div className="watch-card-progress" />}
-      <p className="watch-card-note" title={item.notes}>{item.notes || '\u00a0'}</p>
+      {item.kind !== 'movie' && <div className="watch-card-progress"><div><span>{item.progress}{item.total ? ` из ${item.total}` : ''} серий</span>{item.total && <strong>{Math.min(100, Math.round(item.progress / item.total * 100))}%</strong>}</div>{item.total && <progress aria-label={`Прогресс: ${item.title}`} value={item.progress} max={item.total} />}</div>}
+      {item.notes && <p className="watch-card-note" title={item.notes}>{item.notes}</p>}
       <div className="watch-card-actions">{item.kind !== 'movie' && item.status !== 'finished' && <button className="watch-next-episode" disabled={busy || !ready || loading} onClick={() => void mutate(`/api/media/${item.id}`, 'PUT', {...item, progress:item.progress + 1})}>+1 серия</button>}<div className="watch-edit-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={16} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={16} /></button></div></div></div>
     </article>)}</div>
     {(kind === 'movie' || kind === 'series' || kind === 'anime') && <details className="catalog-credits"><summary>О каталогах и источниках</summary><img alt="TMDB" src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" /><a href="https://www.themoviedb.org" target="_blank" rel="noreferrer">Данные и изображения: TMDB</a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></details>}
     </>}
+    <details className="media-storage-panel media-storage-footer">
+      <summary>Хранение и резервные копии</summary>
+      {storage && <div className="media-storage-status"><ShieldCheck size={15} /><div><strong>{storage.backend === 'demo' ? 'Демонстрационная коллекция' : storage.backend === 'upstash' ? 'Хранилище: Upstash Redis' : 'Хранилище: файлы сервера'}</strong><p role="status">{storage.message || (storage.state === 'configured' ? 'Используется та же база, что для книг. Проверь соединение кнопкой справа.' : 'Upstash не подключён. На Render данные могут потеряться при обновлении. Скачай копию.')}</p></div><button type="button" disabled={storageBusy || busy} onClick={()=>void checkStorage()}>{storageBusy ? 'Проверяем…' : 'Проверить'}</button></div>}
+      <div className="media-backup-actions"><button type="button" disabled={busy || (!items.length && !ready)} onClick={exportMedia}><Download size={13} />Скачать копию</button><label className={busy || !ready || loading ? 'is-disabled' : ''}><Upload size={13} />Восстановить<input aria-label="Восстановить коллекцию из файла" type="file" accept="application/json,.json" disabled={busy || !ready || loading} onChange={event=>{void importMedia(event.target.files?.[0]);event.target.value='';}} /></label></div>
+    </details>
     {selectedGame && <GameDetailsDialog key={selectedGame.id} item={selectedGame} onClose={() => setSelectedGame(null)} onLoaded={detailsLoaded} />}
     {hasModal && <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4" onKeyDown={event => {
       if (event.key !== 'Tab') return;
