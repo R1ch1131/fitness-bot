@@ -1,5 +1,6 @@
 """Personal games and watchlist, independent of workout integrations."""
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -7,9 +8,9 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from cloud_storage import get_cloud_data, set_cloud_data
+from cloud_storage import CloudStorageError, get_cloud_data, set_cloud_data, is_cloud_configured
 from config import DATA_DIR
 from catalog import CatalogInfo
 
@@ -49,28 +50,101 @@ class MediaInput(BaseModel):
         return self
 
 
+class MediaBackupItem(MediaInput):
+    model_config = ConfigDict(extra='allow')
+    id: str = Field(min_length=1, max_length=100)
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat(), max_length=100)
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat(), max_length=100)
+
+
+class RestoreMediaInput(BaseModel):
+    items: list[MediaBackupItem] = Field(max_length=5000)
+
+    @model_validator(mode='after')
+    def unique_ids(self):
+        ids = [item.id for item in self.items]
+        if len(set(ids)) != len(ids):
+            raise ValueError('В резервной копии повторяются идентификаторы')
+        return self
+
+
 class MediaLibrary:
     def __init__(self, path: Path = DATA_DIR / 'media.json'):
         self.path = path
         self.lock = RLock()
         self.loaded = False
+        self._snapshot = []
 
-    def items(self):
-        with self.lock:
-            if not self.loaded:
-                cloud = get_cloud_data('athlete_media')
-                if isinstance(cloud, list):
-                    self.path.write_text(json.dumps(cloud, ensure_ascii=False), encoding='utf-8')
-                self.loaded = True
-            if not self.path.exists():
-                return []
-            return json.loads(self.path.read_text(encoding='utf-8'))
+    @staticmethod
+    def _validate_stored(items):
+        if not isinstance(items, list) or any(not isinstance(item, dict) or not item.get('id') or item.get('kind') not in ('game', 'movie', 'series', 'anime') for item in items):
+            raise HTTPException(503, 'Коллекция в хранилище повреждена. Изменения заблокированы, чтобы сохранить данные.')
+        return items
 
-    def _save(self, items):
+    def _write_local(self, items):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix('.tmp')
         temporary.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding='utf-8')
         temporary.replace(self.path)
-        set_cloud_data('athlete_media', items)
+
+    def _read_cloud(self):
+        try:
+            return get_cloud_data('athlete_media', strict=is_cloud_configured())
+        except CloudStorageError:
+            raise HTTPException(503, 'Не удалось загрузить коллекцию из Upstash. Сохранённая копия не изменена. Повтори попытку позже.') from None
+
+    def items(self):
+        with self.lock:
+            if self.loaded:
+                return deepcopy(self._snapshot)
+            cloud = self._read_cloud()
+            if cloud is not None:
+                items = self._validate_stored(cloud)
+                try:
+                    self._write_local(items)
+                except OSError:
+                    if not is_cloud_configured():
+                        raise
+            else:
+                try:
+                    items = self._validate_stored(json.loads(self.path.read_text(encoding='utf-8'))) if self.path.exists() else []
+                except (OSError, ValueError):
+                    raise HTTPException(503, 'Не удалось прочитать локальную коллекцию. Восстанови резервную копию.') from None
+                # Migrate existing local entries only after a confirmed missing Redis key.
+                if items and is_cloud_configured() and not set_cloud_data('athlete_media', items):
+                    raise HTTPException(503, 'Не удалось перенести коллекцию в Upstash. Локальная копия сохранена; повтори попытку.')
+            self._snapshot = deepcopy(items)
+            self.loaded = True
+            return deepcopy(items)
+
+    def _save(self, items):
+        # Confirm the same Redis used by books before reporting a successful mutation.
+        cloud_saved = set_cloud_data('athlete_media', items)
+        if is_cloud_configured() and not cloud_saved:
+            raise HTTPException(503, 'Upstash не подтвердил сохранение. Изменение не применено — повтори попытку. Данные формы сохранены.')
+        try:
+            self._write_local(items)
+        except OSError:
+            if not is_cloud_configured():
+                raise HTTPException(503, 'Не удалось сохранить коллекцию на сервере. Изменение не применено.') from None
+        self._snapshot = deepcopy(items)
+        self.loaded = True
+
+    def storage_status(self):
+        if not is_cloud_configured():
+            return {'backend': 'local', 'state': 'not_configured', 'message': 'Upstash не подключён. На Render данные могут потеряться при обновлении. Скачай резервную копию.'}
+        cloud = self._read_cloud()
+        if cloud is not None:
+            self._validate_stored(cloud)
+        return {'backend': 'upstash', 'state': 'verified', 'count': len(cloud or []), 'message': 'Upstash отвечает. Сохранение изменений подтверждается базой.'}
+
+    def restore(self, value: RestoreMediaInput):
+        with self.lock:
+            # A restore is explicit, but must not overwrite a temporarily unreachable cloud.
+            self._read_cloud()
+            items = [item.model_dump() for item in value.items]
+            self._save(items)
+            return {'items': items}
 
     def save(self, value: MediaInput, item_id: str | None = None):
         with self.lock:
@@ -162,7 +236,7 @@ router = APIRouter(prefix='/api/media', tags=['media'])
 
 @router.get('')
 def list_media():
-    return {'items': library.items()}
+    return {'items': library.items(), 'storage': {'backend': 'upstash' if is_cloud_configured() else 'local', 'state': 'configured' if is_cloud_configured() else 'not_configured'}}
 
 
 @router.post('')
@@ -174,6 +248,16 @@ def create_media(value: MediaInput):
 def search_covers(title: str = Query(min_length=2, max_length=200)):
     from media_covers import find_covers
     return find_covers(title)
+
+
+@router.get('/storage')
+def storage_status():
+    return library.storage_status()
+
+
+@router.post('/restore')
+def restore_media(value: RestoreMediaInput):
+    return library.restore(value)
 
 
 @router.post('/steam/sync')

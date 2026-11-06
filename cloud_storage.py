@@ -9,7 +9,11 @@ UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
 def is_cloud_configured() -> bool:
     return bool(UPSTASH_URL and UPSTASH_TOKEN)
 
-def get_cloud_data(key: str) -> Optional[Any]:
+class CloudStorageError(RuntimeError):
+    """A missing key and a failed cloud read must not be treated alike."""
+
+
+def get_cloud_data(key: str, *, strict: bool = False) -> Optional[Any]:
     if not is_cloud_configured():
         return None
     try:
@@ -26,16 +30,22 @@ def get_cloud_data(key: str) -> Optional[Any]:
         )
         with urllib.request.urlopen(req, timeout=4.0) as resp:
             raw = json.loads(resp.read().decode('utf-8'))
+            if not isinstance(raw, dict) or 'error' in raw or 'result' not in raw:
+                raise CloudStorageError('Облако вернуло ошибку чтения')
             result = raw.get("result")
             if result is not None:
                 if isinstance(result, str):
                     try:
                         return json.loads(result)
-                    except Exception:
+                    except (ValueError, TypeError):
+                        if strict:
+                            raise CloudStorageError('Некорректные данные в облаке') from None
                         return result
                 return result
     except Exception as e:
-        print(f"Cloud storage get error [{key}]: {e}")
+        if strict:
+            raise CloudStorageError('Не удалось прочитать данные из Upstash') from None
+        print(f"Cloud storage get error [{key}]: {type(e).__name__}")
     return None
 
 def set_cloud_data(key: str, value: Any) -> bool:

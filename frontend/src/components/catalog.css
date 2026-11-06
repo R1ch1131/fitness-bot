@@ -61,3 +61,36 @@
 .catalog-title-dialog::backdrop{background:#000b;backdrop-filter:blur(6px)}
 .catalog-title-dialog h2{font-size:12px;color:#91b19e;line-height:32px}
 .catalog-title-dialog>p{font-size:20px;line-height:1.5;font-weight:650;overflow-wrap:anywhere}
+
+.media-storage-panel{border:1px solid #2a4036;background:#101d19;border-radius:16px;padding:12px;font-size:11px;color:#9db7a9}
+.media-storage-status{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px}
+.media-storage-status>svg{flex-shrink:0;color:#8fd8ac;margin-top:2px}
+.media-storage-status>div{flex:1;min-width:0}
+.media-storage-status strong{font-size:11px;color:#c8e4d4;font-weight:600}
+.media-storage-status p{margin-top:3px;line-height:1.5}
+.media-storage-status>button{color:#9cddb8;text-decoration:underline;flex-shrink:0;font-size:10px}
+.media-backup-actions{display:flex;gap:8px;flex-wrap:wrap}
+.media-backup-actions>button,.media-backup-actions>label{position:relative;display:flex;align-items:center;gap:6px;padding:7px 10px;background:#1d362a;color:#c0e2cd;border-radius:9px;cursor:pointer;font-size:10px}
+.media-backup-actions input{position:absolute;inset:0;width:100%;opacity:0;cursor:pointer}
+.media-backup-actions button:disabled,.media-backup-actions .is-disabled{opacity:.4;cursor:default}
+
+.media-storage-footer{margin-top:24px;background:transparent;border-color:#28372f;padding:0 12px}.media-storage-footer>summary{cursor:pointer;padding:12px 0;color:#8ca99a;font-size:11px}.media-storage-footer[open]{padding-bottom:12px}.media-storage-footer[open]>summary{margin-bottom:2px}.media-storage-footer>summary:focus-visible{outline:2px solid #7bd2a5;outline-offset:3px;border-radius:6px}
+
+/* Phone-first cards: reserve only the title and short facts, never empty fields. */
+.watch-grid{align-items:stretch;grid-auto-rows:1fr;gap:10px}
+.watch-card{display:flex;flex-direction:column;border-radius:17px}
+.watch-card-body{height:auto;display:flex;flex-direction:column;flex:1;gap:3px;padding:9px 11px 8px}
+.watch-card-body>p:first-child{font-size:10px;line-height:14px;min-height:14px}
+.watch-card .watch-title,.watch-title button{height:36px;flex-shrink:0;line-height:18px}
+.watch-card .watch-title{font-size:13px}
+.watch-title button>span{max-height:36px;line-height:18px}
+.watch-card .catalog-facts{height:54px;flex-shrink:0;margin:0}
+.watch-card .catalog-tags{height:22px;margin:0}
+.catalog-original{line-height:14px;font-size:10px}
+.catalog-more{line-height:18px;font-size:10px}
+.watch-card-progress{margin:2px 0 0;min-height:29px;flex-shrink:0}
+.watch-card-progress>div{margin-bottom:4px;line-height:14px}
+.watch-card-note{line-height:14px;max-height:14px;min-height:14px}
+.watch-card-actions{margin-top:auto;padding-top:2px;min-height:34px}
+.watch-card-actions button{min-width:32px;min-height:32px}
+@media(max-width:380px){.watch-card-body{padding:8px 9px 7px;gap:2px}.watch-card .watch-title{font-size:12px}}

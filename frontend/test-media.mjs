@@ -10,7 +10,7 @@ const source = ts.transpileModule(readFileSync(new URL('./src/components/MediaTa
 const tick = () => new Promise(setImmediate);
 const sample = { id: '1', title: 'Игра', kind: 'game', status: 'planned', progress: 0, total: 100, rating: null, notes: '', updated_at: '2026-11-03' };
 
-async function panel({ failLoad = false, failSave = false, failSteam = false } = {}) {
+async function panel({ failLoad = false, failSave = false, failSteam = false, storageBackend, failStorage = false } = {}) {
   const state = [], effects = [], requests = [], storage = new Map();
   let index = 0, first = true;
   const jsx = (type, props) => ({ type, props });
@@ -32,9 +32,10 @@ async function panel({ failLoad = false, failSave = false, failSteam = false } =
     fetch: async (url, options) => {
       requests.push({ url, options });
       const saving = options.method;
+      if (url === '/api/media/storage') return {ok:!failStorage,json:async()=>({backend:'upstash',state:'verified',count:1,message:'Upstash отвечает'})};
       if (url.startsWith('/api/media/covers?')) return { ok: true, json: async () => ({ results: [{ title: 'Игра — полное название', image: 'https://cdn.akamai.steamstatic.com/steam/apps/620/header.jpg' }] }) };
       if (url === '/api/media/steam/sync') return { ok: !failSteam, json: async () => ({ items: [{ ...sample, steam_appid: 10, steam_playtime_minutes: 301 }], steam_sync: { added: 1, updated: 0, matched: 1 } }) };
-      return { ok: !(saving ? failSave : failLoad), json: async () => ({ items: saving === 'DELETE' ? [] : saving ? [{ ...sample, ...JSON.parse(options.body) }] : [sample] }) };
+      return { ok: !(saving ? failSave : failLoad), json: async () => ({ items: saving === 'DELETE' ? [] : saving ? [{ ...sample, ...JSON.parse(options.body) }] : [sample], ...(storageBackend ? {storage:{backend:storageBackend,state:storageBackend==='upstash'?'configured':'not_configured'}} : {}) }) };
     },
   };
   vm.runInNewContext(source, context);
@@ -166,4 +167,15 @@ test('choosing a replacement anime poster preserves title, episodes, notes and r
   assert.equal(saved.catalog.source,'Shikimori');
   assert.equal(saved.catalog.poster_source,'TMDB');
   assert.equal(saved.cover_image,'https://image.tmdb.org/t/p/w500/poster.jpg');
+});
+
+
+test('storage status is confirmed by a read and a failed check is visible', async () => {
+  const p=await panel({storageBackend:'upstash',failStorage:true});
+  assert.ok(find(p.render(),n=>n.type==='strong' && n.props.children==='Хранилище: Upstash Redis'));
+  await button(p.render(),'Проверить').props.onClick();
+  await tick();
+  assert.equal(p.requests.at(-1).url,'/api/media/storage');
+  assert.ok(find(p.render(),n=>n.props?.role==='status' && n.props.children==='Ошибка сервера'));
+  assert.ok(find(p.render(),n=>n.type==='h3' && n.props.children==='Игра'));
 });

@@ -28,7 +28,7 @@ class MediaTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_crud_survives_reload_and_deletion_stays_empty(self):
-        self.assertEqual(self.client.get('/api/media').json(), {'items': []})
+        self.assertEqual(self.client.get('/api/media').json()['items'], [])
         for kind in ('game', 'movie', 'series', 'anime'):
             response = self.client.post('/api/media', json={'title': f'  {kind}  ', 'kind': kind})
             self.assertEqual(response.status_code, 200)
