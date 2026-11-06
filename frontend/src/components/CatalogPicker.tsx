@@ -6,9 +6,9 @@ import { prepareCover } from '../coverImage';
 import './catalog.css';
 
 export type CatalogInfo = {
-  source: 'Open Library' | 'Shikimori' | 'TMDB'; external_id: string; title: string;
+  source: 'Open Library' | 'Google Books' | 'Shikimori' | 'TMDB'; external_id: string; title: string;
   image?: string | null; poster_source?: 'TMDB' | null; author?: string; year?: string; description?: string; genres?: string[];
-  publisher?: string; pages?: number | null; episodes?: number | null; seasons?: number | null;
+  isbn?: string; publisher?: string; pages?: number | null; episodes?: number | null; seasons?: number | null;
   runtime?: number | null; score?: number | null; studio?: string; original_title?: string;
 };
 type PosterOption = { id: number; title: string; year: string; image: string; url: string };
@@ -57,8 +57,8 @@ export function CatalogFacts({ info, compact = false, title }: { info?: CatalogI
   const shown = tags;
   return <div className={`catalog-facts ${compact ? 'is-compact' : ''}`}><div className="catalog-tags">{shown.map((text, index) => <span key={index}>{text}</span>)}{compact && tags.length > 2 && <button type="button" className="catalog-tags-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Свернуть' : `+${tags.length - 2}`}</button>}</div>{info.original_title && info.original_title !== info.title && <p>{info.original_title}</p>}{info.description && <details><summary>Описание</summary><p className="catalog-description">{info.description}</p></details>}<small>Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}{info.source === 'Open Library' && ' · Проверь издание и число страниц'}</small></div>;
 }
-export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onBusy, onPoster }: {
-  kind: 'book' | 'movie' | 'series' | 'anime'; title: string; info?: CatalogInfo | null; image?: string | null;
+export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onBusy, onPoster, author }: {
+  kind: 'book' | 'movie' | 'series' | 'anime'; title: string; author?: string; info?: CatalogInfo | null; image?: string | null;
   onSelect: (info: CatalogInfo) => void; onImage: (image: string) => void; onBusy?: (busy: boolean) => void; onPoster?: (image: string) => void;
 }) {
   const [results, setResults] = useState<CatalogInfo[]>([]);
@@ -102,7 +102,7 @@ export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onB
     request.current?.abort(); const controller = new AbortController(); request.current = controller;
     generation.current++; pending(true); setError(''); setResults([]); setPosterOptions([]); setPosterMessage('');
     try {
-      const response = await fetch(`/api/catalog/search?kind=${kind}&title=${encodeURIComponent(title.trim())}`, { headers: healthHeaders(), signal: controller.signal });
+      const response = await fetch(`/api/catalog/search?kind=${kind}&title=${encodeURIComponent(title.trim())}${kind === 'book' && author ? `&author=${encodeURIComponent(author)}` : ''}`, { headers: healthHeaders(), signal: controller.signal });
       if (!response.ok) throw await responseError(response);
       const data = await response.json();
       if (!controller.signal.aborted) { setResults(data.results); if (!data.results.length) setError('Ничего не найдено. Попробуй оригинальное название или добавь вручную.'); }

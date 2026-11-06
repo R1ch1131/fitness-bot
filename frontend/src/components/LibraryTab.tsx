@@ -662,7 +662,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                 />
               </div>
 
-              <CatalogPicker kind="book" title={newTitle} info={newCatalog} image={newCover} onBusy={setCatalogBusy} onImage={setNewCover} onSelect={info => { setNewCatalog(info); setNewCover(info.image || ''); setNewTitle(info.title); setNewAuthor(info.author || ''); if (info.pages) setNewTotalPages(String(info.pages)); }} />
+              <CatalogPicker kind="book" title={newTitle} author={newAuthor} info={newCatalog} image={newCover} onBusy={setCatalogBusy} onImage={setNewCover} onSelect={info => { setNewCatalog(info); setNewCover(info.image || ''); setNewTitle(info.title); setNewAuthor(info.author || ''); if (info.pages) setNewTotalPages(String(info.pages)); }} />
               <div>
                 <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
                   Автор *
@@ -904,7 +904,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                 />
               </div>
 
-              <CatalogPicker kind="book" title={editTitle} info={editCatalog} image={editCover} onBusy={setCatalogBusy} onImage={setEditCover} onSelect={info => { setEditCatalog(info); setEditCover(info.image || ''); setEditTitle(info.title); setEditAuthor(info.author || ''); if (info.pages) setEditTotalPages(String(info.pages)); }} />
+              <CatalogPicker kind="book" title={editTitle} author={editAuthor} info={editCatalog} image={editCover} onBusy={setCatalogBusy} onImage={setEditCover} onSelect={info => { setEditCatalog(info); setEditCover(info.image || ''); setEditTitle(info.title); setEditAuthor(info.author || ''); if (info.pages) setEditTotalPages(String(info.pages)); }} />
               <div>
                 <label className="block text-[11px] font-semibold text-[#94a3b8] mb-1">
                   Автор *

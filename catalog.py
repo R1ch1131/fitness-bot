@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 class CatalogInfo(BaseModel):
-    source: Literal['Open Library', 'Shikimori', 'TMDB']
+    source: Literal['Open Library', 'Google Books', 'Shikimori', 'TMDB']
     external_id: str = Field(max_length=100)
     title: str = Field(max_length=300)
     image: str | None = Field(default=None, max_length=2000)
@@ -20,6 +20,7 @@ class CatalogInfo(BaseModel):
     year: str = Field(default='', max_length=50)
     description: str = Field(default='', max_length=10000)
     genres: list[str] = Field(default_factory=list, max_length=30)
+    isbn: str = Field(default='', max_length=20)
     publisher: str = Field(default='', max_length=500)
     pages: int | None = Field(default=None, gt=0)
     episodes: int | None = Field(default=None, gt=0)
@@ -58,17 +59,14 @@ def _get(url, headers=None):
 def _positive(value):
     return value if isinstance(value, int) and value > 0 else None
 
-def search_catalog(kind, title):
+def search_catalog(kind, title, author=''):
     title = title.strip()
     if not 2 <= len(title) <= 200:
         raise HTTPException(422, 'Введи название от 2 до 200 символов.')
     results = []
     if kind == 'book':
-        query = urllib.parse.urlencode({'q': title, 'lang': 'ru', 'limit': 8, 'fields': 'key,title,author_name,first_publish_year,cover_i,editions,editions.key,editions.title'})
-        data = _get('https://openlibrary.org/search.json?' + query)
-        for item in data.get('docs', []):
-            edition = (item.get('editions', {}).get('docs') or [{}])[0]
-            results.append(dict(source='Open Library', external_id=edition.get('key') or item['key'], title=edition.get('title') or item['title'], author=', '.join(item.get('author_name', [])), year=str(item.get('first_publish_year') or ''), image=f"https://covers.openlibrary.org/b/id/{item['cover_i']}-L.jpg" if item.get('cover_i') else None))
+        from book_catalog import find_books
+        results = find_books(title, author, _get)
     elif kind == 'anime':
         data = _get('https://shikimori.one/api/animes?' + urllib.parse.urlencode({'search': title, 'limit': 8, 'censored': 'true'}))
         for item in data:
@@ -126,6 +124,9 @@ def anime_posters(item):
 
 
 def catalog_details(kind, external_id):
+    if kind == 'book' and external_id.startswith('google:'):
+        from book_catalog import google_details
+        return google_details(external_id, _get)
     if kind == 'book' and re.fullmatch(r'/books/OL\d+M', external_id):
         item = _get('https://openlibrary.org' + external_id + '.json')
         description = item.get('description', '')
@@ -151,8 +152,8 @@ def catalog_details(kind, external_id):
 
 router = APIRouter(prefix='/api/catalog')
 @router.get('/search')
-def search(kind: Literal['book', 'movie', 'series', 'anime'], title: str = Query(min_length=2, max_length=200)):
-    return search_catalog(kind, title)
+def search(kind: Literal['book', 'movie', 'series', 'anime'], title: str = Query(min_length=2, max_length=200), author: str = Query(default='', max_length=500)):
+    return search_catalog(kind, title, author)
 @router.get('/details')
 def details(kind: Literal['book', 'movie', 'series', 'anime'], external_id: str = Query(max_length=100)):
     return catalog_details(kind, external_id)
