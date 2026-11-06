@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 const source = readFileSync(new URL('./FitPulse Weight.js', import.meta.url), 'utf8');
+const overviewSource = readFileSync(new URL('./FitPulse Overview.js', import.meta.url), 'utf8');
 const snapshot = {status:'ok',source:'apple_health',current_weight:94.9,start_weight:103,goal_weight:80,lost_kg:8.1,remaining_kg:14.9,progress_percent:35.2,measured_on:'2026-10-26'};
 const keyName='fitpulse.weight.health-token.v1', cachePath='/library/fitpulse-weight-v1.json';
-async function run({ token='test-health-token-not-a-real-secret', cached=null, status=200, body=snapshot, fail=false, small=false, inApp=false, enteredToken='' }={}) {
-  const keys=new Map(token?[[keyName,token]]:[]), files=new Map(cached?[[cachePath,JSON.stringify({data:cached,savedAt:Date.now()})]]:[]);
+async function run({ token='test-health-token-not-a-real-secret', cached=null, status=200, body=snapshot, fail=false, small=false, inApp=false, enteredToken='', overview=false }={}) {
+  const selectedCache = overview ? '/library/fitpulse-overview-v1.json' : cachePath;
+  const keys=new Map(token?[[keyName,token]]:[]), files=new Map(cached?[[selectedCache,JSON.stringify({data:cached,savedAt:Date.now()})]]:[]);
   const texts=[],requests=[],draws=[];let widget,alerts=0,complete=false;
   class Stack {addText(value){const t={value};texts.push(t);return t;} addSpacer(){} addImage(){return {};} addStack(){return new Stack();} centerAlignContent(){} layoutVertically(){} setPadding(){} async presentMedium(){} }
   class Drawing {setFillColor(){} fillRect(rect){draws.push(rect);} getImage(){return {};}}
@@ -14,7 +16,7 @@ async function run({ token='test-health-token-not-a-real-secret', cached=null, s
   class Alert {constructor(){alerts++; if(!inApp)throw Error('Widget must never prompt');} addAction(){} addCancelAction(){} addDestructiveAction(){} addSecureTextField(){} textFieldValue(){return enteredToken;} async presentAlert(){return 0;} async presentSheet(){return 0;} }
   const fileApi={joinPath:(a,b)=>a+'/'+b,libraryDirectory:()=>'/library',fileExists:p=>files.has(p),remove:p=>files.delete(p),readString:p=>files.get(p),writeString:(p,v)=>files.set(p,v)};
   const sandbox={config:{runsInApp:inApp,widgetFamily:small?'small':'medium'},FileManager:{local:()=>fileApi},Keychain:{contains:k=>keys.has(k),get:k=>keys.get(k),set:(k,v)=>keys.set(k,v),remove:k=>keys.delete(k)},ListWidget:Stack,DrawContext:Drawing,Size:class{constructor(w,h){this.width=w;this.height=h;}},Rect:class{constructor(x,y,w,h){this.x=x;this.y=y;this.width=w;this.height=h;}},Color:class{},Font:{systemFont:s=>s,boldSystemFont:s=>s},URLScheme:{forRunningScript:()=> 'scriptable:///run/FitPulse'},Alert,Request,Script:{setWidget:w=>widget=w,complete:()=>complete=true}};
-  await vm.runInNewContext('(async()=>{'+source+'})()',sandbox);
+  await vm.runInNewContext('(async()=>{'+(overview?overviewSource:source)+'})()',sandbox);
   return {texts,requests,draws,widget,alerts,complete,keys,files};
 }
 test('fresh widget displays measured weight and progress; token only goes to own endpoint header',async()=>{
@@ -36,4 +38,33 @@ test('small widget includes progress and remaining kilos without prompting',asyn
 });
 test('first manual setup accepts Bearer prefix and stores the secret separately from script/cache',async()=>{
   const secret='a-test-key-longer-than-thirty-two-characters';const r=await run({token:null,inApp:true,enteredToken:'Bearer '+secret});assert.equal(r.keys.get(keyName),secret);assert.ok(!r.files.get(cachePath).includes(secret));assert.ok(!source.includes(secret));
+});
+
+const overviewSnapshot = {...snapshot, as_of:'2026-11-06T16:15:00+06:00',notifications:[
+  {id:'3',title:'Третий push',body:'Последняя отправка',url:'/?tab=weekly',sent_at:'2026-11-06T16:10:00+06:00'},
+  {id:'2',title:'Второй push',body:'Проверка питания',url:'/?tab=dashboard',sent_at:'2026-11-06T15:00:00+06:00'},
+  {id:'1',title:'Первый push',body:'Вещи в зал',url:'/?tab=workouts',sent_at:'2026-11-06T13:00:00+06:00'}]};
+test('medium overview displays weight, all three sends, refresh timestamp and 15-minute request',async()=>{
+  const before=Date.now(),r=await run({overview:true,body:overviewSnapshot});
+  for(const name of ['94,9 кг','Третий push','Второй push','Первый push'])assert.ok(r.texts.some(t=>t.value===name));
+  assert.ok(r.texts.some(t=>t.value.startsWith('Данные обновлены ') && t.value.endsWith('16:15 · Омск')));
+  assert.ok(r.widget.refreshAfterDate.getTime()>=before+15*60000);
+  assert.equal(r.requests[0].url,'https://fitness-bot-9f8m.onrender.com/api/widgets/overview');
+  assert.ok(r.files.has('/library/fitpulse-overview-v1.json'));assert.ok(!r.files.has(cachePath));
+});
+test('overview offline keeps notifications and visibly marks cached data; 401 never reveals cache',async()=>{
+  const offline=await run({overview:true,cached:overviewSnapshot,fail:true});
+  assert.ok(offline.texts.some(t=>t.value==='Третий push'));assert.ok(offline.texts.some(t=>t.value.startsWith('Нет связи')));
+  const denied=await run({overview:true,cached:overviewSnapshot,status:401});
+  assert.ok(!denied.texts.some(t=>t.value==='Третий push'));assert.ok(!denied.files.has('/library/fitpulse-overview-v1.json'));
+});
+test('overview still displays notifications when weight has not been imported',async()=>{
+  const r=await run({overview:true,body:{...overviewSnapshot,status:'empty',current_weight:null}});
+  assert.ok(r.texts.some(t=>t.value==='Нет замера'));assert.ok(r.texts.some(t=>t.value==='Третий push'));
+});
+test('overview small family explains selecting the rectangular medium size',async()=>{
+  const r=await run({overview:true,small:true,body:overviewSnapshot});assert.ok(r.texts.some(t=>t.value.includes('средний прямоугольный размер')));
+});
+test('overview empty history is explained instead of fabricating past sends',async()=>{
+  const r=await run({overview:true,body:{...overviewSnapshot,notifications:[]}});assert.ok(r.texts.some(t=>t.value.includes('после обновления сервера')));
 });

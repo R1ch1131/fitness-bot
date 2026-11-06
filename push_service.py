@@ -251,6 +251,14 @@ def send_push_notification(
         except Exception as e:
             print(f"[Push] Unexpected error: {e}")
 
+    if sent_count:
+        try:
+            from notification_history import record_sent
+            record_sent(title, body, url, tag)
+        except Exception:
+            # Do not retry a successfully sent push solely because its journal write failed.
+            print('[Push] Notification history could not be saved')
+
     for exp in expired_endpoints:
         remove_subscription(exp)
 

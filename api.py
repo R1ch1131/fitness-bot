@@ -369,6 +369,34 @@ def weight_widget(request: Request):
         raise HTTPException(status_code=503, detail=str(e))
 
 
+@app.get("/api/widgets/overview")
+def overview_widget(request: Request):
+    import sleep_data
+    from health_weights import widget_snapshot
+    import notification_history
+    try:
+        sleep_data.authorize(request.headers.get('authorization'))
+        return JSONResponse({**widget_snapshot(), 'notifications': notification_history.latest(3)},
+                            headers={"Cache-Control": "private, no-store"})
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get("/api/widgets/overview/script")
+def overview_widget_script():
+    return FileResponse(BASE_DIR / 'integrations' / 'scriptable' / 'FitPulse Overview.js',
+                        media_type='text/javascript; charset=utf-8', filename='FitPulse Overview.js',
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/widgets/overview")
+def overview_widget_setup():
+    return FileResponse(BASE_DIR / 'integrations' / 'scriptable' / 'overview.html', media_type='text/html; charset=utf-8',
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/widgets/weight/script")
 def weight_widget_script():
     return FileResponse(BASE_DIR / 'integrations' / 'scriptable' / 'FitPulse Weight.js',

@@ -29,6 +29,9 @@ def isolated_function(filename, name, namespace):
 
 class PushTests(unittest.TestCase):
     def setUp(self):
+        history_patch = patch('notification_history.record_sent')
+        self.history = history_patch.start()
+        self.addCleanup(history_patch.stop)
         public = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
             serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
         enc = lambda value: base64.urlsafe_b64encode(value).decode().rstrip("=")
@@ -72,11 +75,21 @@ class PushTests(unittest.TestCase):
         with patch.object(push, "load_subscriptions", return_value=[self.sub, other]), patch.object(push, "get_or_create_vapid_keys", return_value={"private_pem": v.private_pem().decode()}), patch.object(push, "webpush") as transport, patch.object(push, "remove_subscription") as remove:
             self.assertEqual(push.send_push_notification("Test", "Body", endpoint=self.sub["endpoint"], tag="test"), 1)
             self.assertEqual(transport.call_count, 1)
+            self.history.assert_called_once_with("Test", "Body", "/?tab=chat", "test")
             self.assertEqual(json.loads(transport.call_args.kwargs["data"])["tag"], "test")
             self.assertEqual(transport.call_args.kwargs["timeout"], 10)
             transport.side_effect = WebPushException("Gone", response=types.SimpleNamespace(status_code=410))
             self.assertEqual(push.send_push_notification("Test", "Body", endpoint=self.sub["endpoint"]), 0)
             remove.assert_called_once_with(self.sub["endpoint"])
+            self.assertEqual(self.history.call_count, 1)
+
+    def test_one_history_record_for_multiple_devices_and_failed_journal_does_not_retry_push(self):
+        v = Vapid();v.generate_keys()
+        self.history.side_effect=RuntimeError('journal down')
+        with patch.object(push,'load_subscriptions',return_value=[self.sub,dict(self.sub,endpoint='https://web.push.apple.com/other')]),patch.object(push,'get_or_create_vapid_keys',return_value={'private_pem':v.private_pem().decode()}),patch.object(push,'webpush') as transport:
+            self.assertEqual(push.send_push_notification('Title','Body'),2)
+            self.assertEqual(transport.call_count,2)
+            self.assertEqual(self.history.call_count,1)
 
 
 class DispatcherTests(unittest.TestCase):
