@@ -63,7 +63,7 @@ export function MediaTab() {
   const storageRequest = useRef<AbortController | null>(null);
   const [syncMessage, setSyncMessage] = useState('');
   const [selectedGame, setSelectedGame] = useState<MediaItem | null>(null);
-  const [sort, setSort] = useState('recent');
+  const [sort, setSort] = useState('rating');
   const [enrichmentVersion, setEnrichmentVersion] = useState(0);
   const attemptedDetails = useRef(new Set<string>());
   const [draft, setDraft] = useState<MediaDraft | null>(null);
@@ -218,7 +218,7 @@ export function MediaTab() {
   const categoryItems = items.filter(item => item.kind === kind);
   const priority = { active: 0, planned: 1, finished: 2 };
   const visible = categoryItems.filter(item => (filter === 'all' || item.status === filter) && item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
-    .sort((a, b) => kind !== 'game' ? priority[a.status] - priority[b.status] || b.updated_at.localeCompare(a.updated_at) : sort === 'hours' ? (b.steam_playtime_minutes || 0) - (a.steam_playtime_minutes || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at));
+    .sort((a, b) => kind !== 'game' ? priority[a.status] - priority[b.status] || b.updated_at.localeCompare(a.updated_at) : sort === 'rating' ? (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title, 'ru') : sort === 'hours' ? (b.steam_playtime_minutes || 0) - (a.steam_playtime_minutes || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at));
   const episodic = draft?.kind === 'series' || draft?.kind === 'anime';
 
   const featured = categoryItems.filter(item => item.status === 'active').sort((a, b) => (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at))[0];
@@ -282,7 +282,7 @@ export function MediaTab() {
         <GameArt appid={featured.steam_appid} image={featured.cover_image || featured.steam_header_image} /><div className="game-feature-shade" />
         <div className="game-feature-content"><span className="game-eyebrow">Играю сейчас</span><h3>{featured.title}</h3>{featured.steam_playtime_minutes !== undefined && <p><Clock3 size={13} />{Math.floor(featured.steam_playtime_minutes / 60)} ч в игре{featured.steam_last_played ? ` · ${new Date(featured.steam_last_played * 1000).toLocaleDateString('ru-RU', { timeZone: 'Asia/Omsk', day: 'numeric', month: 'long' })}` : ''}</p>}<button onClick={() => openGame(featured)}>{featured.steam_appid ? 'Об игре и достижениях' : 'Мой прогресс'}<ArrowUpRight size={15} /></button></div>
       </div>}
-      <div><div className="game-collection-heading"><h3>{filter === 'finished' ? 'Пройденные игры' : filter === 'active' ? 'Играю сейчас' : filter === 'planned' ? 'Хочу поиграть' : 'Все твои миры'}<span>{visible.length}</span></h3><DarkSelect label="Сортировка игр" value={sort} onChange={setSort} compact options={[{value:'recent',label:'Недавно играл',icon:<Clock3 />},{value:'hours',label:'Больше часов',icon:<Clock3 />},{value:'title',label:'По названию',icon:<Gamepad2 />},{value:'achievements',label:'Больше достижений',icon:<Trophy />}]} /></div>
+      <div><div className="game-collection-heading"><h3>{filter === 'finished' ? 'Пройденные игры' : filter === 'active' ? 'Играю сейчас' : filter === 'planned' ? 'Хочу поиграть' : 'Все твои миры'}<span>{visible.length}</span></h3><DarkSelect label="Сортировка игр" value={sort} onChange={setSort} compact options={[{value:'rating',label:'По моей оценке',icon:<Trophy />},{value:'recent',label:'Недавно играл',icon:<Clock3 />},{value:'hours',label:'Больше часов',icon:<Clock3 />},{value:'title',label:'По названию',icon:<Gamepad2 />},{value:'achievements',label:'Больше достижений',icon:<Trophy />}]} /></div>
         <div className="game-toolbar"><label className="game-search"><Search size={15} /><input aria-label="Поиск по названию" placeholder="Найти свой мир…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="game-filters" aria-label="Статус">{(['all', 'active', 'planned', 'finished'] as const).map(status => <button key={status} aria-pressed={filter === status} onClick={() => setFilter(status)}>{status === 'all' ? 'Все игры' : statuses[status]}</button>)}</div></div>
         {error && !hasModal && <p role="alert" className="text-sm text-rose-300 mb-4">{error}<button onClick={() => void load()} className="underline ml-2">Повторить</button></p>}
         {loading && <p role="status" className="game-loading"><RefreshCw size={14} className="animate-spin" />Загружаем коллекцию…</p>}

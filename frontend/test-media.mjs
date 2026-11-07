@@ -54,6 +54,17 @@ const find = (tree, predicate) => nodes(tree).find(predicate);
 const label = value => Array.isArray(value) ? value.map(label).join('') : value && typeof value === 'object' ? label(value.props?.children) : value == null || typeof value === 'boolean' ? '' : String(value);
 const button = (tree, text) => find(tree, node => node.type === 'button' && label(node.props.children) === text);
 
+test('games default to descending personal ratings including fractions and zero, with unrated games last', async () => {
+  const p = await panel({ items: [
+    { ...sample, id: '1', title: 'Без оценки', rating: null },
+    { ...sample, id: '2', title: 'Ноль', rating: 0 },
+    { ...sample, id: '3', title: 'Пять с половиной', rating: 5.5 },
+    { ...sample, id: '4', title: 'Девять', rating: 9 },
+  ] });
+  assert.deepEqual(nodes(p.render()).filter(n => n.type === 'article').map(n => label(find(n, child => child.type === 'h3'))),
+    ['Девять', 'Пять с половиной', 'Ноль', 'Без оценки']);
+});
+
 test('games open with the current manual game and completed games, while planned games remain accessible', async () => {
   const p = await panel({ items: [sample,
     { ...sample, id: '2', title: 'Текущая игра', status: 'active', progress: 30 },
