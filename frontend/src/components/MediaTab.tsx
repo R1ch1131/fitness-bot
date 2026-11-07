@@ -50,7 +50,9 @@ type StorageStatus = { backend: 'upstash' | 'local' | 'demo'; state: string; cou
 export function MediaTab() {
   const [items, setItems] = useState<MediaItem[]>(cachedItems);
   const [kind, setKind] = useState<Kind>('game');
-  const [filter, setFilter] = useState<Status | 'all'>('all');
+  const [filters, setFilters] = useState<Record<Kind, Status | 'all'>>({ game: 'finished', movie: 'all', series: 'all', anime: 'all' });
+  const filter = filters[kind];
+  const setFilter = (status: Status | 'all') => setFilters(current => ({ ...current, [kind]: status }));
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
@@ -219,7 +221,7 @@ export function MediaTab() {
     .sort((a, b) => kind !== 'game' ? priority[a.status] - priority[b.status] || b.updated_at.localeCompare(a.updated_at) : sort === 'hours' ? (b.steam_playtime_minutes || 0) - (a.steam_playtime_minutes || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at));
   const episodic = draft?.kind === 'series' || draft?.kind === 'anime';
 
-  const featured = categoryItems.filter(item => item.steam_appid && item.status === 'active').sort((a, b) => (b.steam_last_played || 0) - (a.steam_last_played || 0))[0];
+  const featured = categoryItems.filter(item => item.status === 'active').sort((a, b) => (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at))[0];
   const totalMinutes = categoryItems.reduce((sum, item) => sum + (item.steam_playtime_minutes || 0), 0);
   const steamGames = categoryItems.filter(item => item.steam_appid);
   const knownAchievements = steamGames.filter(item => item.steam_achievements);
@@ -276,11 +278,11 @@ export function MediaTab() {
         <div><span className="game-overview-label"><Clock3 size={13} />Время в мирах</span><strong>{Math.floor(totalMinutes / 60).toLocaleString('ru-RU')}<small> часов</small></strong></div>
         <div><span className="game-overview-label"><Trophy size={13} />Достижения</span><strong>{knownAchievements.length ? unlocked : '—'}<small>{knownAchievements.length ? ' получено' : ' открой игру'}</small></strong></div>
       </div>
-      {featured && !search && filter === 'all' && <div className="game-feature">
+      {featured && !search && (filter === 'all' || filter === 'finished') && <div className="game-feature">
         <GameArt appid={featured.steam_appid} image={featured.cover_image || featured.steam_header_image} /><div className="game-feature-shade" />
-        <div className="game-feature-content"><span className="game-eyebrow">{featured.steam_last_played ? 'Последняя активность' : 'Продолжить свою историю'}</span><h3>{featured.title}</h3><p><Clock3 size={13} />{Math.floor((featured.steam_playtime_minutes || 0) / 60)} ч в игре{featured.steam_last_played ? ` · ${new Date(featured.steam_last_played * 1000).toLocaleDateString('ru-RU', { timeZone: 'Asia/Omsk', day: 'numeric', month: 'long' })}` : ''}</p><button onClick={() => openGame(featured)}>Об игре и достижениях<ArrowUpRight size={15} /></button></div>
+        <div className="game-feature-content"><span className="game-eyebrow">Играю сейчас</span><h3>{featured.title}</h3>{featured.steam_playtime_minutes !== undefined && <p><Clock3 size={13} />{Math.floor(featured.steam_playtime_minutes / 60)} ч в игре{featured.steam_last_played ? ` · ${new Date(featured.steam_last_played * 1000).toLocaleDateString('ru-RU', { timeZone: 'Asia/Omsk', day: 'numeric', month: 'long' })}` : ''}</p>}<button onClick={() => openGame(featured)}>{featured.steam_appid ? 'Об игре и достижениях' : 'Мой прогресс'}<ArrowUpRight size={15} /></button></div>
       </div>}
-      <div><div className="game-collection-heading"><h3>Все твои миры<span>{visible.length}</span></h3><DarkSelect label="Сортировка игр" value={sort} onChange={setSort} compact options={[{value:'recent',label:'Недавно играл',icon:<Clock3 />},{value:'hours',label:'Больше часов',icon:<Clock3 />},{value:'title',label:'По названию',icon:<Gamepad2 />},{value:'achievements',label:'Больше достижений',icon:<Trophy />}]} /></div>
+      <div><div className="game-collection-heading"><h3>{filter === 'finished' ? 'Пройденные игры' : filter === 'active' ? 'Играю сейчас' : filter === 'planned' ? 'Хочу поиграть' : 'Все твои миры'}<span>{visible.length}</span></h3><DarkSelect label="Сортировка игр" value={sort} onChange={setSort} compact options={[{value:'recent',label:'Недавно играл',icon:<Clock3 />},{value:'hours',label:'Больше часов',icon:<Clock3 />},{value:'title',label:'По названию',icon:<Gamepad2 />},{value:'achievements',label:'Больше достижений',icon:<Trophy />}]} /></div>
         <div className="game-toolbar"><label className="game-search"><Search size={15} /><input aria-label="Поиск по названию" placeholder="Найти свой мир…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="game-filters" aria-label="Статус">{(['all', 'active', 'planned', 'finished'] as const).map(status => <button key={status} aria-pressed={filter === status} onClick={() => setFilter(status)}>{status === 'all' ? 'Все игры' : statuses[status]}</button>)}</div></div>
         {error && !hasModal && <p role="alert" className="text-sm text-rose-300 mb-4">{error}<button onClick={() => void load()} className="underline ml-2">Повторить</button></p>}
         {loading && <p role="status" className="game-loading"><RefreshCw size={14} className="animate-spin" />Загружаем коллекцию…</p>}
