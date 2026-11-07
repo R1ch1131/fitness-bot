@@ -8,9 +8,9 @@ const source = ts.transpileModule(readFileSync(new URL('./src/components/MediaTa
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const tick = () => new Promise(setImmediate);
-const sample = { id: '1', title: 'Игра', kind: 'game', status: 'planned', progress: 0, total: 100, rating: null, notes: '', updated_at: '2026-11-03' };
+const sample = { id: '1', title: 'Игра', kind: 'game', status: 'finished', progress: 100, total: 100, rating: null, notes: '', updated_at: '2026-11-03' };
 
-async function panel({ failLoad = false, failSave = false, failSteam = false, storageBackend, failStorage = false } = {}) {
+async function panel({ failLoad = false, failSave = false, failSteam = false, storageBackend, failStorage = false, items = [sample] } = {}) {
   const state = [], effects = [], requests = [], storage = new Map();
   let index = 0, first = true;
   const jsx = (type, props) => ({ type, props });
@@ -35,7 +35,7 @@ async function panel({ failLoad = false, failSave = false, failSteam = false, st
       if (url === '/api/media/storage') return {ok:!failStorage,json:async()=>({backend:'upstash',state:'verified',count:1,message:'Upstash отвечает'})};
       if (url.startsWith('/api/media/covers?')) return { ok: true, json: async () => ({ results: [{ title: 'Игра — полное название', image: 'https://cdn.akamai.steamstatic.com/steam/apps/620/header.jpg' }] }) };
       if (url === '/api/media/steam/sync') return { ok: !failSteam, json: async () => ({ items: [{ ...sample, steam_appid: 10, steam_playtime_minutes: 301 }], steam_sync: { added: 1, updated: 0, matched: 1 } }) };
-      return { ok: !(saving ? failSave : failLoad), json: async () => ({ items: saving === 'DELETE' ? [] : saving ? [{ ...sample, ...JSON.parse(options.body) }] : [sample], ...(storageBackend ? {storage:{backend:storageBackend,state:storageBackend==='upstash'?'configured':'not_configured'}} : {}) }) };
+      return { ok: !(saving ? failSave : failLoad), json: async () => ({ items: saving === 'DELETE' ? [] : saving ? [{ ...sample, ...JSON.parse(options.body) }] : items, ...(storageBackend ? {storage:{backend:storageBackend,state:storageBackend==='upstash'?'configured':'not_configured'}} : {}) }) };
     },
   };
   vm.runInNewContext(source, context);
@@ -53,6 +53,20 @@ function nodes(tree) {
 const find = (tree, predicate) => nodes(tree).find(predicate);
 const label = value => Array.isArray(value) ? value.map(label).join('') : value && typeof value === 'object' ? label(value.props?.children) : value == null || typeof value === 'boolean' ? '' : String(value);
 const button = (tree, text) => find(tree, node => node.type === 'button' && label(node.props.children) === text);
+
+test('games open with the current manual game and completed games, while planned games remain accessible', async () => {
+  const p = await panel({ items: [sample,
+    { ...sample, id: '2', title: 'Текущая игра', status: 'active', progress: 30 },
+    { ...sample, id: '3', title: 'Будущая игра', status: 'planned', progress: 0 },
+  ] });
+  const tree = p.render();
+  assert.equal(button(tree, 'Завершено').props['aria-pressed'], true);
+  assert.ok(find(tree, n => n.type === 'h3' && n.props.children === 'Текущая игра'));
+  assert.ok(find(tree, n => n.type === 'h3' && n.props.children === 'Игра'));
+  assert.equal(find(tree, n => n.type === 'h3' && n.props.children === 'Будущая игра'), undefined);
+  button(tree, 'Все игры').props.onClick();
+  assert.ok(find(p.render(), n => n.type === 'h3' && n.props.children === 'Будущая игра'));
+});
 
 test('failed initial load cannot overwrite saved collection', async () => {
   const p = await panel({ failLoad: true });
