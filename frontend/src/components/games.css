@@ -170,3 +170,25 @@
 
 .manual-cover-actions > label { position: relative; overflow: hidden; }
 .manual-cover-actions input { inset: 0; width: 100%; height: 100%; opacity: 0; clip-path: none; cursor: pointer; }
+
+/* Shared compact collection view, designed for phone screens. */
+.media-layout-switch { display:flex; justify-content:flex-end; gap:4px; }
+.media-layout-switch button { display:flex; align-items:center; gap:6px; padding:8px 10px; border:1px solid #294237; border-radius:10px; font-size:12px; color:#93a99f; }
+.media-layout-switch button[aria-pressed=true] { background:#244438; color:#b6f0cc; border-color:#4e8d70; }
+.media-layout-switch button:focus-visible { outline:2px solid #6ee7b7; outline-offset:2px; }
+.game-cover-rating { z-index:2; pointer-events:none; }
+[data-layout=list] .game-grid, [data-layout=list] .watch-grid { grid-template-columns:minmax(0,1fr); gap:10px; }
+[data-layout=list] .game-card { display:grid; grid-template-columns:36% minmax(0,1fr); }
+[data-layout=list] .game-card-cover { height:100%; min-width:0; overflow:hidden; }
+[data-layout=list] .game-card .game-art, [data-layout=list] .game-card .game-art img { width:100%; height:100%; min-height:160px; aspect-ratio:auto; }
+[data-layout=list] .game-card-body { min-width:0; padding:10px; }
+[data-layout=list] .game-card-time { flex-wrap:wrap; margin:8px 0; }
+[data-layout=list] .game-card-time small { margin-left:0; }
+[data-layout=list] .game-card-achievements { padding-top:8px; }
+[data-layout=list] .game-card-footer { margin-top:8px; }
+[data-layout=list] .watch-card { display:flex; flex-direction:row; align-items:stretch; }
+[data-layout=list] .watch-card > .catalog-poster { width:32%; flex-shrink:0; min-height:160px; max-height:none; aspect-ratio:auto; }
+[data-layout=list] .watch-card-body { flex:1; min-width:0; height:auto; min-height:0; padding:10px; }
+[data-layout=list] .watch-card .watch-title { min-height:0; }
+[data-layout=list] .watch-card .poster-rating { right:6px; top:6px; padding:4px 6px; font-size:12px; }
+@media(max-width:380px) { [data-layout=list] .game-status { left:6px; bottom:6px; padding:3px 5px; } }

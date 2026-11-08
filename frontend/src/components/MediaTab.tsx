@@ -1,7 +1,7 @@
 import { CatalogPicker, CatalogFacts, Poster, WatchTitle } from './CatalogPicker';
 import type { CatalogInfo } from './CatalogPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck, Download, Upload } from 'lucide-react';
+import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck, Download, Upload, LayoutGrid, List } from 'lucide-react';
 import { healthHeaders, responseError } from '../healthConnection';
 import { GameArt, GameDetailsDialog } from './GameDetailsDialog';
 import type { GameDetails } from './GameDetailsDialog';
@@ -64,6 +64,7 @@ export function MediaTab() {
   const [syncMessage, setSyncMessage] = useState('');
   const [selectedGame, setSelectedGame] = useState<MediaItem | null>(null);
   const [sort, setSort] = useState('rating');
+  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
   const [enrichmentVersion, setEnrichmentVersion] = useState(0);
   const attemptedDetails = useRef(new Set<string>());
   const [draft, setDraft] = useState<MediaDraft | null>(null);
@@ -216,9 +217,8 @@ export function MediaTab() {
   }
 
   const categoryItems = items.filter(item => item.kind === kind);
-  const priority = { active: 0, planned: 1, finished: 2 };
   const visible = categoryItems.filter(item => (filter === 'all' || item.status === filter) && item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
-    .sort((a, b) => kind !== 'game' ? priority[a.status] - priority[b.status] || b.updated_at.localeCompare(a.updated_at) : sort === 'rating' ? (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title, 'ru') : sort === 'hours' ? (b.steam_playtime_minutes || 0) - (a.steam_playtime_minutes || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at));
+    .sort((a, b) => kind !== 'game' || sort === 'rating' ? (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title, 'ru') : sort === 'hours' ? (b.steam_playtime_minutes || 0) - (a.steam_playtime_minutes || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at));
   const episodic = draft?.kind === 'series' || draft?.kind === 'anime';
 
   const featured = categoryItems.filter(item => item.status === 'active').sort((a, b) => (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at))[0];
@@ -259,7 +259,7 @@ export function MediaTab() {
     return () => request.abort();
   }, [visibleSteamKey, enrichmentVersion, detailsLoaded]);
 
-  return <section className={`mx-auto px-4 pt-5 pb-32 space-y-5 text-white ${kind === 'game' ? 'game-library' : 'max-w-3xl'}`} aria-label="Досуг">
+  return <section className={`mx-auto px-4 pt-5 pb-32 space-y-5 text-white ${kind === 'game' ? 'game-library' : 'max-w-3xl'}`} aria-label="Досуг" data-layout={layout}>
     <div className="flex items-start justify-between gap-3">
       <div><h2 className="text-xl font-bold">Досуг</h2><p className="text-sm text-[#94a3b8] mt-1">Игры и истории, к которым хочется вернуться</p></div>
       <button disabled={!ready || busy || loading} className="flex gap-1 items-center bg-emerald-400 text-[#0b0f19] p-3 rounded-xl disabled:opacity-40" onClick={() => { setEditingId(null); setDraft(emptyDraft(kind)); }}><Plus size={18} />Добавить</button>
@@ -270,6 +270,10 @@ export function MediaTab() {
         return <button key={key} aria-pressed={kind === key} onClick={() => setKind(key)} className={`flex flex-col items-center gap-2 rounded-2xl py-3 text-xs border ${kind === key ? 'border-emerald-400 text-emerald-400 bg-emerald-400/10' : 'border-[#1e293b] bg-[#111726] text-[#94a3b8]'}`}><Icon size={20} />{kinds[key].label}</button>;
       })}
     </div>
+    <div className="media-layout-switch" role="group" aria-label="Вид коллекции">
+      <button type="button" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={15} />Карточки</button>
+      <button type="button" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={15} />Список</button>
+    </div>
     {kind === 'game' ? <>
       <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2><p>Миры, в которых ты уже оставил часть себя.</p></div><button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div>
       {syncMessage && <p role="status" className="text-sm text-emerald-300">{syncMessage}</p>}
@@ -279,7 +283,7 @@ export function MediaTab() {
         <div><span className="game-overview-label"><Trophy size={13} />Достижения</span><strong>{knownAchievements.length ? unlocked : '—'}<small>{knownAchievements.length ? ' получено' : ' открой игру'}</small></strong></div>
       </div>
       {featured && !search && (filter === 'all' || filter === 'finished') && <div className="game-feature">
-        <GameArt appid={featured.steam_appid} image={featured.cover_image || featured.steam_header_image} /><div className="game-feature-shade" />
+        <GameArt appid={featured.steam_appid} image={featured.cover_image || featured.steam_header_image} /><div className="game-feature-shade" />{featured.rating != null && <span className="poster-rating game-cover-rating" aria-label={`Моя оценка: ${featured.rating} из 10`}>★ {featured.rating}</span>}
         <div className="game-feature-content"><span className="game-eyebrow">Играю сейчас</span><h3>{featured.title}</h3>{featured.steam_playtime_minutes !== undefined && <p><Clock3 size={13} />{Math.floor(featured.steam_playtime_minutes / 60)} ч в игре{featured.steam_last_played ? ` · ${new Date(featured.steam_last_played * 1000).toLocaleDateString('ru-RU', { timeZone: 'Asia/Omsk', day: 'numeric', month: 'long' })}` : ''}</p>}<button onClick={() => openGame(featured)}>{featured.steam_appid ? 'Об игре и достижениях' : 'Мой прогресс'}<ArrowUpRight size={15} /></button></div>
       </div>}
       <div><div className="game-collection-heading"><h3>{filter === 'finished' ? 'Пройденные игры' : filter === 'active' ? 'Играю сейчас' : filter === 'planned' ? 'Хочу поиграть' : 'Все твои миры'}<span>{visible.length}</span></h3><DarkSelect label="Сортировка игр" value={sort} onChange={setSort} compact options={[{value:'rating',label:'По моей оценке',icon:<Trophy />},{value:'recent',label:'Недавно играл',icon:<Clock3 />},{value:'hours',label:'Больше часов',icon:<Clock3 />},{value:'title',label:'По названию',icon:<Gamepad2 />},{value:'achievements',label:'Больше достижений',icon:<Trophy />}]} /></div>
@@ -288,11 +292,11 @@ export function MediaTab() {
         {loading && <p role="status" className="game-loading"><RefreshCw size={14} className="animate-spin" />Загружаем коллекцию…</p>}
         {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#334155] p-8 text-center text-[#94a3b8]">{categoryItems.length ? 'Не нашли такую игру. Попробуй другой поиск или статус.' : 'Твоя история начинается здесь. Добавь игру или синхронизируй Steam.'}</div>}
         <div className="game-grid">{visible.map(item => <article key={item.id} className="game-card">
-          <button className="game-card-cover" aria-label={`Открыть ${item.title}`} onClick={() => openGame(item)}><GameArt appid={item.steam_appid} image={item.cover_image || item.steam_header_image} /><span className={`game-status ${item.status === 'active' ? 'is-active' : ''}`}>{statuses[item.status]}</span></button>
+          <button className="game-card-cover" aria-label={`Открыть ${item.title}`} onClick={() => openGame(item)}><GameArt appid={item.steam_appid} image={item.cover_image || item.steam_header_image} />{item.rating != null && <span className="poster-rating game-cover-rating" aria-label={`Моя оценка: ${item.rating} из 10`}>★ {item.rating}</span>}<span className={`game-status ${item.status === 'active' ? 'is-active' : ''}`}>{statuses[item.status]}</span></button>
           <div className="game-card-body"><button className="game-card-title" onClick={() => openGame(item)}><h3>{item.title}</h3></button><p className="game-card-genre">{item.steam_genres?.slice(0, 2).join(' · ') || (item.steam_appid ? 'Из твоей библиотеки Steam' : 'Добавлено тобой')}</p>
             <p className="game-card-time"><Clock3 size={12} />{item.steam_playtime_minutes !== undefined ? <span>{Math.floor(item.steam_playtime_minutes / 60)} ч {item.steam_playtime_minutes % 60} мин</span> : <span>Часы не указаны</span>}{!!item.steam_recent_minutes && <small>+{Math.round(item.steam_recent_minutes / 60 * 10) / 10} ч за 2 недели</small>}</p>
             <div className="game-card-achievements">{item.steam_achievements ? <><div><Trophy size={12} /><span>Достижения</span><strong>{item.steam_achievements.unlocked} / {item.steam_achievements.total}</strong></div><div className="game-mini-progress" role="progressbar" aria-label={`Достижения: ${item.title}`} aria-valuenow={item.steam_achievements.unlocked} aria-valuemin={0} aria-valuemax={item.steam_achievements.total}><div style={{ width: `${item.steam_achievements.total ? item.steam_achievements.unlocked / item.steam_achievements.total * 100 : 0}%` }} /></div></> : <button className="game-card-achievement-link" onClick={() => openGame(item)}>{item.steam_appid ? <><span>Посмотреть достижения</span><ArrowUpRight size={13} /></> : <span>Прогресс отмечается вручную</span>}</button>}</div>
-            <div className="game-card-footer"><span className={item.rating !== null ? 'game-rating' : ''}>{item.rating !== null ? `★ ${item.rating} / 10` : item.progress > 0 ? `Пройдено ${item.progress}%` : 'Твоя оценка: —'}</span><div className="game-card-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={13} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={13} /></button></div></div>
+            <div className="game-card-footer"><span>{item.progress > 0 ? `Пройдено ${item.progress}%` : ''}</span><div className="game-card-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={13} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={13} /></button></div></div>
           </div>
         </article>)}</div>
         <p className="game-library-note"><ShieldCheck size={12} />Из Steam — только игры с временем больше 5 часов</p>
