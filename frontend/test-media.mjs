@@ -79,11 +79,13 @@ test('games open with the current manual game and completed games, while planned
   assert.ok(find(p.render(), n => n.type === 'h3' && n.props.children === 'Будущая игра'));
 });
 
-test('all watch categories sort by personal rating across statuses and retain list layout when switching', async () => {
+test('anime and series put active items first, then sort by personal rating and retain list layout', async () => {
   const items = ['movie', 'series', 'anime'].flatMap(kind => [
     { ...sample, id: kind + '1', kind, title: 'Смотрю', status: 'active', rating: 5.5 },
     { ...sample, id: kind + '2', kind, title: 'Лучшее', status: 'finished', rating: 9 },
     { ...sample, id: kind + '3', kind, title: 'Без оценки', status: 'planned', rating: null },
+    { ...sample, id: kind + '4', kind, title: 'Смотрю без оценки', status: 'active', rating: null },
+    { ...sample, id: kind + '5', kind, title: 'Смотрю лучшее', status: 'active', rating: 8 },
   ]);
   const p = await panel({ items });
   button(p.render(), 'Список').props.onClick();
@@ -93,7 +95,9 @@ test('all watch categories sort by personal rating across statuses and retain li
     assert.equal(tree.props['data-layout'], 'list');
     assert.equal(button(tree, 'Список').props['aria-pressed'], true);
     assert.deepEqual(nodes(tree).filter(n => n.type === 'article').map(n => find(n, child => child.type === 'Poster').props.title),
-      ['Лучшее', 'Смотрю', 'Без оценки']);
+      category === 'Фильмы'
+        ? ['Лучшее', 'Смотрю лучшее', 'Смотрю', 'Без оценки', 'Смотрю без оценки']
+        : ['Смотрю лучшее', 'Смотрю', 'Смотрю без оценки', 'Лучшее', 'Без оценки']);
   }
 });
 
