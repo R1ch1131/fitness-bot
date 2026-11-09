@@ -55,13 +55,6 @@ function messageWidget(message) {
   w.refreshAfterDate = new Date(Date.now() + 15 * 60000);
   return w;
 }
-function centeredText(parent, value, size, fill = color.text, bold = false) {
-  const row = parent.addStack(); row.size = new Size(112, 0);
-  row.addSpacer();
-  const label = text(row, value, size, fill, bold);
-  row.addSpacer();
-  return label;
-}
 function clock(value) {
   return new Date(value).toLocaleTimeString('ru-RU', {timeZone:'Asia/Omsk',hour:'2-digit',minute:'2-digit'});
 }
@@ -78,18 +71,16 @@ function render(data, offline = false, savedAt = null) {
   w.refreshAfterDate = new Date(Date.now() + 15 * 60000);
   const columns = w.addStack();
   const left = columns.addStack(); left.layoutVertically(); left.size = new Size(112, 0);
-  centeredText(left, 'FITPULSE · ЦЕЛЬ 80', 9, color.green, true); left.addSpacer(6);
+  text(left, 'FITPULSE · ЦЕЛЬ 80', 9, color.green, true); left.addSpacer(6);
   if (data.status === 'ok') {
-    centeredText(left, `${number(data.current_weight)} кг`, 27, color.text, true); left.addSpacer(7);
-    const barRow = left.addStack(); barRow.size = new Size(112, 5); barRow.addSpacer();
-    const bar = barRow.addImage(progress(data.progress_percent)); bar.imageSize = new Size(106, 5);
-    barRow.addSpacer();
-    left.addSpacer(5); centeredText(left, `${number(data.progress_percent)}% пути`, 12, color.green, true);
-    left.addSpacer(3); centeredText(left, `Ещё ${number(data.remaining_kg)} кг`, 10, color.muted);
-    left.addSpacer(4); centeredText(left, `Замер ${day(data.measured_on)}`, 9, color.muted);
+    text(left, `${number(data.current_weight)} кг`, 27, color.text, true); left.addSpacer(7);
+    const bar = left.addImage(progress(data.progress_percent)); bar.imageSize = new Size(106, 5);
+    left.addSpacer(5); text(left, `${number(data.progress_percent)}% пути`, 12, color.green, true);
+    left.addSpacer(3); text(left, `Ещё ${number(data.remaining_kg)} кг`, 10, color.muted);
+    left.addSpacer(4); text(left, `Замер ${day(data.measured_on)}`, 9, color.muted);
   } else {
-    centeredText(left, 'Нет замера', 19, color.text, true); left.addSpacer(6);
-    const note = centeredText(left, 'Запусти экспорт здоровья', 10, color.muted); note.lineLimit = 2;
+    text(left, 'Нет замера', 19, color.text, true); left.addSpacer(6);
+    const note = text(left, 'Запусти экспорт здоровья', 10, color.muted); note.lineLimit = 2;
   }
   columns.addSpacer(10);
   const divider = columns.addStack(); divider.size = new Size(1, 112); divider.backgroundColor = new Color(color.track);
