@@ -1,4 +1,4 @@
-"""Personal PWA notification preferences. Telegram keeps its own schedule."""
+"""Personal PWA notification preferences and durable schedule status."""
 import copy
 import json
 import re
@@ -115,7 +115,7 @@ def dispatch_workout_push(pending, now):
 MESSAGES = {
     "gym": ("Пора в зал", "Не забудь сменные вещи и тапочки!", "workouts"),
     "laundry": ("FitPulse", "Вещи после тренировки постирал?", "dashboard"),
-    "nutrition": ("Вечерняя проверка питания", "Проверь калории и БЖУ за сегодня.", "dashboard"),
+    "nutrition": ("Вечерний отчёт", "Итоги дня — в чате тренера.", "chat"),
     "weekly": ("Недельный отчёт", "Посмотри итоги тренировок и питания за неделю.", "weekly"),
 }
 
@@ -193,7 +193,12 @@ def dispatch_scheduled_push(now=None):
             due -= timedelta(days=1)
         if not _allowed_day(name, due) or not 0 <= (now - due).total_seconds() < CATCH_UP_SECONDS or _already_sent(sent, name, due):
             continue
-        if send_push_notification(title, body, url=f"/?tab={tab}", tag=name + "-reminder"):
+        if name == 'nutrition':
+            from evening_report import dispatch_evening_report
+            accepted = dispatch_evening_report(due)
+        else:
+            accepted = send_push_notification(title, body, url=f"/?tab={tab}", tag=name + "-reminder")
+        if accepted:
             with _lock:
                 previous = sent.get(name)
                 recent = dict(previous.get("recent", {})) if isinstance(previous, dict) else {}
@@ -204,17 +209,3 @@ def dispatch_scheduled_push(now=None):
                 sent[name] = {"scheduled_for": due.isoformat(), "accepted_at": now.isoformat(), "recent": recent}
                 _delivery_dirty = True
                 _flush_delivery()
-
-
-def start_push_scheduler():
-    def worker():
-        from push_test_queue import dispatch_test_pushes
-        from custom_reminders import dispatch_custom_pushes
-        while True:
-            for dispatch in (dispatch_scheduled_push, dispatch_custom_pushes, dispatch_test_pushes):
-                try:
-                    dispatch()
-                except Exception as exc:
-                    print(f"[Push] Scheduler: {exc}")
-            time.sleep(20)
-    threading.Thread(target=worker, daemon=True, name="pwa-notifications").start()

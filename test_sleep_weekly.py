@@ -257,7 +257,7 @@ class WeeklyTests(unittest.TestCase):
             "_sleep_access": lambda *args: None, "json": __import__("json"),
             "time": __import__("time"),
             "timedelta": __import__("datetime").timedelta, "HTTPException": RuntimeError})
-        with patch.dict(sys.modules, {"bot": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", return_value=report):
+        with patch.dict(sys.modules, {"trainer_runtime": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", return_value=report):
             result = fn(object(), "2026-10-19")
         self.assertEqual(result["period_start"], "2026-10-19")
         context = ask.call_args.kwargs["extra_context"]
@@ -283,7 +283,7 @@ class WeeklyTests(unittest.TestCase):
             "_sleep_access": lambda *args: health, "json": __import__("json"),
             "time": __import__("time"),
             "timedelta": __import__("datetime").timedelta, "HTTPException": RuntimeError})
-        with patch.dict(sys.modules, {"bot": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", return_value={}):
+        with patch.dict(sys.modules, {"trainer_runtime": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", return_value={}):
             fn(types.SimpleNamespace(headers={"authorization": secret}), "2026-10-19", "sleep")
         self.assertIn("сон", ask.call_args.args[0])
         self.assertIn('"average_minutes": 450', ask.call_args.kwargs["extra_context"])
@@ -296,7 +296,7 @@ class WeeklyTests(unittest.TestCase):
             "Request": object, "Optional": __import__("typing").Optional, "coach": fake_coach(),
             "_sleep_access": lambda *args: health, "json": __import__("json"), "time": __import__("time"),
             "timedelta": __import__("datetime").timedelta, "HTTPException": RuntimeError})
-        with patch.dict(sys.modules, {"bot": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", side_effect=AssertionError("No YAZIO calls for sleep")):
+        with patch.dict(sys.modules, {"trainer_runtime": types.SimpleNamespace(ask_gemini_ai=ask)}), patch.object(weekly, "summary", side_effect=AssertionError("No YAZIO calls for sleep")):
             first = fn(object(), "2026-10-19", "sleep")
             second = fn(object(), "2026-10-19", "sleep")
             self.assertFalse(first["cached"])

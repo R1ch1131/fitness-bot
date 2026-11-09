@@ -23,13 +23,18 @@ from media_library import router as media_router, library as media_store, Restor
 from catalog import router as catalog_router, CatalogInfo
 
 # Initialize Coach singleton
-coach = AIHevyCoach(auto_sync=False)
+from trainer_runtime import coach
 habits_mgr = HabitsManager()
 books_mgr = BooksManager()
 
 app = FastAPI(title="Hevy & YAZIO AI Coach PWA", version="1.0.0")
 app.include_router(media_router)
 app.include_router(catalog_router)
+
+@app.on_event('startup')
+def start_app_services():
+    from app_runtime import start_background_services
+    start_background_services()
 
 # Enable CORS for local dev (Vite running on localhost:5173)
 app.add_middleware(
@@ -95,7 +100,7 @@ def health():
 @app.get("/status")
 def status_endpoint():
     try:
-        from bot import load_workout_tracker, load_pending_checkin
+        from trainer_runtime import load_workout_tracker, load_pending_checkin
         latest_w = coach.analyzer.get_latest_workout() if coach.analyzer else None
         return {
             "status": "online",
@@ -111,7 +116,7 @@ def status_endpoint():
 @app.get("/logs")
 def logs_endpoint():
     try:
-        from bot import RECENT_LOGS
+        from trainer_runtime import RECENT_LOGS
         return "\n".join(list(RECENT_LOGS)) if RECENT_LOGS else "No logs recorded yet."
     except Exception as e:
         return f"Logs unavailable: {e}"
@@ -454,7 +459,7 @@ def get_weekly_image(request: Request, week_start: Optional[str] = None):
 def analyze_week(request: Request, week_start: Optional[str] = None, focus: Optional[str] = None):
     import weekly_reports
     import sleep_data
-    from bot import ask_gemini_ai
+    from trainer_runtime import ask_gemini_ai
     try:
         start = weekly_reports.week_start(week_start)
         sleep = _sleep_access(request, start, start + timedelta(days=6))
@@ -496,7 +501,7 @@ def sync_data():
 
         # Check if latest workout needs 20-minute post-workout checkin
         try:
-            from bot import load_pending_checkin, save_pending_checkin, load_workout_tracker, save_workout_tracker
+            from trainer_runtime import load_pending_checkin, save_pending_checkin, load_workout_tracker, save_workout_tracker
             from analyzer import parse_iso
             latest_w = coach.analyzer.get_latest_workout()
             if latest_w:
@@ -597,7 +602,7 @@ def chat_with_coach(req: ChatRequest, request: Request):
     workout_feedback = is_workout_checkin(user_msg)
     # Only an actual workout reply acknowledges a pending checkin.
     try:
-        from bot import load_pending_checkin, save_pending_checkin
+        from trainer_runtime import load_pending_checkin, save_pending_checkin
         pending = load_pending_checkin()
         workout_feedback = is_workout_checkin(user_msg, pending)
         if workout_feedback and recent_checkin(pending) and not pending.get("responded"):
@@ -609,11 +614,11 @@ def chat_with_coach(req: ChatRequest, request: Request):
         print(f"Pending checkin response note: {pe}")
 
     try:
-        from bot import ask_gemini_ai
+        from trainer_runtime import ask_gemini_ai
         import sleep_data
         sleep_context = sleep_data.ai_context(sleep) if sleep else ""
         if workout_feedback:
-            from bot import analyze_post_workout_feedback
+            from trainer_runtime import analyze_post_workout_feedback
             from daily_review import collect_daily_review
             daily_context, reading_progress = collect_daily_review(coach, habits_mgr, books_mgr)
             ai_reply = analyze_post_workout_feedback(user_msg, pending.get("workout_id") if recent_checkin(pending) else None,
@@ -625,8 +630,6 @@ def chat_with_coach(req: ChatRequest, request: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
-
-CHAT_HISTORY_FILE = "chat_history.json"
 
 class CoachMemoryInput(BaseModel):
     text: str
@@ -659,50 +662,37 @@ def put_coach_memory(req: CoachMemoryInput, request: Request):
 
 @app.get("/api/chat/history")
 def get_chat_history(request: Request):
-    """Returns stored chat messages from Upstash Redis or local storage."""
     import sleep_data
     if sleep_data.is_configured():
         _sleep_access(request, required=True)
+    from chat_store import read_history
     try:
-        from cloud_storage import get_cloud_data, is_cloud_configured
-        if is_cloud_configured():
-            cloud_h = get_cloud_data("athlete_chat_history")
-            if cloud_h is not None and isinstance(cloud_h, list):
-                return {"messages": cloud_h}
-    except Exception as ce:
-        print(f"Cloud chat history read note: {ce}")
+        return JSONResponse({"messages": read_history()}, headers={"Cache-Control": "private, no-store"})
+    except Exception:
+        raise HTTPException(503, 'Не удалось загрузить историю чата') from None
 
-    if os.path.exists(CHAT_HISTORY_FILE):
-        try:
-            with open(CHAT_HISTORY_FILE, "r", encoding="utf-8") as f:
-                return {"messages": json.load(f)}
-        except Exception:
-            pass
-    return {"messages": []}
 
 @app.post("/api/chat/history")
 def save_chat_history(req: Dict[str, Any], request: Request):
-    """Saves updated chat history to Upstash Redis and local file."""
     import sleep_data
     if sleep_data.is_configured():
         _sleep_access(request, required=True)
-    messages = req.get("messages", [])
-    if isinstance(messages, list):
-        # Keep last 100 messages to prevent excessive storage
-        trimmed = messages[-100:]
-        try:
-            from cloud_storage import set_cloud_data, is_cloud_configured
-            if is_cloud_configured():
-                set_cloud_data("athlete_chat_history", trimmed)
-        except Exception as ce:
-            print(f"Cloud chat history write note: {ce}")
+    from chat_store import save_history
+    try:
+        return {"status": "ok", "messages": save_history(req.get('messages', []), clear=req.get('clear') is True)}
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+    except Exception:
+        raise HTTPException(503, 'История не сохранена. Повтори позже.') from None
 
-        try:
-            with open(CHAT_HISTORY_FILE, "w", encoding="utf-8") as f:
-                json.dump(trimmed, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Save local chat history note: {e}")
-    return {"status": "ok"}
+
+@app.post('/api/scheduler/tick')
+def scheduler_tick(request: Request):
+    from app_runtime import authorize_scheduler, run_pending_tasks
+    if not authorize_scheduler(request.headers.get('authorization')):
+        raise HTTPException(401, 'Неверный ключ планировщика')
+    return {"status": run_pending_tasks()}
+
 
 # ==================== NOTIFICATIONS ENDPOINTS ====================
 
@@ -710,7 +700,7 @@ def save_chat_history(req: Dict[str, Any], request: Request):
 def get_checkin_notification():
     """Checks if 20-min post-workout checkin is due or pending for PWA."""
     try:
-        from bot import load_pending_checkin
+        from trainer_runtime import load_pending_checkin
         pending = load_pending_checkin()
         if not pending:
             return {"should_notify": False, "pending": False}
@@ -763,7 +753,7 @@ def get_checkin_notification():
 def ack_notification():
     """Marks pending checkin notification as seen/notified in PWA."""
     try:
-        from bot import load_pending_checkin, save_pending_checkin
+        from trainer_runtime import load_pending_checkin, save_pending_checkin
         pending = load_pending_checkin()
         if pending:
             pending["pwa_notified"] = True
@@ -892,7 +882,7 @@ def cancel_pending_push_test(req: Dict[str, Any]):
 def trigger_test_checkin(delay_seconds: int = 3):
     """Triggers or schedules a test 20-min checkin prompt for debugging/testing in PWA and sends real Web Push."""
     try:
-        from bot import save_pending_checkin
+        from trainer_runtime import save_pending_checkin
         w_title = "Жим лежа (Грудь/Трицепс)"
         if coach.workouts:
             w_title = coach.workouts[0].get("title", w_title)

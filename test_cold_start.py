@@ -1,52 +1,33 @@
-import types
+import ast
+import hashlib
+import os
 import unittest
-from unittest.mock import Mock, patch
-from test_push import isolated_function
-
+from pathlib import Path
+from unittest.mock import patch
+import app_runtime
 
 class ColdStartTests(unittest.TestCase):
-    def test_web_server_starts_before_external_sync(self):
-        order = []
-        class Stop(BaseException):
-            pass
-        def stop(_bot):
-            raise Stop()
-        namespace = {
-            "TELEGRAM_TOKEN": "test", "telebot": types.SimpleNamespace(TeleBot=Mock()),
-            "coach": types.SimpleNamespace(reload=lambda **kwargs: order.append("sync")),
-            "run_health_server": lambda bot: order.append("web"),
-            "run_keep_alive_pinger": lambda: order.append("pinger"),
-            "run_gym_reminder_scheduler": stop,
-        }
-        start = isolated_function("bot.py", "start_bot", namespace)
-        with self.assertRaises(Stop):
-            start()
-        self.assertEqual(order, ["web", "pinger", "sync"])
+    def test_launcher_has_no_telegram_dependency(self):
+        source = Path('bot.py').read_text(encoding='utf-8')
+        self.assertNotIn('telebot', source)
+        self.assertNotIn('TELEGRAM', source)
+        ast.parse(Path('trainer_runtime.py').read_text(encoding='utf-8'))
+        self.assertNotIn('telebot', Path('requirements.txt').read_text().lower())
 
-    def test_keep_alive_targets_health_every_five_minutes(self):
-        worker = []
-        delays = []
-        class Stop(BaseException):
-            pass
-        def sleep(delay):
-            delays.append(delay)
-            if delay == 300:
-                raise Stop()
-        def thread(**kwargs):
-            worker.append(kwargs["target"])
-            return types.SimpleNamespace(start=lambda: None)
-        requests = types.ModuleType("requests")
-        requests.get = Mock(return_value=types.SimpleNamespace(status_code=200))
-        namespace = {"os": types.SimpleNamespace(getenv=lambda *args: "https://fit.test/"),
-                     "time": types.SimpleNamespace(sleep=sleep), "threading": types.SimpleNamespace(Thread=thread)}
-        start = isolated_function("bot.py", "run_keep_alive_pinger", namespace)
-        with patch.dict("sys.modules", {"requests": requests}):
-            start()
-            with self.assertRaises(Stop):
-                worker[0]()
-        requests.get.assert_called_once_with("https://fit.test/health", timeout=20)
-        self.assertEqual(delays, [30, 300])
+    def test_startup_never_waits_for_external_sync(self):
+        with patch.object(app_runtime, '_started', False), patch.object(app_runtime.threading, 'Thread') as thread:
+            app_runtime.start_background_services()
+            app_runtime.start_background_services()
+            self.assertEqual(thread.call_count, 2)
+            self.assertEqual(thread.return_value.start.call_count, 2)
 
+    def test_scheduler_key_only_accepts_scoped_credential(self):
+        key = 'a' * 40
+        derived = hashlib.sha256(('fitpulse-scheduler-v1\0' + key).encode()).hexdigest()
+        with patch.dict(os.environ, {'HEALTH_IMPORT_TOKEN': key}):
+            self.assertTrue(app_runtime.authorize_scheduler('Bearer ' + derived))
+            self.assertFalse(app_runtime.authorize_scheduler('Bearer ' + key))
+            self.assertFalse(app_runtime.authorize_scheduler(None))
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

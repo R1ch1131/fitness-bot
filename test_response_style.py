@@ -13,7 +13,7 @@ class ResponseStyleTests(unittest.TestCase):
     def general(self, generate, coach=None):
         client = types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate))
         module = types.SimpleNamespace(genai=types.SimpleNamespace(Client=Mock(return_value=client)))
-        fn = isolated_function("bot.py", "ask_gemini_ai", {
+        fn = isolated_function("trainer_runtime.py", "ask_gemini_ai", {
             "Optional": Optional, "List": List, "Dict": Dict, "GEMINI_KEY": "test-only",
             "MODELS_CASCADE": ["first", "fallback"], "get_system_instruction": lambda: "Base athlete context",
             "coach": coach,
@@ -55,7 +55,7 @@ class ResponseStyleTests(unittest.TestCase):
                                        "total_tonnage_kg": 13000, "total_working_sets": 20, "exercises": []}))
         client = types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate))
         module = types.SimpleNamespace(genai=types.SimpleNamespace(Client=Mock(return_value=client)))
-        fn = isolated_function("bot.py", "analyze_post_workout_feedback", {
+        fn = isolated_function("trainer_runtime.py", "analyze_post_workout_feedback", {
             "Optional": Optional, "coach": coach, "GEMINI_KEY": "test-only" if configured else "",
             "MODELS_CASCADE": ["first"],
         })

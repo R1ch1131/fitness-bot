@@ -8,7 +8,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString('ru-RU', { 
 const reminders: { key: Kind; title: string; description: string }[] = [
   { key: 'gym', title: 'Взять вещи в зал', description: 'Понедельник — пятница' },
   { key: 'laundry', title: 'Постирать вещи', description: 'Каждый день' },
-  { key: 'nutrition', title: 'Проверить питание', description: 'Каждый день' },
+  { key: 'nutrition', title: 'Вечерний отчёт в чат', description: 'Питание, активность и итоги дня' },
   { key: 'weekly', title: 'Недельные итоги', description: 'Воскресенье' },
   { key: 'checkin', title: 'Самочувствие после тренировки', description: 'После окончания тренировки в Hevy' },
 ];
