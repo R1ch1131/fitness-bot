@@ -46,6 +46,7 @@ class ScheduleTests(unittest.TestCase):
         self.stack.enter_context(patch.object(ns, "_read", side_effect=lambda name, default: copy.deepcopy(self.store.get(name, default))))
         self.write = self.stack.enter_context(patch.object(ns, "_write", side_effect=lambda name, value: self.store.update({name: copy.deepcopy(value)})))
         self.send = self.stack.enter_context(patch("push_service.send_push_notification", return_value=1))
+        self.stack.enter_context(patch("evening_report.dispatch_evening_report", side_effect=lambda due: self.send("evening", "ready")))
 
     def test_custom_time_disabled_types_and_restart_deduplication(self):
         self.settings["gym"]["time"] = "07:45"
@@ -154,33 +155,26 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(ns.dispatch_workout_push(dict(pending, responded=True), end.timestamp() + 3600), 0)
         self.assertEqual(ns.dispatch_workout_push(dict(pending, push_sent=True), end.timestamp() + 3600), 0)
 
-    def test_telegram_stays_at_twenty_minutes_when_app_delay_is_five(self):
+    def test_web_checkin_uses_app_delay_without_platform_messages(self):
         self.settings["checkin"]["delay_minutes"] = 5
         end = datetime(2026, 10, 26, 10, 0, tzinfo=ns.TZ)
         pending = {"end_time": end.isoformat(), "due_time": end.timestamp() + 1200, "workout_id": "1"}
-        clock = types.SimpleNamespace(time=lambda: end.timestamp() + 300)
-        bot = Mock()
-        namespace = {"Optional": __import__("typing").Optional, "time": clock,
-                     "load_pending_checkin": lambda: pending, "save_pending_checkin": Mock(),
-                     "get_all_subscribers": lambda: [123], "coach": types.SimpleNamespace(workouts=[])}
-        dispatch = isolated_function("bot.py", "dispatch_checkin_if_due", namespace)
-        dispatch(bot)
+        namespace = {"time": types.SimpleNamespace(time=lambda: end.timestamp() + 300),
+                     "load_pending_checkin": lambda: pending, "save_pending_checkin": Mock()}
+        dispatch = isolated_function("trainer_runtime.py", "dispatch_checkin_if_due", namespace)
+        dispatch()
         self.send.assert_called_once()
-        bot.send_message.assert_not_called()
-        clock.time = lambda: end.timestamp() + 1200
-        dispatch(bot)
-        bot.send_message.assert_called_once()
-        self.assertEqual(self.send.call_count, 1)
+        self.assertTrue(pending['push_sent'])
 
     def test_in_app_checkin_banner_uses_same_delay_and_toggle(self):
         self.settings["checkin"]["delay_minutes"] = 45
         end = datetime(2026, 10, 26, 10, 0, tzinfo=ns.TZ)
         pending = {"end_time": end.isoformat(), "due_time": end.timestamp() + 1200, "workout_id": "1"}
         clock = types.SimpleNamespace(time=lambda: end.timestamp() + 1200)
-        fake_bot = types.ModuleType("bot")
+        fake_bot = types.ModuleType("trainer_runtime")
         fake_bot.load_pending_checkin = lambda: pending
         fn = isolated_function("api.py", "get_checkin_notification", {"time": clock})
-        with patch.dict("sys.modules", {"bot": fake_bot}):
+        with patch.dict("sys.modules", {"trainer_runtime": fake_bot}):
             self.assertFalse(fn()["should_notify"])
             clock.time = lambda: end.timestamp() + 2700
             self.assertTrue(fn()["should_notify"])

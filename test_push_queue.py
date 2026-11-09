@@ -95,7 +95,7 @@ class QueueTests(unittest.TestCase):
         save = Mock()
         namespace = {'coach': coach, 'load_workout_tracker': lambda: tracker, 'time': types.SimpleNamespace(time=lambda: 1793016000),
             'save_workout_tracker': Mock(), 'load_pending_checkin': lambda: {}, 'save_pending_checkin': save}
-        fn = isolated_function('bot.py', 'check_for_new_workouts_and_sync', namespace)
+        fn = isolated_function('trainer_runtime.py', 'check_for_new_workouts_and_sync', namespace)
         fn(Mock())
         save.assert_not_called()
 

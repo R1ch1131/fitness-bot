@@ -102,7 +102,7 @@ class DispatcherTests(unittest.TestCase):
         namespace = {"Optional": __import__("typing").Optional, "time": types.SimpleNamespace(time=lambda: 2000),
                      "load_pending_checkin": lambda: self.pending, "save_pending_checkin": lambda p: None,
                      "get_all_subscribers": lambda: telegram_subs or [], "coach": types.SimpleNamespace(workouts=[])}
-        fn = isolated_function("bot.py", "dispatch_checkin_if_due", namespace)
+        fn = isolated_function("trainer_runtime.py", "dispatch_checkin_if_due", namespace)
         with patch.object(push, "send_push_notification", self.send):
             fn(self.bot)
 
@@ -123,10 +123,10 @@ class DispatcherTests(unittest.TestCase):
             self.dispatch(pending)
             self.send.assert_not_called()
 
-    def test_telegram_failure_does_not_block_push(self):
+    def test_no_messaging_platform_transport_is_called(self):
         self.dispatch({"due_time": 1900}, telegram_subs=[123], telegram_failure=True)
         self.send.assert_called_once()
-        self.bot.send_message.assert_called_once()
+        self.bot.send_message.assert_not_called()
 
 
 if __name__ == "__main__":

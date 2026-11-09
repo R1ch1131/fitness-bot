@@ -120,14 +120,16 @@ export const App: React.FC = () => {
     setCurrentTab('chat');
   };
 
+  const chatRevision = useRef(0);
   const handleClearChatHistory = () => {
+    chatRevision.current += 1;
     setChatMessages([DEFAULT_COACH_GREETING]);
     try {
       localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([DEFAULT_COACH_GREETING]));
       fetch('/api/chat/history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...healthHeaders() },
-        body: JSON.stringify({ messages: [DEFAULT_COACH_GREETING] }),
+        body: JSON.stringify({ messages: [DEFAULT_COACH_GREETING], clear: true }),
       }).catch(() => {});
     } catch (e) {}
   };
@@ -143,17 +145,41 @@ export const App: React.FC = () => {
     }
   }, [chatMessages]);
 
-  // Load chat history from cloud/backend if local only has default greeting
+  // Receive proactive coach messages on open, foreground and while viewing chat.
   useEffect(() => {
-    fetch('/api/chat/history', { headers: healthHeaders(), cache: 'no-store' })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
-          setChatMessages((prev) => (prev.length <= 1 ? data.messages : prev));
+    const controller = new AbortController();
+    let pending = false;
+    const refresh = async () => {
+      if (pending || document.visibilityState !== 'visible') return;
+      pending = true;
+      const revision = chatRevision.current;
+      try {
+        const response = await fetch('/api/chat/history', { headers: healthHeaders(), cache: 'no-store', signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (Array.isArray(data.messages) && data.messages.length && !controller.signal.aborted && revision === chatRevision.current) {
+          setChatMessages(previous => {
+            const merged = new Map<string, ChatMessage>(data.messages.map((message: ChatMessage) => [message.id, message]));
+            for (const message of previous) if (!merged.has(message.id)) merged.set(message.id, message);
+            const next = [...merged.values()].slice(-100);
+            return JSON.stringify(next) === JSON.stringify(previous) ? previous : next;
+          });
         }
-      })
-      .catch(() => {});
-  }, []);
+      } catch { /* Keep the local conversation when the server is unavailable. */ }
+      finally { pending = false; }
+    };
+    void refresh();
+    const timer = setInterval(() => { if (currentTab === 'chat') void refresh(); }, 30000);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('fitpulse:health-changed', refresh);
+    window.addEventListener('fitpulse:server-ready', refresh);
+    return () => {
+      controller.abort(); clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('fitpulse:health-changed', refresh);
+      window.removeEventListener('fitpulse:server-ready', refresh);
+    };
+  }, [currentTab]);
 
   // Debounced backup of chat history to cloud
   useEffect(() => {

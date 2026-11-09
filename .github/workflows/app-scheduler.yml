@@ -1,0 +1,43 @@
+name: App scheduled tasks
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: app-scheduled-tasks
+  cancel-in-progress: false
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wake application and run due tasks
+        env:
+          SCHEDULER_TOKEN: ${{ secrets.APP_SCHEDULER_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          base = 'https://fitness-bot-9f8m.onrender.com'
+          token = os.environ.get('SCHEDULER_TOKEN', '')
+          if not token:
+              raise SystemExit('APP_SCHEDULER_TOKEN is not configured')
+          for attempt in range(5):
+              try:
+                  with urllib.request.urlopen(base + '/health', timeout=80) as response:
+                      if json.load(response).get('status') != 'ok':
+                          raise RuntimeError('Application is not ready')
+                  request = urllib.request.Request(base + '/api/scheduler/tick', data=b'{}',
+                      headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}, method='POST')
+                  with urllib.request.urlopen(request, timeout=120) as response:
+                      status = json.load(response).get('status')
+                  if status not in ('ok', 'busy'):
+                      raise RuntimeError('Task check failed')
+                  print('Application available; scheduled tasks checked:', status)
+                  break
+              except Exception as error:
+                  print('Attempt', attempt + 1, type(error).__name__)
+                  if attempt == 4:
+                      raise SystemExit('Application task check failed')
+                  time.sleep(15)
+          PY

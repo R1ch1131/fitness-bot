@@ -122,7 +122,7 @@ class DailyReviewTests(unittest.TestCase):
                 "ChatRequest": object, "Request": object, "_sleep_access": lambda r: None,
                 "habits_mgr": types.SimpleNamespace(sync_with_hevy_and_yazio=Mock()), "books_mgr": self.bm,
                 "coach": self.coach, "time": time, "HTTPException": RuntimeError})
-            with patch.dict(sys.modules, {"bot": module}), patch("daily_review.collect_daily_review", return_value=('{}', '170/384 стр.')):
+            with patch.dict(sys.modules, {"trainer_runtime": module}), patch("daily_review.collect_daily_review", return_value=('{}', '170/384 стр.')):
                 result = fn(types.SimpleNamespace(message=message, history=[]), object())
             if is_feedback:
                 self.assertEqual(result["reply"], "итог дня")
