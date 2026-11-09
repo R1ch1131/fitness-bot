@@ -628,6 +628,35 @@ def chat_with_coach(req: ChatRequest, request: Request):
 
 CHAT_HISTORY_FILE = "chat_history.json"
 
+class CoachMemoryInput(BaseModel):
+    text: str
+
+
+@app.get("/api/chat/memory")
+def get_coach_memory(request: Request):
+    import sleep_data
+    if sleep_data.is_configured():
+        _sleep_access(request, required=True)
+    from coach_memory import read_memory
+    try:
+        return JSONResponse(read_memory(), headers={"Cache-Control": "private, no-store"})
+    except Exception:
+        raise HTTPException(503, 'Не удалось загрузить память тренера. Повтори позже.') from None
+
+
+@app.put("/api/chat/memory")
+def put_coach_memory(req: CoachMemoryInput, request: Request):
+    import sleep_data
+    if sleep_data.is_configured():
+        _sleep_access(request, required=True)
+    from coach_memory import save_memory
+    try:
+        return save_memory(req.text)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+    except Exception:
+        raise HTTPException(503, 'Память не сохранена. Повтори позже.') from None
+
 @app.get("/api/chat/history")
 def get_chat_history(request: Request):
     """Returns stored chat messages from Upstash Redis or local storage."""
