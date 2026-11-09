@@ -84,13 +84,13 @@ def build_report(due):
     return '\n\n'.join(fallback)
 
 
-def dispatch_evening_report(due):
+def dispatch_evening_report(due, *, report_id=None):
     if not LOCK.acquire(blocking=False):
         return False
     try:
         from chat_store import append_message, read_history
         from push_service import send_push_notification
-        report_id = 'evening-' + due.date().isoformat()
+        report_id = report_id or 'evening-' + due.date().isoformat()
         records = _read()
         record = records.get(report_id)
         if not record:
@@ -103,7 +103,8 @@ def dispatch_evening_report(due):
             _write(records)
         if record.get('push_sent'):
             return True
-        accepted = send_push_notification('Вечерний отчёт готов 🌙', 'Итоги питания, активности и дня — в чате тренера.',
+        title = 'Тестовый отчёт готов 🌙' if report_id.startswith('evening-test-') else 'Вечерний отчёт готов 🌙'
+        accepted = send_push_notification(title, 'Итоги питания, активности и дня — в чате тренера.',
                                           url='/?tab=chat', tag=report_id)
         if accepted:
             record['push_sent'] = True

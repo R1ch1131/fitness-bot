@@ -694,6 +694,34 @@ def scheduler_tick(request: Request):
     return {"status": run_pending_tasks()}
 
 
+class EveningTestInput(BaseModel):
+    request_id: str
+
+
+@app.post('/api/chat/evening/test')
+def test_evening_report(req: EveningTestInput, request: Request):
+    import sleep_data
+    if sleep_data.is_configured():
+        _sleep_access(request, required=True)
+    from uuid import UUID
+    try:
+        request_id = str(UUID(req.request_id))
+    except ValueError:
+        raise HTTPException(422, 'Некорректный номер запроса') from None
+    from evening_report import dispatch_evening_report
+    from notification_settings import TZ
+    from chat_store import read_history
+    report_id = 'evening-test-' + request_id
+    try:
+        accepted = dispatch_evening_report(datetime.now(TZ), report_id=report_id)
+        message = next((m for m in read_history() if m.get('id') == report_id), None)
+        if not message:
+            raise RuntimeError('Report busy')
+        return {"message": message, "push_accepted": accepted}
+    except Exception:
+        raise HTTPException(503, 'Не удалось отправить тестовый отчёт. Повтори попытку.') from None
+
+
 # ==================== NOTIFICATIONS ENDPOINTS ====================
 
 @app.get("/api/notifications/checkin")

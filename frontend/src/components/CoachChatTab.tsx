@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Zap, User, Trash2 } from 'lucide-react';
 import type { ChatMessage } from '../types';
 import { CoachMemory } from './CoachMemory';
+import { EveningReportTest } from './EveningReportTest';
 
 interface CoachChatTabProps {
   messages: ChatMessage[];
@@ -120,6 +121,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
       </div>
 
       <CoachMemory />
+      <EveningReportTest onMessage={message => setMessages(current => current.some(item => item.id === message.id) ? current : [...current, message])} />
 
       {analysisError && <div role="alert" className="shrink-0 my-2 p-3 rounded-xl border border-rose-500/20 bg-rose-500/5 text-xs text-rose-300 space-y-2">
         <p>{analysisError}</p>

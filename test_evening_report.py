@@ -7,6 +7,19 @@ import evening_report as evening
 
 
 class EveningTests(unittest.TestCase):
+    def test_manual_report_does_not_consume_the_scheduled_report(self):
+        records = {}
+        due = datetime(2026, 11, 10, 23, 0, tzinfo=evening.TZ)
+        with patch.object(evening, '_read', return_value=records), patch.object(evening, '_write'), \
+             patch.object(evening, 'build_report', return_value='Итоги') as build, \
+             patch('chat_store.read_history', return_value=[]), patch('chat_store.append_message'), \
+             patch('push_service.send_push_notification', return_value=1):
+            evening.dispatch_evening_report(due, report_id='evening-test-request')
+            evening.dispatch_evening_report(due, report_id='evening-test-request')
+            evening.dispatch_evening_report(due)
+            self.assertEqual(build.call_count, 2)
+            self.assertEqual(set(records), {'evening-test-request', 'evening-2026-11-10'})
+
     def test_stale_phone_does_not_erase_report_but_explicit_clear_can(self):
         stored = []
         def write(messages):
