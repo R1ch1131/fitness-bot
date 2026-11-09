@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Zap, User, Trash2 } from 'lucide-react';
 import type { ChatMessage } from '../types';
+import { CoachMemory } from './CoachMemory';
 
 interface CoachChatTabProps {
   messages: ChatMessage[];
@@ -34,7 +35,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
   const quickPrompts = [
     '🍳 Что съесть на ужин (400 ккал)?',
     '🥗 Разбери рацион за сегодня',
-    '💻 План на 30 мин кодинга по Python',
+    '💻 План на 30 мин изучения JavaScript',
     '📚 Какую книгу почитать по саморазвитию?',
     '🏋️ Какая тренировка следующая?',
     '🔥 Мои стрики привычек',
@@ -117,6 +118,8 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
           </button>
         )}
       </div>
+
+      <CoachMemory />
 
       {analysisError && <div role="alert" className="shrink-0 my-2 p-3 rounded-xl border border-rose-500/20 bg-rose-500/5 text-xs text-rose-300 space-y-2">
         <p>{analysisError}</p>

@@ -398,6 +398,10 @@ def ask_gemini_ai(user_question: str, force_llm: bool = False, history: Optional
                 "Не считай отсутствие записей нулевым сном и не ставь диагноз по часам."
                 if context_only else get_system_instruction()
             )
+            from coach_memory import ai_context as memory_context
+            memory = memory_context()
+            if memory:
+                system_instruction += "\n\n" + memory
             if extra_context:
                 system_instruction += "\n\nДополнительные данные для этого запроса:\n" + extra_context
 
@@ -477,6 +481,10 @@ def analyze_post_workout_feedback(user_feedback: str, workout_id: Optional[str] 
             daily_context, reading_progress = collect_daily_review(coach)
         if extra_context:
             daily_context += "\n" + extra_context
+        from coach_memory import ai_context as memory_context
+        memory = memory_context()
+        if memory:
+            daily_context += "\n" + memory
         prompt = post_workout_prompt(workout_context, user_feedback, daily_context)
 
         # Try Gemini models cascade
