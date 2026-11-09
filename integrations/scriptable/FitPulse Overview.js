@@ -95,16 +95,17 @@ function render(data, offline = false, savedAt = null) {
   const divider = columns.addStack(); divider.size = new Size(1, 112); divider.backgroundColor = new Color(color.track);
   columns.addSpacer(10);
   const right = columns.addStack(); right.layoutVertically();
-  text(right, 'ОТПРАВЛЕННЫЕ PUSH', 9, color.muted, true); right.addSpacer(6);
+  text(right, 'ОТПРАВЛЕННЫЕ PUSH', 10, color.muted, true); right.addSpacer(6);
   if (!data.notifications.length) {
     const note = text(right, 'Здесь появятся три последних уведомления после обновления сервера.', 10, color.muted); note.lineLimit = 5;
   }
   for (let i = 0; i < data.notifications.length; i++) {
     const n = data.notifications[i];
     const entry = right.addStack(); entry.layoutVertically(); entry.url = SERVER + n.url;
-    text(entry, n.title, 11, color.text, true); entry.addSpacer(2);
-    text(entry, `${sentTime(n.sent_at)} · ${n.body}`, 9, color.muted);
-    if (i < data.notifications.length - 1) right.addSpacer(6);
+    const title = text(entry, n.title, 13, color.text, true); title.minimumScaleFactor = 0.9;
+    entry.addSpacer(1);
+    const detail = text(entry, `${sentTime(n.sent_at)} · ${n.body}`, 11, color.muted); detail.minimumScaleFactor = 1;
+    if (i < data.notifications.length - 1) right.addSpacer(4);
   }
   w.addSpacer();
   const refreshed = new Date(savedAt || data.as_of).toISOString();
