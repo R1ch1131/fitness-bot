@@ -67,19 +67,17 @@ def search_catalog(kind, title, author=''):
     if kind == 'book':
         from book_catalog import find_books
         results = find_books(title, author, _get)
-    elif kind == 'anime':
-        data = _get('https://shikimori.one/api/animes?' + urllib.parse.urlencode({'search': title, 'limit': 8, 'censored': 'true'}))
-        for item in data:
-            path = item.get('image', {}).get('original')
-            results.append(dict(source='Shikimori', external_id=str(item['id']), title=item.get('russian') or item['name'], original_title=item.get('name') or '', image='https://shikimori.one' + path if path and path.startswith('/system/') else None, year=(item.get('aired_on') or '')[:4], episodes=_positive(item.get('episodes')), score=float(item['score']) if item.get('score') and float(item['score']) > 0 else None))
-    elif kind in ('movie', 'series'):
+    elif kind in ('movie', 'series', 'anime'):
         token = os.getenv('TMDB_READ_TOKEN', '').strip()
         if not token:
             raise HTTPException(503, 'Поиск TMDB ещё не подключён. Добавь TMDB_READ_TOKEN в настройки сервера и перезапусти приложение. Пока можно добавить название и свою обложку вручную.')
-        category = 'movie' if kind == 'movie' else 'tv'
+        category = 'multi' if kind == 'anime' else ('movie' if kind == 'movie' else 'tv')
         data = _get('https://api.themoviedb.org/3/search/' + category + '?' + urllib.parse.urlencode({'query': title, 'language': 'ru-RU', 'include_adult': 'false'}), {'Authorization': 'Bearer ' + token})
-        for item in data.get('results', [])[:8]:
-            results.append(dict(source='TMDB', external_id=str(item['id']), title=item.get('title') or item.get('name'), original_title=item.get('original_title') or item.get('original_name') or '', image='https://image.tmdb.org/t/p/w500' + item['poster_path'] if item.get('poster_path') else None, year=(item.get('release_date') or item.get('first_air_date') or '')[:4], description=item.get('overview') or '', score=item.get('vote_average') if item.get('vote_count') else None))
+        candidates = data.get('results', [])
+        if kind == 'anime':
+            candidates = [item for item in candidates if item.get('media_type') in ('tv', 'movie') and 16 in item.get('genre_ids', [])]
+        for item in candidates[:8]:
+            results.append(dict(source='TMDB', external_id=f"tmdb:{item['media_type']}:{item['id']}" if kind == 'anime' else str(item['id']), title=item.get('title') or item.get('name'), original_title=item.get('original_title') or item.get('original_name') or '', image='https://image.tmdb.org/t/p/w500' + item['poster_path'] if item.get('poster_path') else None, year=(item.get('release_date') or item.get('first_air_date') or '')[:4], description=item.get('overview') or '', score=item.get('vote_average') if item.get('vote_count') else None))
     else:
         raise HTTPException(422, 'Неизвестная категория')
     return {'results': [CatalogInfo(**item).model_dump() for item in results]}
@@ -133,6 +131,23 @@ def catalog_details(kind, external_id):
         if isinstance(description, dict):
             description = description.get('value', '')
         return {'pages': _positive(item.get('number_of_pages')), 'publisher': ', '.join(item.get('publishers', []))[:500], 'year': str(item.get('publish_date') or '')[:50], 'description': str(description)[:10000], **({'image': f"https://covers.openlibrary.org/b/id/{item['covers'][0]}-L.jpg"} if item.get('covers') and item['covers'][0] > 0 else {})}
+    match = re.fullmatch(r'tmdb:(tv|movie):(\d+)(?::season:(\d+))?', external_id) if kind == 'anime' else None
+    if match:
+        category, identifier, season = match.groups()
+        if season is not None and category != 'tv':
+            return {}
+        token = os.getenv('TMDB_READ_TOKEN', '').strip()
+        if not token:
+            raise HTTPException(503, 'Добавь TMDB_READ_TOKEN в настройки сервера.')
+        path = f'{category}/{identifier}' + (f'/season/{season}' if season is not None else '')
+        item = _get(f'https://api.themoviedb.org/3/{path}?language=ru-RU', {'Authorization': 'Bearer ' + token})
+        result = {'genres': [g['name'] for g in item.get('genres', [])], 'runtime': _positive(item.get('runtime')), 'description': (item.get('overview') or '')[:10000], 'episodes': (_positive(len(item.get('episodes', []))) if season is not None else (1 if category == 'movie' else _positive(item.get('number_of_episodes'))))}
+        if item.get('poster_path'):
+            result['image'] = 'https://image.tmdb.org/t/p/w500' + item['poster_path']
+        if category == 'tv' and season is None:
+            name = item.get('name') or ''
+            result['season_options'] = [CatalogInfo(source='TMDB', external_id=f"tmdb:tv:{identifier}:season:{entry['season_number']}", title=(name + ' — ' + (entry.get('name') or f"Сезон {entry['season_number']}"))[:200], image='https://image.tmdb.org/t/p/w500' + (entry.get('poster_path') or item.get('poster_path')) if entry.get('poster_path') or item.get('poster_path') else None, episodes=_positive(entry.get('episode_count')), year=(entry.get('air_date') or '')[:4], description=(entry.get('overview') or item.get('overview') or '')[:10000], genres=result['genres']).model_dump() for entry in item.get('seasons', []) if isinstance(entry.get('season_number'), int) and entry['season_number'] >= 0]
+        return result
     if kind == 'anime' and external_id.isdigit():
         item = _get('https://shikimori.one/api/animes/' + external_id)
         description = re.sub(r'\[/?[^\]]+\]', '', item.get('description') or '')

@@ -19,7 +19,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(detail['image'],'https://covers.openlibrary.org/b/id/123-L.jpg')
 
     def test_anime_unknown_episodes_and_score_remain_unknown(self):
-        with patch('catalog._get', return_value=[{'id':1,'name':'Test','episodes':None,'score':None}]):
+        with patch.dict('os.environ', {'TMDB_READ_TOKEN':'secret'}), patch('catalog._get', return_value={'results':[{'id':1,'name':'Test','media_type':'tv','genre_ids':[16]}]}):
             result=search_catalog('anime','Test')['results'][0]
         self.assertIsNone(result['episodes'])
         self.assertIsNone(result['score'])
@@ -128,3 +128,34 @@ class AnimePosterTests(unittest.TestCase):
         self.assertEqual(result['poster_state'],'no_key')
 
 if __name__=='__main__':unittest.main()
+
+class AnimeTMDBTests(unittest.TestCase):
+    @patch.dict('os.environ', {'TMDB_READ_TOKEN': 'secret'})
+    def test_search_filters_adaptations_and_namespaces_ids(self):
+        payload = {'results': [{'id': 7, 'name': 'Anime', 'media_type': 'tv', 'genre_ids': [16], 'poster_path': '/a.jpg'}, {'id': 7, 'title': 'Film', 'media_type': 'movie', 'genre_ids': [16]}, {'id': 8, 'name': 'Live action', 'media_type': 'tv', 'genre_ids': [18]}, {'id': 9, 'name': 'Person', 'media_type': 'person'}]}
+        with patch('catalog._get', return_value=payload) as get:
+            items = search_catalog('anime', 'Anime')['results']
+        self.assertEqual([i['external_id'] for i in items], ['tmdb:tv:7', 'tmdb:movie:7'])
+        self.assertTrue(all(i['source'] == 'TMDB' for i in items))
+        self.assertIn('/search/multi?', get.call_args.args[0])
+        self.assertNotIn('secret', get.call_args.args[0])
+
+    @patch.dict('os.environ', {'TMDB_READ_TOKEN': 'secret'})
+    def test_season_counts_and_persistence(self):
+        with patch('catalog._get', return_value={'name': 'Anime', 'number_of_episodes': 36, 'poster_path': '/show.jpg', 'seasons': [{'season_number': 1, 'name': 'Season 1', 'episode_count': 12}, {'season_number': 2, 'name': 'Season 2', 'episode_count': 24}]}) as get:
+            options = catalog_details('anime', 'tmdb:tv:7')['season_options']
+        self.assertEqual([o['episodes'] for o in options], [12, 24])
+        self.assertEqual(options[1]['external_id'], 'tmdb:tv:7:season:2')
+        with patch('catalog._get', return_value={'episodes': [{}, {}], 'poster_path': '/season.jpg'}) as get:
+            detail = catalog_details('anime', options[1]['external_id'])
+        self.assertEqual(detail['episodes'], 2)
+        self.assertIn('/tv/7/season/2?', get.call_args.args[0])
+        entry = MediaInput(title='Anime', kind='anime', total=24, progress=11, notes='Keep', rating=9, catalog=options[1])
+        self.assertEqual(entry.catalog.external_id, 'tmdb:tv:7:season:2')
+        self.assertEqual(entry.progress, 11)
+
+    def test_invalid_tmdb_id_never_requested(self):
+        with patch('catalog._get') as get:
+            self.assertEqual(catalog_details('anime', 'tmdb:tv:../secret'), {})
+            self.assertEqual(catalog_details('anime', 'tmdb:movie:7:season:2'), {})
+        get.assert_not_called()

@@ -62,6 +62,7 @@ export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onB
   onSelect: (info: CatalogInfo) => void; onImage: (image: string) => void; onBusy?: (busy: boolean) => void; onPoster?: (image: string) => void;
 }) {
   const [results, setResults] = useState<CatalogInfo[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<CatalogInfo[]>([]);
   const [posterOptions, setPosterOptions] = useState<PosterOption[]>([]);
   const [posterMessage, setPosterMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -100,7 +101,7 @@ export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onB
   async function search() {
     if (title.trim().length < 2) { setError('Введи хотя бы 2 символа названия.'); return; }
     request.current?.abort(); const controller = new AbortController(); request.current = controller;
-    generation.current++; pending(true); setError(''); setResults([]); setPosterOptions([]); setPosterMessage('');
+    generation.current++; pending(true); setError(''); setResults([]); setSeasonOptions([]); setPosterOptions([]); setPosterMessage('');
     try {
       const response = await fetch(`/api/catalog/search?kind=${kind}&title=${encodeURIComponent(title.trim())}${kind === 'book' && author ? `&author=${encodeURIComponent(author)}` : ''}`, { headers: healthHeaders(), signal: controller.signal });
       if (!response.ok) throw await responseError(response);
@@ -113,15 +114,17 @@ export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onB
     request.current?.abort(); const controller = new AbortController(); request.current = controller;
     generation.current++; pending(true); setError(''); setPosterOptions([]); setPosterMessage('');
     let chosen = result;
+    let chooseSeason = false;
     try {
       const response = await fetch(`/api/catalog/details?kind=${kind}&external_id=${encodeURIComponent(result.external_id)}`, {headers:healthHeaders(),signal:controller.signal});
       if (!response.ok) throw await responseError(response);
       const data = await response.json();
-      const {poster_options: _options, poster_state: _state, ...details} = data;
+      const {poster_options: _options, poster_state: _state, season_options, ...details} = data;
+      if (!controller.signal.aborted && season_options?.length) { setSeasonOptions(season_options); chooseSeason = true; }
       chosen = {...result, ...details};
       if (!controller.signal.aborted) acceptPosters(data);
     } catch { if (!controller.signal.aborted) setError('Основные сведения выбраны. Дополнительные данные пока недоступны — их можно заполнить вручную.'); }
-    finally { if (!controller.signal.aborted) { onSelect(chosen); setResults([]); pending(false); } }
+    finally { if (!controller.signal.aborted) { if (!chooseSeason) { onSelect(chosen); setSeasonOptions([]); } setResults([]); pending(false); } }
   }
   async function upload(file?: File) {
     if (!file) return;
@@ -131,11 +134,12 @@ export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onB
     finally { if (version === generation.current) pending(false); }
   }
   return <div className="catalog-picker">
-    <div className="catalog-selection"><Poster image={image} title={title} /><div><span className="catalog-eyebrow">{kind === 'book' ? 'Найди своё издание' : 'История начинается с выбора'}</span><p>{info ? info.title : 'Обложка и сведения из каталога'}</p><small>{kind === 'book' ? 'Название, автор, издание и страницы' : kind === 'anime' ? 'Постер, описание, студия, жанры и серии.' : 'Постер, описание и сведения о фильме или сериале'}</small></div></div>
+    <div className="catalog-selection"><Poster image={image} title={title} /><div><span className="catalog-eyebrow">{kind === 'book' ? 'Найди своё издание' : 'История начинается с выбора'}</span><p>{info ? info.title : 'Обложка и сведения из каталога'}</p><small>{kind === 'book' ? 'Название, автор, издание и страницы' : kind === 'anime' ? 'TMDB: обложка, описание и выбор сезона с числом серий.' : 'Постер, описание и сведения о фильме или сериале'}</small></div></div>
     <div className="catalog-picker-actions"><button type="button" disabled={busy} onClick={() => void search()}><Search size={15} />{busy ? 'Загружаем…' : 'Найти по названию'}</button><label><ImagePlus size={15} />Своя обложка<input aria-label="Загрузить обложку" disabled={busy} type="file" accept="image/jpeg,image/png,image/webp" onChange={event => { void upload(event.target.files?.[0]); event.target.value = ''; }} /></label></div>
     {kind === 'anime' && info?.source === 'Shikimori' && onPoster && <div className="catalog-picker-actions"><button type="button" disabled={busy} onClick={() => void findPoster()}>Найти постер в TMDB</button></div>}
     {posterMessage && <p role="status" className="catalog-upload-hint">{posterMessage}</p>}
     {!!posterOptions.length && <div className="catalog-results" aria-label="Постеры TMDB">{posterOptions.map(option => <button type="button" disabled={busy} key={option.id} aria-label={`Выбрать постер: ${option.title} (${option.year || 'год неизвестен'})`} onClick={() => { onPoster?.(option.image); setPosterOptions([]); setPosterMessage('Выбран постер TMDB. Сведения об аниме не изменены.'); }}><Poster image={option.image} title={option.title} /><strong>{option.title}</strong><small>{option.year || 'Год неизвестен'} · TMDB</small></button>)}</div>}
+    {!!seasonOptions.length && <div><p>Выбери сезон — количество серий будет взято для него.</p><div className="catalog-results" aria-label="Сезоны аниме">{seasonOptions.map(season => <button type="button" key={season.external_id} disabled={busy} onClick={() => void select(season)}><Poster image={season.image} title={season.title} /><strong>{season.title}</strong><small>{season.episodes ? `${season.episodes} серий` : 'Число серий неизвестно'}{season.year ? ` · ${season.year}` : ''}</small></button>)}</div></div>}
     {error && <p role="alert" className="catalog-error">{error}</p>}
     {!!results.length && <div className="catalog-results" aria-label="Результаты поиска">{results.map(result => <button type="button" key={result.external_id} disabled={busy} aria-label={`Выбрать: ${result.title}`} onClick={() => void select(result)}><Poster image={result.image} title={result.title} /><strong>{result.title}</strong><small>{[result.author, result.year, result.episodes ? `${result.episodes} серий` : ''].filter(Boolean).join(' · ') || result.source}</small></button>)}</div>}
     <CatalogFacts info={info} />
