@@ -12,7 +12,7 @@ async function run({ token='test-health-token-not-a-real-secret', cached=null, s
   const texts=[],requests=[],draws=[],dates=[];let widget,alerts=0,complete=false;
   class Stack {addText(value){const t={value};texts.push(t);return t;} addDate(value){const d={value,applyRelativeStyle(){this.relative=true;}};dates.push(d);return d;} addSpacer(){} addImage(){return {};} addStack(){return new Stack();} centerAlignContent(){} layoutVertically(){} setPadding(){} async presentMedium(){} }
   class Drawing {setFillColor(){} fillRect(rect){draws.push(rect);} getImage(){return {};}}
-  class Request {constructor(url){this.url=url;requests.push(this);} async loadString(){const result=responses ? responses[Math.min(requests.indexOf(this),responses.length-1)] : {status,body,fail};this.response={statusCode:result.status};if(result.fail)throw Error('offline');return JSON.stringify(result.body);}}
+  class Request {constructor(url){this.url=url;requests.push(this);} async loadString(){const result=responses ? responses[Math.min(requests.indexOf(this),responses.length-1)] : {status,body,fail};this.response={statusCode:result.status};if(result.fail)throw Error('offline');return typeof result.body === 'string' ? result.body : JSON.stringify(result.body);}}
   class Alert {constructor(){alerts++; if(!inApp)throw Error('Widget must never prompt');} addAction(){} addCancelAction(){} addDestructiveAction(){} addSecureTextField(){} textFieldValue(){return enteredToken;} async presentAlert(){return 0;} async presentSheet(){return 0;} }
   const fileApi={joinPath:(a,b)=>a+'/'+b,libraryDirectory:()=>'/library',fileExists:p=>files.has(p),remove:p=>files.delete(p),readString:p=>files.get(p),writeString:(p,v)=>files.set(p,v)};
   const sandbox={args:{queryParameters:refresh?{refresh:'1'}:{}},config:{runsInApp:inApp,widgetFamily:small?'small':'medium'},FileManager:{local:()=>fileApi},Keychain:{contains:k=>keys.has(k),get:k=>keys.get(k),set:(k,v)=>keys.set(k,v),remove:k=>keys.delete(k)},ListWidget:Stack,DrawContext:Drawing,Size:class{constructor(w,h){this.width=w;this.height=h;}},Rect:class{constructor(x,y,w,h){this.x=x;this.y=y;this.width=w;this.height=h;}},Color:class{},Font:{systemFont:s=>s,boldSystemFont:s=>s},URLScheme:{forRunningScript:()=> 'scriptable:///run/FitPulse'},Alert,Request,Script:{setWidget:w=>widget=w,complete:()=>complete=true}};
@@ -54,7 +54,7 @@ test('medium overview displays weight, all three sends, relative freshness timer
 });
 test('overview offline keeps notifications and visibly marks cached data; 401 never reveals cache',async()=>{
   const offline=await run({overview:true,cached:overviewSnapshot,fail:true});
-  assert.ok(offline.texts.some(t=>t.value==='Третий push'));assert.ok(offline.texts.some(t=>t.value.startsWith('Нет связи')));
+  assert.ok(offline.texts.some(t=>t.value==='Третий push'));assert.ok(offline.texts.some(t=>t.value.startsWith('Сервер не ответил')));
   const denied=await run({overview:true,cached:overviewSnapshot,status:401});
   assert.ok(!denied.texts.some(t=>t.value==='Третий push'));assert.ok(!denied.files.has('/library/fitpulse-overview-v1.json'));
 });
@@ -73,7 +73,7 @@ test('transient failure retries once and uses fresh notifications instead of sta
   const fresh={...overviewSnapshot,notifications:[{...overviewSnapshot.notifications[0],title:'Свежая отправка'}]};
   const r=await run({overview:true,cached:overviewSnapshot,responses:[{status:503,body:{}},{status:200,body:fresh}]});
   assert.equal(r.requests.length,2);assert.equal(r.requests[1].timeoutInterval,5);
-  assert.ok(r.texts.some(t=>t.value==='Свежая отправка'));assert.ok(!r.texts.some(t=>t.value.startsWith('Нет связи')));
+  assert.ok(r.texts.some(t=>t.value==='Свежая отправка'));assert.ok(!r.texts.some(t=>t.value.startsWith('Сервер не ответил')));
   assert.equal(r.requests[0].headers['Cache-Control'],'no-cache');
 });
 test('refresh link skips the menu and makes a new request in Scriptable',async()=>{
@@ -84,5 +84,19 @@ test('refresh link skips the menu and makes a new request in Scriptable',async()
 test('offline relative date stays anchored to old saved data rather than pretending it is new',async()=>{
   const r=await run({overview:true,cached:overviewSnapshot,fail:true});
   assert.equal(r.requests.length,2);assert.ok(r.dates[0].relative);
-  assert.ok(r.texts.some(t=>t.value.startsWith('Нет связи · сохранено')));
+  assert.ok(r.texts.some(t=>t.value.startsWith('Сервер не ответил · сохранено')));
+});
+
+
+test('overview retries sooner after failure and allows manual cold starts',async()=>{
+ const before=Date.now(),r=await run({overview:true,cached:overviewSnapshot,fail:true});
+ assert.ok(r.widget.refreshAfterDate.getTime()>=before+3*60000);
+ assert.ok(r.widget.refreshAfterDate.getTime()<before+4*60000);
+ assert.equal(r.requests[0].timeoutInterval,20);
+ const manual=await run({overview:true,inApp:true,body:overviewSnapshot});assert.equal(manual.requests[0].timeoutInterval,75);
+});
+test('overview labels server and invalid responses accurately',async()=>{
+ const html=await run({overview:true,cached:overviewSnapshot,body:'<html>Starting</html>'});assert.ok(html.texts.some(t=>t.value.startsWith('Ответ не прочитан')));
+ const server=await run({overview:true,cached:overviewSnapshot,status:503});assert.ok(server.texts.some(t=>t.value.startsWith('Сервер недоступен')));
+ const goal=await run({overview:true,body:{...overviewSnapshot,goal_weight:78}});assert.ok(goal.texts.some(t=>t.value==='FITPULSE · ЦЕЛЬ 78'));
 });

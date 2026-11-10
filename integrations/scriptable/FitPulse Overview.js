@@ -1,4 +1,4 @@
-// FitPulse Overview · вес + три последних отправленных push. Средний размер Scriptable.
+// FitPulse Overview v2 · вес + три последних отправленных push. Средний размер Scriptable.
 // Секрет вводится при первом запуске и хранится в Keychain, а не в этом файле.
 const SERVER = "https://fitness-bot-9f8m.onrender.com";
 const KEY = "fitpulse.weight.health-token.v1";
@@ -46,13 +46,13 @@ function progress(pct) {
   ctx.setFillColor(new Color(color.green)); ctx.fillRect(new Rect(0, 0, Math.max(0, Math.min(100, pct)) * 6, 12));
   return ctx.getImage();
 }
-function messageWidget(message) {
+function messageWidget(message, retryMinutes = 5) {
   const w = new ListWidget();
   w.backgroundColor = new Color(color.bg); w.setPadding(18, 18, 18, 18);
   text(w, "FITPULSE", 11, color.green, true); w.addSpacer(10);
   const t = text(w, message, 13, color.muted); t.lineLimit = 5;
   w.url = URLScheme.forRunningScript();
-  w.refreshAfterDate = new Date(Date.now() + 5 * 60000);
+  w.refreshAfterDate = new Date(Date.now() + retryMinutes * 60000);
   return w;
 }
 function clock(value) {
@@ -67,15 +67,15 @@ function refreshURL() {
   const url = URLScheme.forRunningScript();
   return url + (url.includes('?') ? '&' : '?') + 'refresh=1';
 }
-function render(data, offline = false, savedAt = null) {
+function render(data, offline = false, savedAt = null, reason = "Сервер не ответил") {
   if (config.widgetFamily === 'small') return messageWidget('Для веса и трёх уведомлений выбери средний прямоугольный размер Scriptable.');
   const w = new ListWidget();
   w.backgroundColor = new Color(color.bg); w.setPadding(12, 14, 12, 14);
   w.url = SERVER + '/?tab=weekly';
-  w.refreshAfterDate = new Date(Date.now() + 5 * 60000);
+  w.refreshAfterDate = new Date(Date.now() + (offline ? 3 : 5) * 60000);
   const columns = w.addStack();
   const left = columns.addStack(); left.layoutVertically(); left.size = new Size(112, 0);
-  text(left, 'FITPULSE · ЦЕЛЬ 80', 9, color.green, true); left.addSpacer(6);
+  text(left, `FITPULSE · ЦЕЛЬ ${number(data.goal_weight)}`, 9, color.green, true); left.addSpacer(6);
   if (data.status === 'ok') {
     text(left, `${number(data.current_weight)} кг`, 27, color.text, true); left.addSpacer(7);
     const bar = left.addImage(progress(data.progress_percent)); bar.imageSize = new Size(106, 5);
@@ -109,7 +109,7 @@ function render(data, offline = false, savedAt = null) {
   const refreshed = new Date(savedAt || data.as_of).toISOString();
   const footer = w.addStack(); footer.centerAlignContent(); footer.url = refreshURL();
   const tint = offline ? color.warning : color.muted;
-  text(footer, `${offline ? 'Нет связи · сохранено' : 'Данные обновлены'} ${sentTime(refreshed)} · Омск`, 9, tint);
+  text(footer, `${offline ? `${reason} · сохранено` : 'Данные обновлены'} ${sentTime(refreshed)} · Омск`, 9, tint);
   footer.addSpacer(6);
   const elapsed = footer.addDate(new Date(refreshed)); elapsed.applyRelativeStyle();
   elapsed.font = Font.systemFont(9); elapsed.textColor = new Color(tint);
@@ -135,8 +135,10 @@ async function loadAttempt(timeout) {
   request.timeoutInterval = timeout;
   // Never forward the authorization header to a redirect destination.
   request.onRedirect = () => null;
+  let bodyLoaded = false;
   try {
     const body = await request.loadString();
+    bodyLoaded = true;
     const status = request.response && request.response.statusCode;
     if (status === 401 || status === 403) { eraseCache(); return messageWidget("Неверный ключ. Открой скрипт в Scriptable и выбери «Изменить ключ»."); }
     if (status !== 200) throw new Error("Server unavailable");
@@ -148,12 +150,13 @@ async function loadAttempt(timeout) {
     const status = request.response && request.response.statusCode;
     if (status === 401 || status === 403) { eraseCache(); return messageWidget("Проверь ключ подключения в Scriptable."); }
     if (timeout !== 5 && (!status || status === 408 || status === 429 || status >= 500 || status === 200)) return loadAttempt(5);
+    const reason = status === 200 && bodyLoaded ? 'Ответ не прочитан' : status && status !== 200 ? 'Сервер недоступен' : 'Сервер не ответил';
     const saved = readCache();
-    return saved ? render(saved.data, true, saved.savedAt) : messageWidget("Сервер пока недоступен. Открой FitPulse и попробуй ещё раз.");
+    return saved ? render(saved.data, true, saved.savedAt, reason) : messageWidget(`${reason}. Открой скрипт в Scriptable для повторной загрузки.`, 3);
   }
 }
 async function load() {
-  return loadAttempt(config.runsInApp ? 20 : 10);
+  return loadAttempt(config.runsInApp ? 75 : 20);
 }
 async function main() {
   const refreshing = typeof args !== 'undefined' && args.queryParameters && args.queryParameters.refresh === '1';
