@@ -112,3 +112,41 @@ def dispatch_evening_report(due, *, report_id=None):
         return bool(accepted)
     finally:
         LOCK.release()
+
+
+def schedule_test(run_at, review_at):
+    """Persist a single test without changing the daily schedule."""
+    with LOCK:
+        records = _read()
+        identifier = 'evening-test-midnight-' + run_at.date().isoformat()
+        records[identifier] = {'run_at': run_at.isoformat(), 'review_at': review_at.isoformat(), 'pending': True}
+        _write(records)
+    return identifier
+
+
+def dispatch_pending_tests(now=None):
+    now = now or datetime.now(TZ)
+    with LOCK:
+        pending = [(key, value.copy()) for key, value in _read().items() if value.get('pending') and datetime.fromisoformat(value['run_at']) <= now]
+    for identifier, record in pending:
+        # Remove the queue placeholder: dispatch owns the durable message journal.
+        with LOCK:
+            records = _read()
+            current = records.get(identifier, {})
+            if not current.get('pending'):
+                continue
+            if not current.get('message'):
+                from chat_store import append_message, read_history
+                due = datetime.fromisoformat(record['review_at'])
+                message = next((m for m in read_history() if m.get('id') == identifier), None)
+                if not message:
+                    message = {'id': identifier, 'sender': 'coach', 'text': build_report(due), 'timestamp': now.strftime('%d.%m · %H:%M'), 'created_at': now.isoformat()}
+                    append_message(message)
+                current.update(message=message, push_sent=False)
+                records[identifier] = current
+                _write(records)
+        if dispatch_evening_report(datetime.fromisoformat(record['review_at']), report_id=identifier):
+            with LOCK:
+                records = _read()
+                records[identifier]['pending'] = False
+                _write(records)

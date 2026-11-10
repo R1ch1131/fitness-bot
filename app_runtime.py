@@ -22,8 +22,9 @@ def _run_pending_tasks():
     from custom_reminders import dispatch_custom_pushes
     from push_test_queue import dispatch_test_pushes
     from trainer_runtime import dispatch_checkin_if_due
+    from evening_report import dispatch_pending_tests
     errors = []
-    for task in (dispatch_scheduled_push, dispatch_custom_pushes, dispatch_test_pushes, dispatch_checkin_if_due):
+    for task in (dispatch_pending_tests, dispatch_scheduled_push, dispatch_custom_pushes, dispatch_test_pushes, dispatch_checkin_if_due):
         try:
             task()
         except Exception as error:

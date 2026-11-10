@@ -1082,3 +1082,24 @@ def service_worker():
 
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+
+
+class EveningScheduleInput(BaseModel):
+    run_at: datetime
+    review_date: date
+
+
+@app.post('/api/chat/evening/schedule-test')
+def schedule_evening_test(req: EveningScheduleInput, request: Request):
+    _sleep_access(request, required=True)
+    from notification_settings import TZ
+    from evening_report import schedule_test
+    now = datetime.now(TZ)
+    if req.run_at.tzinfo is None or not 0 < (req.run_at - now).total_seconds() <= 86400:
+        raise HTTPException(422, 'Выбери время в пределах следующих 24 часов.')
+    if req.review_date > now.date() or (now.date() - req.review_date).days > 1:
+        raise HTTPException(422, 'Можно проверить итоги сегодня или вчера.')
+    run_at = req.run_at.astimezone(TZ)
+    review_at = datetime.combine(req.review_date, datetime.min.time(), tzinfo=TZ).replace(hour=23, minute=59)
+    identifier = schedule_test(run_at, review_at)
+    return {'id': identifier, 'run_at': run_at.isoformat(), 'review_date': req.review_date.isoformat()}

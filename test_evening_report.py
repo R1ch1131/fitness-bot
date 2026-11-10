@@ -58,3 +58,23 @@ class EveningTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class MidnightQueueTests(unittest.TestCase):
+    def test_midnight_uses_previous_day_and_retries_push_without_duplicate(self):
+        from datetime import timedelta
+        run = datetime(2026,11,11,0,0,tzinfo=evening.TZ)
+        review = datetime(2026,11,10,23,59,tzinfo=evening.TZ)
+        records = {}
+        def write(value):
+            records.clear(); records.update(copy.deepcopy(value))
+        with patch.object(evening,'_read',side_effect=lambda:copy.deepcopy(records)), patch.object(evening,'_write',side_effect=write), patch.object(evening,'build_report',return_value='Итоги 10 ноября') as build, patch('chat_store.read_history',return_value=[]), patch('chat_store.append_message') as append, patch('push_service.send_push_notification',side_effect=[0,1]) as push:
+            identifier = evening.schedule_test(run,review)
+            evening.dispatch_pending_tests(run-timedelta(seconds=1))
+            build.assert_not_called()
+            evening.dispatch_pending_tests(run)
+            evening.dispatch_pending_tests(run+timedelta(seconds=20))
+            evening.dispatch_pending_tests(run+timedelta(seconds=40))
+            build.assert_called_once_with(review)
+            append.assert_called_once()
+            self.assertEqual(push.call_count,2)
+            self.assertFalse(records[identifier]['pending'])
