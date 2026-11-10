@@ -1073,15 +1073,6 @@ def restore_backup(req: RestoreBackupPayload):
         "habits": habits_mgr.get_habits()
     }
 
-# Mount static frontend files if built
-frontend_dist = Path(__file__).parent / "frontend" / "dist"
-@app.get("/sw.js", include_in_schema=False)
-def service_worker():
-    return FileResponse(frontend_dist / "sw.js", media_type="application/javascript",
-                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
-
-if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
 
 class EveningScheduleInput(BaseModel):
@@ -1103,3 +1094,14 @@ def schedule_evening_test(req: EveningScheduleInput, request: Request):
     review_at = datetime.combine(req.review_date, datetime.min.time(), tzinfo=TZ).replace(hour=23, minute=59)
     identifier = schedule_test(run_at, review_at)
     return {'id': identifier, 'run_at': run_at.isoformat(), 'review_date': req.review_date.isoformat()}
+
+
+# Mount static frontend files if built
+frontend_dist = Path(__file__).parent / "frontend" / "dist"
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    return FileResponse(frontend_dist / "sw.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
