@@ -78,3 +78,27 @@ body,.fit-app { background:#101714; color:#e6eee8; }
 .fit-app .catalog-poster { background:linear-gradient(135deg,#36523d,#2a3c31); }.fit-app .catalog-placeholder { color:#adc5b1; }.fit-app .game-art-fallback { background:linear-gradient(135deg,#36523d,#2a3c31); color:#adc5b1; }.fit-app [data-layout=list] .game-status { background:#2a4232; color:#bdd8c3; }
 .fit-app .dark-select,:root .dark-select-menu { background:#19251d; color:#d8e7da; border-color:#385440; }.fit-app .dark-select:hover { background:#233a2c; }:root .dark-select-option.is-active { background:#304c39; color:#c9e6d3; }:root .dark-select-option.is-selected { color:#9ad7b8; }
 @media(max-width:900px) { .pulse-nav { background:#19261fee; border-color:#3a5040; }.pulse-nav-items button.is-active { background:#2a4533; color:#a3dabe; } }
+
+/* The conversation gets the available height; the calendar stays on other tabs. */
+.pulse-header.is-compact { flex-shrink:0; padding:10px 24px; padding-top:max(10px,env(safe-area-inset-top)); }
+.pulse-header.is-compact .pulse-brand p,.pulse-header.is-compact .pulse-date { display:none; }
+.pulse-header.is-compact .pulse-brand h1 { font-size:20px; }
+.pulse-header.is-compact .pulse-brand-icon { width:30px; height:30px; border-radius:10px; }
+.pulse-header.is-compact .pulse-icon-button { width:36px; height:36px; }
+.coach-chat-heading { padding:8px 2px 6px; gap:8px; }
+.coach-chat-heading h2 { font-size:18px; font-weight:600; letter-spacing:-.4px; }
+.pulse-coach .coach-tools { margin-bottom:0; padding-bottom:8px; border-bottom:1px solid #2a382e; }
+.pulse-coach .coach-tools > div > button { min-height:32px; padding:6px 10px; font-size:11px; }
+.pulse-coach .coach-tools p[role] { font-size:11px; margin:0; }
+.coach-prompts-toggle { color:#a4b8aa; font-size:11px; padding:7px 2px; min-height:30px; }
+.pulse-coach input { font-size:16px; }
+.coach-bubble { font-size:14px; line-height:1.55; box-shadow:none; }
+@media(max-width:640px) {
+ .pulse-header.is-compact { padding-left:14px; padding-right:14px; }
+ .coach-avatar { display:none; }
+ .coach-messages .coach-bubble { max-width:96%; margin-left:0; margin-right:0; padding:11px 13px; }
+ .coach-chat-heading h2 { font-size:17px; }
+ .pulse-coach { padding-bottom:calc(5.5rem + env(safe-area-inset-bottom,0px)); }
+}
+
+.coach-report-link { flex-shrink:0; text-align:left; color:#8fd3b2; font-size:12px; padding:7px 2px; }

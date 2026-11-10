@@ -648,6 +648,7 @@ export const App: React.FC = () => {
 
       {/* Top Header */}
       <Header
+        compact={isChatTab}
         selectedDay={selectedDay}
         onSelectDay={setSelectedDay}
         todayKey={todayKey}

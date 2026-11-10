@@ -3,6 +3,7 @@ import { Zap, RefreshCw, Bell } from 'lucide-react';
 import type { HabitItem } from '../types';
 
 interface HeaderProps {
+  compact?: boolean;
   selectedDay: string;
   onSelectDay: (day: string) => void;
   todayKey?: string;
@@ -19,6 +20,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  compact = false,
   selectedDay,
   onSelectDay,
   todayKey = 'Чт',
@@ -49,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   });
 
   return (
-    <header className="pulse-header">
+    <header className={`pulse-header ${compact ? 'is-compact' : ''}`}>
       <div className="pulse-topbar">
         <div className="pulse-brand"><span className="pulse-brand-icon"><Zap size={22} fill="currentColor" /></span><div><h1>FitPulse<span>®</span></h1><p>Твой ритм. Твой прогресс.</p></div></div>
         <div className="pulse-date"><span>{weekdayName}</span><strong>{dateFormatted}</strong></div>
@@ -58,10 +60,10 @@ export const Header: React.FC<HeaderProps> = ({
           <button className="pulse-icon-button" onClick={onSync} disabled={isSyncing} aria-label="Синхронизировать Hevy и YAZIO" title="Синхронизировать Hevy и YAZIO"><RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} /></button>
         </div>
       </div>
-      <div className="pulse-week" aria-label="Выбор дня недели">
+      {!compact && <div className="pulse-week" aria-label="Выбор дня недели">
         <span className="pulse-week-caption">ТВОЯ НЕДЕЛЯ<small>Маленькие шаги каждый день</small></span>
         <div className="pulse-days">{days.map(d => <button key={d.key} onClick={() => onSelectDay(d.key)} aria-pressed={selectedDay === d.key} title={d.isToday ? `${d.label} (Сегодня)` : d.label} className={`pulse-day ${selectedDay === d.key ? 'is-selected' : ''} ${d.isToday ? 'is-today' : ''}`}><span>{d.label}</span><strong>{weekDates?.[d.key]?.slice(-2) || '—'}</strong><i className={d.completed ? 'is-complete' : ''} /></button>)}</div>
-      </div>
+      </div>}
     </header>
   );
 };

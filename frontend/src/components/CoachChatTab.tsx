@@ -27,12 +27,14 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
   analysisError = '',
   onRetryAnalysis,
 }) => {
+  const [showPrompts, setShowPrompts] = useState(false);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const isBusy = isLoading || analysisBusy;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const latestReport = [...messages].reverse().find(message => /^evening-\d{4}-/.test(message.id));
   const quickPrompts = [
     '🍳 Что съесть на ужин (400 ккал)?',
     '🥗 Разбери рацион за сегодня',
@@ -98,13 +100,13 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
 
   return (
     <div className="pulse-coach flex-1 flex flex-col min-h-0 w-full max-w-4xl mx-auto px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))]">
-      <div className="coach-compact-heading"><h2>Твой AI-тренер <span>✳</span></h2></div>
-      <div className="coach-tools"><CoachMemory /><EveningReportTest onMessage={message => setMessages(current => current.some(item => item.id === message.id) ? current : [...current, message])} /></div>
+
+      {latestReport && <button type="button" className="coach-report-link" onClick={() => document.getElementById(`message-${latestReport.id}`)?.scrollIntoView({behavior:'smooth', block:'center'})}>🌙 Вечерний отчёт · {latestReport.timestamp} ↗</button>}
       {/* Top Header Bar for Chat */}
-      <div className="flex items-center justify-between px-1 py-1.5 border-b border-[#33473b]/60 shrink-0">
+      <div className="coach-chat-heading flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2">
           <span className="w-2 h-2 rounded-full bg-[#79c5a6] animate-pulse" />
-          <span className="text-xs font-semibold text-zinc-300">Диалог с тренером</span>
+          <h2>AI-тренер</h2>
           {messages.length > 1 && (
             <span className="text-[10px] text-[#91a797]">({messages.length} сообщ.)</span>
           )}
@@ -121,7 +123,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
           </button>
         )}
       </div>
-
+      <div className="coach-tools"><CoachMemory /><EveningReportTest onMessage={message => setMessages(current => current.some(item => item.id === message.id) ? current : [...current, message])} /></div>
 
       {analysisError && <div role="alert" className="shrink-0 my-2 p-3 rounded-xl border border-rose-500/20 bg-rose-500/5 text-xs text-rose-300 space-y-2">
         <p>{analysisError}</p>
@@ -129,16 +131,17 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
       </div>}
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-2 overscroll-contain">
+      <div className="coach-messages flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-2 overscroll-contain" role="log" aria-label="Переписка с тренером">
         {messages.map((m) => {
           const isUser = m.sender === 'user';
           return (
             <div
               key={m.id}
+              id={`message-${m.id}`}
               className={`flex items-start space-x-2.5 ${isUser ? 'flex-row-reverse space-x-reverse' : ''}`}
             >
               <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                className={`coach-avatar w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
                   isUser
                     ? 'bg-[#e7a27d]/20 border border-[#e7a27d]/40 text-[#dcaf89]'
                     : 'bg-[#79c5a6]/20 border border-[#79c5a6]/40 text-[#79c5a6]'
@@ -148,7 +151,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
               </div>
 
               <div
-                className={`max-w-[85%] rounded-2xl p-3.5 text-xs leading-relaxed shadow-lg ${
+                className={`coach-bubble max-w-[85%] rounded-2xl p-3.5 text-xs leading-relaxed shadow-lg ${
                   isUser
                     ? 'bg-[#3c3027] text-[#e6eee8] border border-[#4338ca]/50 rounded-tr-sm'
                     : 'bg-[#19221f] text-[#d0ddd2] border border-[#33473b] rounded-tl-sm'
@@ -181,7 +184,8 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
       </div>
 
       {/* Quick Prompts Chips */}
-      <div className="flex items-center space-x-2 overflow-x-auto py-2 no-scrollbar shrink-0">
+      <div className="coach-prompts shrink-0"><button type="button" className="coach-prompts-toggle" aria-expanded={showPrompts} aria-controls="coach-quick-prompts" onClick={() => setShowPrompts(value => !value)}>{showPrompts ? 'Скрыть подсказки −' : 'Идеи для вопроса +'}</button>
+      {showPrompts && <div id="coach-quick-prompts" className="flex items-center space-x-2 overflow-x-auto py-2 no-scrollbar shrink-0">
         {quickPrompts.map((q, idx) => (
           <button
             key={idx}
@@ -192,7 +196,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
             {q}
           </button>
         ))}
-      </div>
+      </div>}</div>
 
       {/* Input Bar */}
       <div className="pt-1 shrink-0">
@@ -206,13 +210,15 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
           <input
             ref={inputRef}
             type="text"
-            placeholder="Спроси тренера о питании или тренировках..."
+            aria-label="Сообщение тренеру"
+            placeholder="Напиши тренеру…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={isBusy}
             className="flex-1 bg-transparent px-3 py-2 text-xs text-[#e6eee8] placeholder-[#91a797] focus:outline-none"
           />
           <button
+            aria-label="Отправить сообщение"
             type="submit"
             disabled={!input.trim() || isLoading}
             className="w-9 h-9 rounded-xl bg-[#79c5a6] hover:bg-[#90d4b8] disabled:opacity-40 disabled:hover:bg-[#79c5a6] active:scale-95 text-[#10261b] flex items-center justify-center transition-all shadow-md shadow-[#218d79]/20"
