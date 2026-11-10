@@ -97,14 +97,16 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 w-full max-w-4xl mx-auto px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))]">
+    <div className="pulse-coach flex-1 flex flex-col min-h-0 w-full max-w-4xl mx-auto px-3 pb-[calc(4.75rem+env(safe-area-inset-bottom,0px))]">
+      <div className="coach-compact-heading"><h2>Твой AI-тренер <span>✳</span></h2></div>
+      <div className="coach-tools"><CoachMemory /><EveningReportTest onMessage={message => setMessages(current => current.some(item => item.id === message.id) ? current : [...current, message])} /></div>
       {/* Top Header Bar for Chat */}
-      <div className="flex items-center justify-between px-1 py-1.5 border-b border-[#1e293b]/60 shrink-0">
+      <div className="flex items-center justify-between px-1 py-1.5 border-b border-[#33473b]/60 shrink-0">
         <div className="flex items-center space-x-2">
-          <span className="w-2 h-2 rounded-full bg-[#00d084] animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-[#79c5a6] animate-pulse" />
           <span className="text-xs font-semibold text-zinc-300">Диалог с тренером</span>
           {messages.length > 1 && (
-            <span className="text-[10px] text-[#64748b]">({messages.length} сообщ.)</span>
+            <span className="text-[10px] text-[#91a797]">({messages.length} сообщ.)</span>
           )}
         </div>
         {messages.length > 1 && (
@@ -112,7 +114,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
             onClick={onClearHistory}
             disabled={isBusy}
             title="Очистить историю сообщений"
-            className="flex items-center space-x-1 text-[11px] text-[#64748b] hover:text-rose-400 active:scale-95 transition-all px-2 py-0.5 rounded-lg hover:bg-rose-500/10"
+            className="flex items-center space-x-1 text-[11px] text-[#91a797] hover:text-rose-400 active:scale-95 transition-all px-2 py-0.5 rounded-lg hover:bg-rose-500/10"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Очистить</span>
@@ -120,12 +122,10 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
         )}
       </div>
 
-      <CoachMemory />
-      <EveningReportTest onMessage={message => setMessages(current => current.some(item => item.id === message.id) ? current : [...current, message])} />
 
       {analysisError && <div role="alert" className="shrink-0 my-2 p-3 rounded-xl border border-rose-500/20 bg-rose-500/5 text-xs text-rose-300 space-y-2">
         <p>{analysisError}</p>
-        <button disabled={isBusy} onClick={onRetryAnalysis} className="px-3 py-2 rounded-lg bg-[#192235] border border-[#334155] text-white disabled:opacity-40">Повторить разбор</button>
+        <button disabled={isBusy} onClick={onRetryAnalysis} className="px-3 py-2 rounded-lg bg-[#233028] border border-[#33473b] text-[#e6eee8] disabled:opacity-40">Повторить разбор</button>
       </div>}
 
       {/* Messages Scroll Area */}
@@ -140,22 +140,22 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
               <div
                 className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
                   isUser
-                    ? 'bg-[#6366f1]/20 border border-[#6366f1]/40 text-[#a5b4fc]'
-                    : 'bg-[#00d084]/20 border border-[#00d084]/40 text-[#00d084]'
+                    ? 'bg-[#e7a27d]/20 border border-[#e7a27d]/40 text-[#dcaf89]'
+                    : 'bg-[#79c5a6]/20 border border-[#79c5a6]/40 text-[#79c5a6]'
                 }`}
               >
-                {isUser ? <User className="w-4 h-4" /> : <Zap className="w-4 h-4 fill-[#00d084]" />}
+                {isUser ? <User className="w-4 h-4" /> : <Zap className="w-4 h-4 fill-[#79c5a6]" />}
               </div>
 
               <div
                 className={`max-w-[85%] rounded-2xl p-3.5 text-xs leading-relaxed shadow-lg ${
                   isUser
-                    ? 'bg-[#25224d] text-white border border-[#4338ca]/50 rounded-tr-sm'
-                    : 'bg-[#111726] text-[#e2e8f0] border border-[#1e293b] rounded-tl-sm'
+                    ? 'bg-[#3c3027] text-[#e6eee8] border border-[#4338ca]/50 rounded-tr-sm'
+                    : 'bg-[#19221f] text-[#d0ddd2] border border-[#33473b] rounded-tl-sm'
                 }`}
               >
                 <p className="whitespace-pre-wrap">{m.text}</p>
-                <span className="block text-[9px] text-[#64748b] text-right mt-1.5 font-medium">
+                <span className="block text-[9px] text-[#91a797] text-right mt-1.5 font-medium">
                   {m.timestamp}
                 </span>
               </div>
@@ -165,18 +165,18 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
 
         {isBusy && (
           <div role="status" aria-label="ИИ анализирует данные" className="flex items-start space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#00d084]/20 border border-[#00d084]/40 flex items-center justify-center text-[#00d084]">
-              <Zap className="w-4 h-4 fill-[#00d084] animate-pulse" />
+            <div className="w-8 h-8 rounded-xl bg-[#79c5a6]/20 border border-[#79c5a6]/40 flex items-center justify-center text-[#79c5a6]">
+              <Zap className="w-4 h-4 fill-[#79c5a6] animate-pulse" />
             </div>
-            <div className="bg-[#111726] border border-[#1e293b] rounded-2xl p-3.5 text-xs text-[#94a3b8] flex items-center space-x-2">
-              <span className="w-2 h-2 rounded-full bg-[#00d084] animate-bounce" />
-              <span className="w-2 h-2 rounded-full bg-[#00d084] animate-bounce [animation-delay:0.2s]" />
-              <span className="w-2 h-2 rounded-full bg-[#00d084] animate-bounce [animation-delay:0.4s]" />
+            <div className="bg-[#19221f] border border-[#33473b] rounded-2xl p-3.5 text-xs text-[#a4b8aa] flex items-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-[#79c5a6] animate-bounce" />
+              <span className="w-2 h-2 rounded-full bg-[#79c5a6] animate-bounce [animation-delay:0.2s]" />
+              <span className="w-2 h-2 rounded-full bg-[#79c5a6] animate-bounce [animation-delay:0.4s]" />
               <span className="text-[11px] ml-1">Тренер думает...</span>
             </div>
           </div>
         )}
-        {analysisBusy && <p className="text-xs text-[#94a3b8] pl-11">Анализирую данные выбранной недели…</p>}
+        {analysisBusy && <p className="text-xs text-[#a4b8aa] pl-11">Анализирую данные выбранной недели…</p>}
         <div ref={messagesEndRef} />
       </div>
 
@@ -187,7 +187,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
             key={idx}
             onClick={() => handleSend(q)}
             disabled={isBusy}
-            className="shrink-0 bg-[#111726] hover:bg-[#1e293b] active:scale-95 border border-[#1e293b] text-[#94a3b8] hover:text-white px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+            className="shrink-0 bg-[#19221f] hover:bg-[#33473b] active:scale-95 border border-[#33473b] text-[#a4b8aa] hover:text-[#e6eee8] px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
           >
             {q}
           </button>
@@ -201,7 +201,7 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
             e.preventDefault();
             handleSend();
           }}
-          className="flex items-center space-x-2 bg-[#111726] border border-[#1e293b] p-1.5 rounded-2xl focus-within:border-[#00d084] transition-all"
+          className="flex items-center space-x-2 bg-[#19221f] border border-[#33473b] p-1.5 rounded-2xl focus-within:border-[#79c5a6] transition-all"
         >
           <input
             ref={inputRef}
@@ -210,14 +210,14 @@ export const CoachChatTab: React.FC<CoachChatTabProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={isBusy}
-            className="flex-1 bg-transparent px-3 py-2 text-xs text-white placeholder-[#64748b] focus:outline-none"
+            className="flex-1 bg-transparent px-3 py-2 text-xs text-[#e6eee8] placeholder-[#91a797] focus:outline-none"
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="w-9 h-9 rounded-xl bg-[#00d084] hover:bg-[#00b572] disabled:opacity-40 disabled:hover:bg-[#00d084] active:scale-95 text-[#0b0f19] flex items-center justify-center transition-all shadow-md shadow-[#00d084]/20"
+            className="w-9 h-9 rounded-xl bg-[#79c5a6] hover:bg-[#90d4b8] disabled:opacity-40 disabled:hover:bg-[#79c5a6] active:scale-95 text-[#10261b] flex items-center justify-center transition-all shadow-md shadow-[#218d79]/20"
           >
-            <Send className="w-4 h-4 fill-[#0b0f19]" />
+            <Send className="w-4 h-4 fill-[#fffdf5]" />
           </button>
         </form>
       </div>

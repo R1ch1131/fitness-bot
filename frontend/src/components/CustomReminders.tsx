@@ -61,37 +61,37 @@ export function CustomReminders() {
   }
 
   const valid = draft && draft.title.trim().length > 0 && draft.title.trim().length <= 80 && draft.body.length <= 240 && draft.weekdays.length > 0 && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(draft.time);
-  const inputStyle = 'w-full rounded-xl border border-[#334155] bg-[#0b0f19] px-3 py-2 text-sm text-white disabled:opacity-40';
+  const inputStyle = 'w-full rounded-xl border border-[#33473b] bg-[#101714] px-3 py-2 text-sm text-[#e6eee8] disabled:opacity-40';
   return (
-    <section className="border-t border-[#1e293b] pt-4 space-y-3" aria-label="Свои уведомления">
+    <section className="border-t border-[#33473b] pt-4 space-y-3" aria-label="Свои уведомления">
       <h3 className="font-semibold">Свои уведомления</h3>
-      <p className="text-xs text-[#94a3b8]">Добавляй свои напоминания. Время по Омску, расписание общее для приложения на всех твоих устройствах. Для получения нужно разрешить push.</p>
-      {items.map(item => <article key={item.id} className="rounded-xl bg-[#0b0f19] p-3 space-y-2">
+      <p className="text-xs text-[#a4b8aa]">Добавляй свои напоминания. Время по Омску, расписание общее для приложения на всех твоих устройствах. Для получения нужно разрешить push.</p>
+      {items.map(item => <article key={item.id} className="rounded-xl bg-[#101714] p-3 space-y-2">
         <label className="flex items-center justify-between gap-3"><span className="font-medium break-words min-w-0">{item.title}</span>
-          <input type="checkbox" aria-label={`Включить: ${item.title}`} checked={item.enabled} disabled={busy || !!draft} onChange={() => void toggle(item)} className="w-5 h-5 shrink-0 accent-[#00d084]" />
+          <input type="checkbox" aria-label={`Включить: ${item.title}`} checked={item.enabled} disabled={busy || !!draft} onChange={() => void toggle(item)} className="w-5 h-5 shrink-0 accent-[#218d79]" />
         </label>
-        {item.body && <p className="text-xs text-[#94a3b8] whitespace-pre-wrap break-words">{item.body}</p>}
-        <p className="text-xs text-[#94a3b8]">{item.time} · {item.weekdays.map(day => days[day]).join(', ')} · {item.enabled ? 'Включено' : 'Выключено'}</p>
-        {item.next_run && <p className="text-xs text-[#94a3b8]">Ближайшая отправка: {dateLabel(item.next_run)} по Омску</p>}
+        {item.body && <p className="text-xs text-[#a4b8aa] whitespace-pre-wrap break-words">{item.body}</p>}
+        <p className="text-xs text-[#a4b8aa]">{item.time} · {item.weekdays.map(day => days[day]).join(', ')} · {item.enabled ? 'Включено' : 'Выключено'}</p>
+        {item.next_run && <p className="text-xs text-[#a4b8aa]">Ближайшая отправка: {dateLabel(item.next_run)} по Омску</p>}
         <div className="flex gap-4 text-xs">
-          <button disabled={busy || !!draft} onClick={() => { setEditing(item.id); setDraft(fields(item)); setMessage(''); }} className="text-[#00d084] disabled:opacity-40">Изменить</button>
-          <button disabled={busy} onClick={() => setDeleting(item.id)} className="text-[#94a3b8] disabled:opacity-40">Удалить</button>
+          <button disabled={busy || !!draft} onClick={() => { setEditing(item.id); setDraft(fields(item)); setMessage(''); }} className="text-[#79c5a6] disabled:opacity-40">Изменить</button>
+          <button disabled={busy} onClick={() => setDeleting(item.id)} className="text-[#a4b8aa] disabled:opacity-40">Удалить</button>
           {deleting === item.id && <><button disabled={busy} onClick={() => void remove(item.id)} className="text-red-400">Удалить окончательно</button><button disabled={busy} onClick={() => setDeleting(null)}>Отмена</button></>}
         </div>
       </article>)}
-      {loaded && !items.length && <p className="text-xs text-[#94a3b8]">Своих напоминаний пока нет.</p>}
-      {!draft && loaded && <button disabled={busy || items.length >= 50} onClick={() => { setEditing(null); setDraft(fields(empty)); setMessage(''); }} className="px-3 py-2 rounded-xl border border-[#00d084]/50 text-[#00d084] disabled:opacity-40">Добавить уведомление</button>}
+      {loaded && !items.length && <p className="text-xs text-[#a4b8aa]">Своих напоминаний пока нет.</p>}
+      {!draft && loaded && <button disabled={busy || items.length >= 50} onClick={() => { setEditing(null); setDraft(fields(empty)); setMessage(''); }} className="px-3 py-2 rounded-xl border border-[#79c5a6]/50 text-[#79c5a6] disabled:opacity-40">Добавить уведомление</button>}
       {!loaded && !busy && <button onClick={() => void load()} className="text-xs underline">Повторить загрузку</button>}
-      {draft && <div className="space-y-3 rounded-xl border border-[#334155] p-3">
+      {draft && <div className="space-y-3 rounded-xl border border-[#33473b] p-3">
         <p className="text-sm font-medium">{editing ? 'Изменить уведомление' : 'Новое уведомление'}</p>
-        <label className="block space-y-1"><span className="text-xs text-[#94a3b8]">Название</span><input value={draft.title} maxLength={80} disabled={busy} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="Например: выпить воду" className={inputStyle} /></label>
-        <label className="block space-y-1"><span className="text-xs text-[#94a3b8]">Текст уведомления</span><textarea value={draft.body} maxLength={240} disabled={busy} onChange={e => setDraft({ ...draft, body: e.target.value })} placeholder="Необязательно" rows={2} className={inputStyle} /></label>
-        <label className="flex items-center justify-between text-xs text-[#94a3b8]">Время по Омску<input type="time" value={draft.time} disabled={busy} onChange={e => setDraft({ ...draft, time: e.target.value })} className="rounded-lg border border-[#334155] bg-[#0b0f19] p-2 text-white [color-scheme:dark]" /></label>
-        <fieldset disabled={busy} className="space-y-2"><legend className="text-xs text-[#94a3b8]">Повторять по дням</legend><div className="flex gap-1">{days.map((day, index) => <button key={day} type="button" aria-pressed={draft.weekdays.includes(index)} onClick={() => setDraft({ ...draft, weekdays: draft.weekdays.includes(index) ? draft.weekdays.filter(value => value !== index) : [...draft.weekdays, index].sort() })} className={`flex-1 rounded-lg py-2 text-xs ${draft.weekdays.includes(index) ? 'bg-[#00d084] text-[#0b0f19]' : 'bg-[#1e293b] text-[#94a3b8]'}`}>{day}</button>)}</div></fieldset>
-        {!draft.weekdays.length && <p className="text-xs text-[#94a3b8]">Выбери хотя бы один день недели.</p>}
-        <div className="flex gap-3"><button disabled={busy || !valid} onClick={() => void save()} className="rounded-xl bg-[#00d084] text-[#0b0f19] px-3 py-2 text-xs font-semibold disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить уведомление'}</button><button disabled={busy} onClick={() => { setDraft(null); setEditing(null); }} className="text-xs text-[#94a3b8]">Отмена</button></div>
+        <label className="block space-y-1"><span className="text-xs text-[#a4b8aa]">Название</span><input value={draft.title} maxLength={80} disabled={busy} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="Например: выпить воду" className={inputStyle} /></label>
+        <label className="block space-y-1"><span className="text-xs text-[#a4b8aa]">Текст уведомления</span><textarea value={draft.body} maxLength={240} disabled={busy} onChange={e => setDraft({ ...draft, body: e.target.value })} placeholder="Необязательно" rows={2} className={inputStyle} /></label>
+        <label className="flex items-center justify-between text-xs text-[#a4b8aa]">Время по Омску<input type="time" value={draft.time} disabled={busy} onChange={e => setDraft({ ...draft, time: e.target.value })} className="rounded-lg border border-[#33473b] bg-[#101714] p-2 text-[#e6eee8] [color-scheme:dark]" /></label>
+        <fieldset disabled={busy} className="space-y-2"><legend className="text-xs text-[#a4b8aa]">Повторять по дням</legend><div className="flex gap-1">{days.map((day, index) => <button key={day} type="button" aria-pressed={draft.weekdays.includes(index)} onClick={() => setDraft({ ...draft, weekdays: draft.weekdays.includes(index) ? draft.weekdays.filter(value => value !== index) : [...draft.weekdays, index].sort() })} className={`flex-1 rounded-lg py-2 text-xs ${draft.weekdays.includes(index) ? 'bg-[#79c5a6] text-[#10261b]' : 'bg-[#33473b] text-[#a4b8aa]'}`}>{day}</button>)}</div></fieldset>
+        {!draft.weekdays.length && <p className="text-xs text-[#a4b8aa]">Выбери хотя бы один день недели.</p>}
+        <div className="flex gap-3"><button disabled={busy || !valid} onClick={() => void save()} className="rounded-xl bg-[#79c5a6] text-[#10261b] px-3 py-2 text-xs font-semibold disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить уведомление'}</button><button disabled={busy} onClick={() => { setDraft(null); setEditing(null); }} className="text-xs text-[#a4b8aa]">Отмена</button></div>
       </div>}
-      {message && <p role="status" className="text-xs text-[#94a3b8]">{message}</p>}
+      {message && <p role="status" className="text-xs text-[#a4b8aa]">{message}</p>}
     </section>
   );
 }

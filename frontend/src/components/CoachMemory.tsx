@@ -41,14 +41,14 @@ export function CoachMemory() {
   };
   return <div className="shrink-0 my-1 text-xs">
     <button type="button" aria-expanded={open} aria-controls="coach-memory-editor" disabled={busy} onClick={() => setOpen(value => !value)} className="px-3 py-2 rounded-xl border border-emerald-400/25 text-emerald-200">Память тренера</button>
-    {open && <div id="coach-memory-editor" className="mt-2 p-3 rounded-xl border border-[#334155] bg-[#111726] space-y-2">
-      <p className="text-[#94a3b8]">Что тренер должен помнить о тебе. Очистка переписки эти сведения не удаляет.</p>
+    {open && <div id="coach-memory-editor" className="mt-2 p-3 rounded-xl border border-[#33473b] bg-[#19221f] space-y-2">
+      <p className="text-[#a4b8aa]">Что тренер должен помнить о тебе. Очистка переписки эти сведения не удаляет.</p>
       {!ready && !error && <p role="status">Загружаем память…</p>}
-      <textarea aria-label="Постоянная память тренера" maxLength={10000} rows={5} disabled={!ready || busy} value={text} onChange={event => { setText(event.target.value); setSaved(false); }} className="w-full p-3 rounded-xl bg-[#0b0f19] border border-[#334155] text-white resize-y max-h-48" />
+      <textarea aria-label="Постоянная память тренера" maxLength={10000} rows={5} disabled={!ready || busy} value={text} onChange={event => { setText(event.target.value); setSaved(false); }} className="w-full p-3 rounded-xl bg-[#101714] border border-[#33473b] text-[#e6eee8] resize-y max-h-48" />
       {error && <p role="alert" className="text-rose-300">{error}{!ready && <button type="button" onClick={() => setRetry(value => value + 1)} className="underline ml-2">Повторить</button>}</p>}
       {saved && <p role="status" className="text-emerald-300">Память сохранена</p>}
-      <button type="button" disabled={!ready || busy} onClick={() => void save()} className="px-3 py-2 rounded-lg bg-emerald-400 text-[#0b0f19] disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить память'}</button>
-      <p className="text-[#94a3b8]">Чтобы удалить память, очисти поле и сохрани.</p>
+      <button type="button" disabled={!ready || busy} onClick={() => void save()} className="px-3 py-2 rounded-lg bg-emerald-400 text-[#10261b] disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить память'}</button>
+      <p className="text-[#a4b8aa]">Чтобы удалить память, очисти поле и сохрани.</p>
     </div>}
   </div>;
 }

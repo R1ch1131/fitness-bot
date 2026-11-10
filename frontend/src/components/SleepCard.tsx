@@ -14,38 +14,38 @@ export const duration = (minutes: number | null) => {
 };
 const clock = (value?: string | null) => value && !Number.isNaN(Date.parse(value))
   ? new Date(value).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Omsk', hour: '2-digit', minute: '2-digit' }) : '—';
-const secondary = 'inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl border border-[#2b3850] bg-[#192235] text-xs font-medium text-[#cbd5e1] hover:bg-[#24304a] active:scale-[0.98] transition disabled:opacity-40';
+const secondary = 'inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl border border-[#33473b] bg-[#233028] text-xs font-medium text-[#c0d0c3] hover:bg-[#24304a] active:scale-[0.98] transition disabled:opacity-40';
 
 function NightCard({ night, expanded }: { night: Night; expanded: boolean }) {
   const [open, setOpen] = useState(expanded);
   const parts = [
-    { name: 'Базовый', minutes: night.core_minutes, color: '#818cf8' },
-    { name: 'Глубокий', minutes: night.deep_minutes, color: '#a78bfa' },
-    { name: 'REM', minutes: night.rem_minutes, color: '#38bdf8' },
-    ...(night.asleep_minutes > 0 ? [{ name: 'Без фазы', minutes: night.asleep_minutes, color: '#64748b' }] : []),
+    { name: 'Базовый', minutes: night.core_minutes, color: '#d68b65' },
+    { name: 'Глубокий', minutes: night.deep_minutes, color: '#9677ac' },
+    { name: 'REM', minutes: night.rem_minutes, color: '#288f97' },
+    ...(night.asleep_minutes > 0 ? [{ name: 'Без фазы', minutes: night.asleep_minutes, color: '#6d8075' }] : []),
   ];
   const total = parts.reduce((sum, part) => sum + part.minutes, 0);
   const title = new Date(night.date + 'T12:00:00Z').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
   const weekday = new Date(night.date + 'T12:00:00Z').toLocaleDateString('ru-RU', { weekday: 'long', timeZone: 'UTC' });
-  return <article aria-label={`Сон за ${night.date}`} className="rounded-2xl border border-[#202b42] bg-[#0b101d] overflow-hidden">
+  return <article aria-label={`Сон за ${night.date}`} className="rounded-2xl border border-[#33473b] bg-[#18221c] overflow-hidden">
     <button onClick={() => setOpen(v => !v)} aria-expanded={open} aria-label={`Фазы сна за ${night.date}`} className="w-full p-4 text-left flex items-center justify-between gap-2 hover:bg-white/[0.02] transition">
-      <div><p className="text-[10px] uppercase tracking-wider text-[#64748b]">Ночь на {weekday}</p><h3 className="text-sm font-semibold text-white mt-0.5">{title}</h3></div>
-      <div className="flex items-center gap-2"><strong className="text-sm text-[#ddd6fe]">{duration(night.sleep_minutes)}</strong><ChevronDown className={`w-4 h-4 text-[#64748b] transition-transform ${open ? 'rotate-180' : ''}`} /></div>
+      <div><p className="text-[10px] uppercase tracking-wider text-[#91a797]">Ночь на {weekday}</p><h3 className="text-sm font-semibold text-[#e6eee8] mt-0.5">{title}</h3></div>
+      <div className="flex items-center gap-2"><strong className="text-sm text-[#bba0d1]">{duration(night.sleep_minutes)}</strong><ChevronDown className={`w-4 h-4 text-[#91a797] transition-transform ${open ? 'rotate-180' : ''}`} /></div>
     </button>
     <div className="px-4 pb-4 space-y-3">
-      <div className="flex items-center gap-2 text-xs text-[#94a3b8]"><Moon className="w-3.5 h-3.5 text-[#a78bfa]" /><span>{clock(night.start)}</span><span className="flex-1 h-px bg-[#263149]" /><Clock3 className="w-3.5 h-3.5 text-[#64748b]" /><span>{clock(night.end)}</span><span className="sr-only">Время начала и окончания сна по Омску</span></div>
-      {total > 0 && <div role="img" aria-label={`Доли фаз сна: ${parts.map(p => `${p.name} ${duration(p.minutes)}`).join(', ')}`} className="h-2.5 rounded-full overflow-hidden flex bg-[#192235]">
+      <div className="flex items-center gap-2 text-xs text-[#a4b8aa]"><Moon className="w-3.5 h-3.5 text-[#b9a0d0]" /><span>{clock(night.start)}</span><span className="flex-1 h-px bg-[#33473b]" /><Clock3 className="w-3.5 h-3.5 text-[#91a797]" /><span>{clock(night.end)}</span><span className="sr-only">Время начала и окончания сна по Омску</span></div>
+      {total > 0 && <div role="img" aria-label={`Доли фаз сна: ${parts.map(p => `${p.name} ${duration(p.minutes)}`).join(', ')}`} className="h-2.5 rounded-full overflow-hidden flex bg-[#233028]">
         {parts.filter(p => p.minutes > 0).map(p => <span key={p.name} style={{ width: `${p.minutes / total * 100}%`, backgroundColor: p.color }} />)}
       </div>}
       {open && <div className="space-y-3">
         {total > 0 ? <div className={`grid gap-2 ${parts.length > 3 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          {parts.map(p => <div key={p.name} className="rounded-xl bg-[#131b2c] px-2.5 py-2.5">
-            <p className="text-[10px] text-[#94a3b8] flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />{p.name}</p>
-            <p className="text-xs text-white font-semibold mt-1.5">{duration(p.minutes)}</p>
-            <p className="text-[10px] text-[#64748b] mt-1">{Math.round(p.minutes / total * 100)}%</p>
+          {parts.map(p => <div key={p.name} className="rounded-xl bg-[#202d25] px-2.5 py-2.5">
+            <p className="text-[10px] text-[#a4b8aa] flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />{p.name}</p>
+            <p className="text-xs text-[#e6eee8] font-semibold mt-1.5">{duration(p.minutes)}</p>
+            <p className="text-[10px] text-[#91a797] mt-1">{Math.round(p.minutes / total * 100)}%</p>
           </div>)}
-        </div> : <p className="text-xs text-[#94a3b8]">Часы не записали фазы сна.</p>}
-        <div className="flex items-center justify-between text-[11px]"><span className="text-[#64748b]">Бодрствование</span><span className="text-[#cbd5e1]">{duration(night.awake_minutes)}</span></div>
+        </div> : <p className="text-xs text-[#a4b8aa]">Часы не записали фазы сна.</p>}
+        <div className="flex items-center justify-between text-[11px]"><span className="text-[#91a797]">Бодрствование</span><span className="text-[#c0d0c3]">{duration(night.awake_minutes)}</span></div>
       </div>}
     </div>
   </article>;
@@ -109,37 +109,37 @@ export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
   const dates = Array.from({ length: 7 }, (_, index) => new Date(Date.parse(weekStart + 'T12:00:00Z') + index * 86400000).toISOString().slice(0, 10));
   const activeDate = selectedDate && dates.includes(selectedDate) ? selectedDate : nights[0]?.date || weekStart;
   const activeNight = nights.find(night => night.date === activeDate);
-  return <section aria-label="Сон Apple Watch" aria-busy={blocked} className="bg-[#111726] border border-[#1e293b] rounded-3xl p-4 sm:p-5 h-[560px] flex flex-col gap-4">
+  return <section aria-label="Сон Apple Watch" aria-busy={blocked} className="bg-[#19221f] border border-[#33473b] rounded-3xl p-4 sm:p-5 max-h-[760px] flex flex-col gap-4">
     <div className="flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-2xl bg-[#a78bfa]/10 border border-[#a78bfa]/20 flex items-center justify-center"><Moon className="w-5 h-5 text-[#c4b5fd]" /></div><div><h2 className="font-bold text-white text-sm">Сон</h2><p className="text-[10px] text-[#64748b] mt-0.5 flex items-center gap-1"><Watch className="w-3 h-3" />Apple Watch · Омск</p></div></div>
-      {connected && <button aria-label="Настройки сна" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(v => !v)} className="w-10 h-10 rounded-xl flex items-center justify-center text-[#64748b] hover:text-white hover:bg-[#192235] transition"><SlidersHorizontal className="w-4 h-4" /></button>}
+      <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-2xl bg-[#9677ac]/10 border border-[#b9a0d0]/20 flex items-center justify-center"><Moon className="w-5 h-5 text-[#c1a5db]" /></div><div><h2 className="font-bold text-[#e6eee8] text-sm">Сон</h2><p className="text-[10px] text-[#91a797] mt-0.5 flex items-center gap-1"><Watch className="w-3 h-3" />Apple Watch · Омск</p></div></div>
+      {connected && <button aria-label="Настройки сна" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(v => !v)} className="w-10 h-10 rounded-xl flex items-center justify-center text-[#91a797] hover:text-[#e6eee8] hover:bg-[#233028] transition"><SlidersHorizontal className="w-4 h-4" /></button>}
     </div>
     <div className="flex-1 min-h-0 overflow-y-auto space-y-4 [scrollbar-width:thin]">
     {error && <p role="alert" className="text-xs text-rose-300 rounded-xl bg-rose-500/5 p-3">{error}</p>}
     {!connected ? <div className="space-y-3">
-      <p className="text-xs text-[#94a3b8]">Подключи сон для просмотра и разбора с ИИ.</p>
+      <p className="text-xs text-[#a4b8aa]">Подключи сон для просмотра и разбора с ИИ.</p>
       {configured === false && <p className="text-xs text-amber-300">На сервере нужно настроить HEALTH_IMPORT_TOKEN.</p>}
-      <label className="block text-xs text-[#94a3b8]">Ключ подключения<input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} className="block w-full mt-2 p-3 rounded-xl bg-[#0b0f19] border border-[#334155] text-white" placeholder="Вставь ключ" /></label>
-      <button onClick={connect} disabled={blocked || token.trim().length < 32} className="w-full px-4 py-3 rounded-xl bg-[#00d084] text-[#0b0f19] text-xs font-semibold disabled:opacity-40">{busy ? 'Подключаем…' : 'Подключить сон'}</button>
+      <label className="block text-xs text-[#a4b8aa]">Ключ подключения<input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} className="block w-full mt-2 p-3 rounded-xl bg-[#101714] border border-[#33473b] text-[#e6eee8]" placeholder="Вставь ключ" /></label>
+      <button onClick={connect} disabled={blocked || token.trim().length < 32} className="w-full px-4 py-3 rounded-xl bg-[#79c5a6] text-[#10261b] text-xs font-semibold disabled:opacity-40">{busy ? 'Подключаем…' : 'Подключить сон'}</button>
       <a href="/api/health/setup" target="_blank" rel="noreferrer" className={`${secondary} w-full`}>Как подключить</a>
     </div> : <>
-      {busy && !sleep && <div role="status" aria-label="Загрузка сна" className="space-y-4 animate-pulse"><p className="text-xs text-[#94a3b8]">Обновляем сон…</p><div className="h-14 bg-[#192235] rounded-xl" /><div className="grid grid-cols-7 gap-1">{Array.from({ length: 7 }, (_, i) => <div key={i} className="h-20 rounded-xl bg-[#192235]" />)}</div><div className="h-64 bg-[#0b101d] rounded-2xl" /></div>}
+      {busy && !sleep && <div role="status" aria-label="Загрузка сна" className="space-y-4 animate-pulse"><p className="text-xs text-[#a4b8aa]">Обновляем сон…</p><div className="h-14 bg-[#233028] rounded-xl" /><div className="grid grid-cols-7 gap-1">{Array.from({ length: 7 }, (_, i) => <div key={i} className="h-20 rounded-xl bg-[#233028]" />)}</div><div className="h-64 bg-[#18221c] rounded-2xl" /></div>}
       {sleep && <>
-        {sleep.tracked_nights > 0 && <div className="flex items-end justify-between gap-2 px-1"><div><p className="text-[10px] uppercase tracking-wider text-[#64748b]">Средний сон</p><p className="text-3xl font-bold tracking-tight text-[#ddd6fe] mt-1">{duration(sleep.average_minutes)}</p></div><div className="text-right pb-1"><p className="text-sm font-semibold text-[#cbd5e1]">{sleep.tracked_nights} / 7</p><p className="text-[10px] text-[#64748b]">ночей с данными</p></div></div>}
+        {sleep.tracked_nights > 0 && <div className="flex items-end justify-between gap-2 px-1"><div><p className="text-[10px] uppercase tracking-wider text-[#91a797]">Средний сон</p><p className="text-3xl font-bold tracking-tight text-[#bba0d1] mt-1">{duration(sleep.average_minutes)}</p></div><div className="text-right pb-1"><p className="text-sm font-semibold text-[#c0d0c3]">{sleep.tracked_nights} / 7</p><p className="text-[10px] text-[#91a797]">ночей с данными</p></div></div>}
         <div role="group" aria-label="Дни сна" className="grid grid-cols-7 gap-1">
           {dates.map((date, index) => {
             const night = nights.find(n => n.date === date);
             const minutes = night?.sleep_minutes;
             const value = minutes === null || minutes === undefined ? '—' : `${Math.floor(Math.round(minutes) / 60)}:${String(Math.round(minutes) % 60).padStart(2, '0')}`;
             const active = date === activeDate;
-            return <button key={date} disabled={blocked} onClick={() => setSelectedDate(date)} aria-pressed={active} aria-label={`Сон ${date}: ${minutes === null || minutes === undefined ? 'нет данных' : duration(minutes)}`} className={`min-w-0 rounded-xl py-2.5 px-0.5 text-center border transition active:scale-95 disabled:opacity-40 ${active ? 'bg-[#a78bfa]/15 border-[#a78bfa]/50 text-[#ddd6fe]' : 'bg-[#0b101d] border-transparent text-[#64748b] hover:bg-[#192235]'}`}>
+            return <button key={date} disabled={blocked} onClick={() => setSelectedDate(date)} aria-pressed={active} aria-label={`Сон ${date}: ${minutes === null || minutes === undefined ? 'нет данных' : duration(minutes)}`} className={`min-w-0 rounded-xl py-2.5 px-0.5 text-center border transition active:scale-95 disabled:opacity-40 ${active ? 'bg-[#9677ac]/15 border-[#b9a0d0]/50 text-[#bba0d1]' : 'bg-[#18221c] border-transparent text-[#91a797] hover:bg-[#233028]'}`}>
               <span className="block text-[10px]">{['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][index]}</span>
-              <span className={`block text-xs font-semibold mt-1 ${active ? 'text-white' : 'text-[#94a3b8]'}`}>{Number(date.slice(8))}</span>
-              <span className={`block text-[10px] tabular-nums mt-1.5 ${minutes !== null && minutes !== undefined ? 'text-[#c4b5fd]' : ''}`}>{value}</span>
+              <span className={`block text-xs font-semibold mt-1 ${active ? 'text-[#e6eee8]' : 'text-[#a4b8aa]'}`}>{Number(date.slice(8))}</span>
+              <span className={`block text-[10px] tabular-nums mt-1.5 ${minutes !== null && minutes !== undefined ? 'text-[#c1a5db]' : ''}`}>{value}</span>
             </button>;
           })}
         </div>
-        {activeNight ? <NightCard key={activeNight.date} night={activeNight} expanded /> : <div className="text-center rounded-2xl bg-[#0b101d] py-6 px-4"><Moon className="w-6 h-6 mx-auto text-[#475569] mb-2" /><p className="text-sm font-medium text-[#cbd5e1]">{sleep.tracked_nights ? 'За этот день записей нет' : 'За эту неделю записей нет'}</p><p className="text-xs text-[#64748b] mt-1">Выбери другой день или обнови сон.</p></div>}
+        {activeNight ? <NightCard key={activeNight.date} night={activeNight} expanded /> : <div className="text-center rounded-2xl bg-[#18221c] py-6 px-4"><Moon className="w-6 h-6 mx-auto text-[#475569] mb-2" /><p className="text-sm font-medium text-[#c0d0c3]">{sleep.tracked_nights ? 'За этот день записей нет' : 'За эту неделю записей нет'}</p><p className="text-xs text-[#91a797] mt-1">Выбери другой день или обнови сон.</p></div>}
       </>}
       <div className="grid grid-cols-2 gap-2">
         <button disabled={blocked} onClick={refresh} className={secondary}><RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />Обновить сон</button>
@@ -149,12 +149,12 @@ export function SleepCard({ weekStart, onDiscuss, disabled = false }: {
             ...[...nights].reverse().map(n => `${n.date}: сон ${duration(n.sleep_minutes)}, ${clock(n.start)}–${clock(n.end)}; базовый ${duration(n.core_minutes)}, глубокий ${duration(n.deep_minutes)}, REM ${duration(n.rem_minutes)}${n.asleep_minutes ? `, без фазы ${duration(n.asleep_minutes)}` : ''}; бодрствование ${duration(n.awake_minutes)}.`),
           ].join('\n');
           onDiscuss(context);
-        }} className="inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl bg-[#a78bfa]/15 border border-[#a78bfa]/30 text-[#ddd6fe] text-xs font-semibold hover:bg-[#a78bfa]/25 active:scale-[0.98] transition disabled:opacity-40"><Sparkles className="w-4 h-4" />Разобрать с ИИ</button>
+        }} className="inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2.5 rounded-xl bg-[#9677ac]/15 border border-[#b9a0d0]/30 text-[#bba0d1] text-xs font-semibold hover:bg-[#9677ac]/25 active:scale-[0.98] transition disabled:opacity-40"><Sparkles className="w-4 h-4" />Разобрать с ИИ</button>
       </div>
-      {settingsOpen && <div className="rounded-2xl bg-[#0b101d] p-3 space-y-2" aria-label="Управление сном">
+      {settingsOpen && <div className="rounded-2xl bg-[#18221c] p-3 space-y-2" aria-label="Управление сном">
         <button disabled={blocked} onClick={disconnect} className={`${secondary} w-full justify-start`}><LogOut className="w-4 h-4" />Отключить устройство</button>
         <button disabled={blocked} onClick={() => setConfirmDelete(true)} className={`${secondary} w-full justify-start text-rose-300`}><Trash2 className="w-4 h-4" />Удалить историю сна</button>
-        {confirmDelete && <div className="text-xs space-y-3 p-1"><p className="text-[#94a3b8]">Удалить все записи сна с сервера?</p><div className="grid grid-cols-2 gap-2"><button disabled={blocked} onClick={remove} className="rounded-xl bg-rose-500/15 text-rose-300 py-2.5 disabled:opacity-40">Удалить окончательно</button><button disabled={blocked} onClick={() => setConfirmDelete(false)} className={secondary}>Отмена</button></div></div>}
+        {confirmDelete && <div className="text-xs space-y-3 p-1"><p className="text-[#a4b8aa]">Удалить все записи сна с сервера?</p><div className="grid grid-cols-2 gap-2"><button disabled={blocked} onClick={remove} className="rounded-xl bg-rose-500/15 text-rose-300 py-2.5 disabled:opacity-40">Удалить окончательно</button><button disabled={blocked} onClick={() => setConfirmDelete(false)} className={secondary}>Отмена</button></div></div>}
       </div>}
     </>}
     </div>

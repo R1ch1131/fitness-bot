@@ -52,23 +52,24 @@ export function WeeklyTab({ data, selectedWeek, isLoading, error, onRetry, onSel
   const monday = new Date(today.getTime() - ((today.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10);
   const week = data?.period_start || selectedWeek || monday;
   const end = data?.period_end || new Date(Date.parse(week + 'T12:00:00Z') + 6 * 86400000).toISOString().slice(0, 10);
-  return <div className="space-y-4 pb-32 px-3 pt-3 max-w-4xl mx-auto">
+  return <div className="pulse-weekly space-y-4 pb-32 px-3 pt-3 max-w-4xl mx-auto">
+    <div className="pulse-section-heading"><span className="pulse-eyebrow">БОЛЬШАЯ КАРТИНА</span><h2>Неделя в движении</h2><p>Твои усилия складываются в результат.</p></div>
     <WeekSelector weekStart={week} onChange={onSelectWeek} disabled={isLoading || !data} />
-    <section aria-label="Итоги недели" className="bg-[#111726] border border-[#1e293b] rounded-3xl p-5 space-y-4">
-      <div className="flex items-center gap-3"><Award className="w-6 h-6 text-[#f59e0b] shrink-0" /><div>
-        <h2 className="font-bold text-white">Твоя неделя</h2>
-        <p className="text-xs text-[#94a3b8]">{week} — {end} · по Омску</p>
+    <section aria-label="Итоги недели" className="bg-[#19221f] border border-[#33473b] rounded-3xl p-5 space-y-4">
+      <div className="flex items-center gap-3"><Award className="w-6 h-6 text-[#d7ad76] shrink-0" /><div>
+        <h2 className="font-bold text-[#e6eee8]">Твоя неделя</h2>
+        <p className="text-xs text-[#a4b8aa]">{week} — {end} · по Омску</p>
       </div></div>
-      <p className="text-xs text-[#94a3b8]">Картинка формируется по твоим записям. Текущая неделя обновляется по мере появления данных.</p>
-      <button onClick={onRetry} disabled={isLoading} className="px-3 py-2 rounded-xl text-xs text-[#00d084] bg-[#00d084]/10 border border-[#00d084]/20 hover:bg-[#00d084]/15 disabled:opacity-40">{isLoading ? 'Обновляем неделю…' : 'Обновить неделю'}</button>
-      <div className="aspect-[1080/1560] w-full rounded-2xl border border-[#1e293b] bg-[#0b0f19] overflow-hidden relative" aria-busy={!image && !imageError}>
+      <p className="text-xs text-[#a4b8aa]">Картинка формируется по твоим записям. Текущая неделя обновляется по мере появления данных.</p>
+      <button onClick={onRetry} disabled={isLoading} className="px-3 py-2 rounded-xl text-xs text-[#79c5a6] bg-[#79c5a6]/10 border border-[#79c5a6]/20 hover:bg-[#79c5a6]/15 disabled:opacity-40">{isLoading ? 'Обновляем неделю…' : 'Обновить неделю'}</button>
+      <div className="aspect-[1080/1560] w-full rounded-2xl border border-[#33473b] bg-[#101714] overflow-hidden relative" aria-busy={!image && !imageError}>
         {image ? <a className="block w-full h-full" href={image} target="_blank" rel="noreferrer" aria-label="Открыть картинку итогов недели"><img width={1080} height={1560} src={image} alt={`Итоги недели ${week} — ${end}: тренировки, питание и динамика веса`} className="w-full h-full object-contain" /></a>
-          : <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center"><Award className={`w-9 h-9 text-[#00d084]/50 ${imageError ? '' : 'animate-pulse'}`} /><p role={imageError ? 'alert' : 'status'} className="text-xs text-[#94a3b8]">{imageError || 'Собираем картинку недели…'}</p></div>}
+          : <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center"><Award className={`w-9 h-9 text-[#79c5a6]/50 ${imageError ? '' : 'animate-pulse'}`} /><p role={imageError ? 'alert' : 'status'} className="text-xs text-[#a4b8aa]">{imageError || 'Собираем картинку недели…'}</p></div>}
       </div>
       <div className="flex flex-wrap gap-3 min-h-11">
-        <a aria-disabled={!image} tabIndex={image ? 0 : -1} href={image || undefined} download={`fitpulse-${start}.png`} className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[#334155] text-xs ${image ? '' : 'opacity-40 pointer-events-none'}`}><Download className="w-4 h-4" />Сохранить картинку</a>
+        <a aria-disabled={!image} tabIndex={image ? 0 : -1} href={image || undefined} download={`fitpulse-${start}.png`} className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[#33473b] text-xs ${image ? '' : 'opacity-40 pointer-events-none'}`}><Download className="w-4 h-4" />Сохранить картинку</a>
         {imageError && <button onClick={() => setImageRevision(r => r + 1)} className="text-xs underline">Повторить картинку</button>}
-        <button onClick={() => analyze()} disabled={isLoading || !data} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] text-xs font-semibold disabled:opacity-40"><MessageSquare className="w-4 h-4" />Обсудить с ИИ</button>
+        <button onClick={() => analyze()} disabled={isLoading || !data} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#79c5a6] text-[#10261b] text-xs font-semibold disabled:opacity-40"><MessageSquare className="w-4 h-4" />Обсудить с ИИ</button>
       </div>
       {!!data?.warnings?.length && <p className="text-xs text-amber-300">{data?.warnings.join('. ')}</p>}
       {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}

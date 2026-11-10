@@ -21,7 +21,7 @@ type Status = keyof typeof statuses;
 type MediaDraft = { title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string; cover_image?: string | null; catalog?: CatalogInfo | null };
 type MediaItem = MediaDraft & { id: string; updated_at: string; steam_appid?: number; steam_playtime_minutes?: number; steam_last_played?: number; steam_recent_minutes?: number; steam_header_image?: string | null; steam_genres?: string[]; steam_achievements?: { unlocked: number; total: number } };
 const emptyDraft = (kind: Kind): MediaDraft => ({ title: '', kind, status: 'planned', progress: 0, total: null, rating: null, notes: '' });
-const inputClass = 'w-full rounded-xl bg-[#0b0f19] border border-[#334155] p-3 text-white';
+const inputClass = 'w-full rounded-xl bg-[#101714] border border-[#33473b] p-3 text-[#e6eee8]';
 const cacheKey = 'fitpulse_media_backup_v1';
 
 function cachedItems(): MediaItem[] {
@@ -64,7 +64,7 @@ export function MediaTab() {
   const [syncMessage, setSyncMessage] = useState('');
   const [selectedGame, setSelectedGame] = useState<MediaItem | null>(null);
   const [sort, setSort] = useState('rating');
-  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
+  const [layout, setLayout] = useState<'grid' | 'list'>('list');
   const [enrichmentVersion, setEnrichmentVersion] = useState(0);
   const attemptedDetails = useRef(new Set<string>());
   const [draft, setDraft] = useState<MediaDraft | null>(null);
@@ -265,23 +265,21 @@ export function MediaTab() {
     return () => request.abort();
   }, [visibleSteamKey, enrichmentVersion, detailsLoaded]);
 
-  return <section className={`mx-auto px-4 pt-5 pb-32 space-y-5 text-white ${kind === 'game' ? 'game-library' : 'max-w-3xl'}`} aria-label="Досуг" data-layout={layout}>
+  const layoutToggle = <button type="button" className="media-view-toggle" aria-label={layout === 'list' ? 'Показать карточками' : 'Показать списком'} title={layout === 'list' ? 'Показать карточками' : 'Показать списком'} onClick={() => setLayout(current => current === 'list' ? 'grid' : 'list')}>{layout === 'list' ? <LayoutGrid size={18} /> : <List size={18} />}</button>;
+
+  return <section className={`mx-auto px-4 pt-5 pb-32 space-y-5 text-[#e6eee8] ${kind === 'game' ? 'game-library' : 'max-w-3xl'}`} aria-label="Досуг" data-layout={layout}>
     <div className="flex items-start justify-between gap-3">
-      <div><h2 className="text-xl font-bold">Досуг</h2><p className="text-sm text-[#94a3b8] mt-1">Игры и истории, к которым хочется вернуться</p></div>
-      <button disabled={!ready || busy || loading} className="flex gap-1 items-center bg-emerald-400 text-[#0b0f19] p-3 rounded-xl disabled:opacity-40" onClick={() => { setEditingId(null); setDraft(emptyDraft(kind)); }}><Plus size={18} />Добавить</button>
+      <div><h2 className="text-xl font-bold">Досуг</h2><p className="text-sm text-[#a4b8aa] mt-1">Игры и истории, к которым хочется вернуться</p></div>
+      <button disabled={!ready || busy || loading} className="flex gap-1 items-center bg-emerald-400 text-[#10261b] p-3 rounded-xl disabled:opacity-40" onClick={() => { setEditingId(null); setDraft(emptyDraft(kind)); }}><Plus size={18} />Добавить</button>
     </div>
     <div className="grid grid-cols-4 gap-2" aria-label="Категория">
       {(Object.keys(kinds) as Kind[]).map(key => {
         const Icon = kinds[key].icon;
-        return <button key={key} aria-pressed={kind === key} onClick={() => setKind(key)} className={`flex flex-col items-center gap-2 rounded-2xl py-3 text-xs border ${kind === key ? 'border-emerald-400 text-emerald-400 bg-emerald-400/10' : 'border-[#1e293b] bg-[#111726] text-[#94a3b8]'}`}><Icon size={20} />{kinds[key].label}</button>;
+        return <button key={key} aria-pressed={kind === key} onClick={() => setKind(key)} className={`flex flex-col items-center gap-2 rounded-2xl py-3 text-xs border ${kind === key ? 'border-emerald-400 text-emerald-400 bg-emerald-400/10' : 'border-[#33473b] bg-[#19221f] text-[#a4b8aa]'}`}><Icon size={20} />{kinds[key].label}</button>;
       })}
     </div>
-    <div className="media-layout-switch" role="group" aria-label="Вид коллекции">
-      <button type="button" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={15} />Карточки</button>
-      <button type="button" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={15} />Список</button>
-    </div>
     {kind === 'game' ? <>
-      <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2><p>Миры, в которых ты уже оставил часть себя.</p></div><button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div>
+      <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2><p>Миры, в которых ты уже оставил часть себя.</p></div><div className="media-heading-actions">{layoutToggle}<button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div></div>
       {syncMessage && <p role="status" className="text-sm text-emerald-300">{syncMessage}</p>}
       <div className="game-overview">
         <div><span className="game-overview-label"><Gamepad2 size={13} />В коллекции</span><strong>{categoryItems.length}<small> игр</small></strong></div>
@@ -296,7 +294,7 @@ export function MediaTab() {
         <div className="game-toolbar"><label className="game-search"><Search size={15} /><input aria-label="Поиск по названию" placeholder="Найти свой мир…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="game-filters" aria-label="Статус">{(['all', 'active', 'planned', 'finished'] as const).map(status => <button key={status} aria-pressed={filter === status} onClick={() => setFilter(status)}>{status === 'all' ? 'Все игры' : statuses[status]}</button>)}</div></div>
         {error && !hasModal && <p role="alert" className="text-sm text-rose-300 mb-4">{error}<button onClick={() => void load()} className="underline ml-2">Повторить</button></p>}
         {loading && <p role="status" className="game-loading"><RefreshCw size={14} className="animate-spin" />Загружаем коллекцию…</p>}
-        {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#334155] p-8 text-center text-[#94a3b8]">{categoryItems.length ? 'Не нашли такую игру. Попробуй другой поиск или статус.' : 'Твоя история начинается здесь. Добавь игру или синхронизируй Steam.'}</div>}
+        {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#33473b] p-8 text-center text-[#a4b8aa]">{categoryItems.length ? 'Не нашли такую игру. Попробуй другой поиск или статус.' : 'Твоя история начинается здесь. Добавь игру или синхронизируй Steam.'}</div>}
         <div className="game-grid">{visible.map(item => <article key={item.id} className="game-card">
           <button className="game-card-cover" aria-label={`Открыть ${item.title}`} onClick={() => openGame(item)}><GameArt appid={item.steam_appid} image={item.cover_image || item.steam_header_image} />{item.rating != null && <span className="poster-rating game-cover-rating" aria-label={`Моя оценка: ${item.rating} из 10`}>★ {item.rating}</span>}<span className={`game-status ${item.status === 'active' ? 'is-active' : ''}`}>{statuses[item.status]}</span></button>
           <div className="game-card-body"><button className="game-card-title" onClick={() => openGame(item)}><h3>{item.title}</h3></button><p className="game-card-genre">{item.steam_genres?.slice(0, 2).join(' · ') || (item.steam_appid ? 'Из твоей библиотеки Steam' : 'Добавлено тобой')}</p>
@@ -309,17 +307,17 @@ export function MediaTab() {
         {!!knownAchievements.length && knownAchievements.length < steamGames.length && <p className="game-library-note">Достижения посчитаны для {knownAchievements.length} из {steamGames.length} игр Steam. Открой остальные карточки, чтобы загрузить данные.</p>}
       </div>
     </> : <>
-    <div className="watch-heading"><span className="catalog-eyebrow">Твоя личная коллекция</span><h2>{kind === 'movie' ? 'Мой кинотеатр' : kind === 'series' ? 'Ещё одна серия' : 'Миры аниме'}</h2><p>Сохраняй находки, отмечай просмотренное и собирай впечатления.</p></div>
+    <div className="watch-heading"><div><span className="catalog-eyebrow">Твоя личная коллекция</span><h2>{kind === 'movie' ? 'Мой кинотеатр' : kind === 'series' ? 'Ещё одна серия' : 'Миры аниме'}</h2><p>Сохраняй находки, отмечай просмотренное и собирай впечатления.</p></div>{layoutToggle}</div>
     <div className="grid grid-cols-3 gap-2">
-      {(Object.keys(statuses) as Status[]).map(status => <div key={status} className="rounded-2xl bg-[#111726] p-3 text-center"><p className="text-xl font-bold">{categoryItems.filter(item => item.status === status).length}</p><p className="text-xs text-[#94a3b8]">{statuses[status]}</p></div>)}
+      {(Object.keys(statuses) as Status[]).map(status => <div key={status} className="rounded-2xl bg-[#19221f] p-3 text-center"><p className="text-xl font-bold">{categoryItems.filter(item => item.status === status).length}</p><p className="text-xs text-[#a4b8aa]">{statuses[status]}</p></div>)}
     </div>
     <input aria-label="Поиск по названию" placeholder="Найти по названию…" value={search} onChange={event => setSearch(event.target.value)} className={inputClass} />
     <div className="flex flex-wrap gap-2" aria-label="Статус">
-      {(['all', 'planned', 'active', 'finished'] as const).map(status => <button key={status} aria-pressed={filter === status} onClick={() => setFilter(status)} className={`rounded-xl px-3 py-2 text-xs ${filter === status ? 'bg-emerald-400 text-[#0b0f19]' : 'bg-[#111726] text-[#94a3b8]'}`}>{status === 'all' ? 'Все' : statuses[status]}</button>)}
+      {(['all', 'planned', 'active', 'finished'] as const).map(status => <button key={status} aria-pressed={filter === status} onClick={() => setFilter(status)} className={`rounded-xl px-3 py-2 text-xs ${filter === status ? 'bg-emerald-400 text-[#10261b]' : 'bg-[#19221f] text-[#a4b8aa]'}`}>{status === 'all' ? 'Все' : statuses[status]}</button>)}
     </div>
     {error && !hasModal && <div role="alert" className="text-sm text-rose-300">{error}<button onClick={() => void load()} className="underline ml-2">Повторить</button></div>}
-    {loading && <p role="status" className="text-sm text-[#94a3b8]">Загружаем коллекцию…</p>}
-    {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#334155] p-8 text-center text-[#94a3b8]">{categoryItems.length ? 'Ничего не найдено. Измени поиск или статус.' : 'Пока пусто. Добавь то, во что хочешь сыграть или что посмотреть.'}</div>}
+    {loading && <p role="status" className="text-sm text-[#a4b8aa]">Загружаем коллекцию…</p>}
+    {!loading && !visible.length && <div className="rounded-3xl border border-dashed border-[#33473b] p-8 text-center text-[#a4b8aa]">{categoryItems.length ? 'Ничего не найдено. Измени поиск или статус.' : 'Пока пусто. Добавь то, во что хочешь сыграть или что посмотреть.'}</div>}
     <div className="watch-grid">{visible.map(item => <article key={item.id} className="watch-card">
       <Poster image={item.cover_image} title={item.title} score={item.rating} />
       <div className="watch-card-body"><p className="text-xs text-emerald-300 mb-2">{statuses[item.status]}</p><WatchTitle title={item.title} />
@@ -343,7 +341,7 @@ export function MediaTab() {
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="media-dialog-title" className="w-full max-w-md max-h-[85dvh] overflow-y-auto rounded-3xl bg-[#111726] p-5 space-y-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="media-dialog-title" className="w-full max-w-md max-h-[85dvh] overflow-y-auto rounded-3xl bg-[#19221f] p-5 space-y-4">
         <div className="flex justify-between items-center"><h3 id="media-dialog-title" className="font-bold">{deleting ? 'Удалить запись?' : editingId ? 'Редактировать' : 'Добавить в коллекцию'}</h3><button ref={closeButton} aria-label="Закрыть" disabled={busy} onClick={() => { setDraft(null); setDeleting(null); }} className="p-2"><X size={20} /></button></div>
         {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
         {deleting ? <><p className="break-words">«{deleting.title}» будет удалено из коллекции.</p><button disabled={busy} className="bg-rose-500 rounded-xl p-3 w-full disabled:opacity-40" onClick={() => void mutate(`/api/media/${deleting.id}`, 'DELETE')}>{busy ? 'Удаляем…' : 'Удалить'}</button></> : draft && <form className="space-y-4" onSubmit={event => { event.preventDefault(); void mutate(editingId ? `/api/media/${editingId}` : '/api/media', editingId ? 'PUT' : 'POST', { ...draft, title: draft.title.trim() }); }}>
@@ -361,9 +359,9 @@ export function MediaTab() {
             <div className="space-y-2"><span className="block text-sm">Статус</span><DarkSelect label="Статус" value={draft.status} disabled={busy} onChange={value => setDraft({ ...draft, status: value as Status })} options={(Object.keys(statuses) as Status[]).map(key => ({value:key,label:statuses[key],icon:<span className={`select-status-dot ${key}`} />}))} /></div>
             {draft.kind !== 'movie' && <label className="block text-sm">{episodic ? 'Просмотрено серий' : 'Пройдено, %'}<input type="number" min={0} max={episodic ? draft.total ?? undefined : 100} step={1} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: Number(event.target.value) })} className={inputClass} /></label>}
             {episodic && <label className="block text-sm">Всего серий (если известно)<input type="number" min={1} step={1} value={draft.total ?? ''} onChange={event => setDraft({ ...draft, total: event.target.value ? Number(event.target.value) : null })} className={inputClass} /></label>}
-            <label className="block text-sm">Оценка от 0 до 10<RatingInput value={draft.rating} onChange={rating => setDraft(current => current ? {...current, rating} : current)} /><span className="block text-xs text-[#94a3b8] mt-1">Можно дробную: 5.5 или 5,5</span></label>
+            <label className="block text-sm">Оценка от 0 до 10<RatingInput value={draft.rating} onChange={rating => setDraft(current => current ? {...current, rating} : current)} /><span className="block text-xs text-[#a4b8aa] mt-1">Можно дробную: 5.5 или 5,5</span></label>
             <label className="block text-sm">Заметки<textarea rows={3} maxLength={10000} value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} className={inputClass} /></label>
-            <button disabled={busy || coverBusy || !draft.title.trim()} className="w-full rounded-xl bg-emerald-400 text-[#0b0f19] p-3 font-semibold disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
+            <button disabled={busy || coverBusy || !draft.title.trim()} className="w-full rounded-xl bg-emerald-400 text-[#10261b] p-3 font-semibold disabled:opacity-40">{busy ? 'Сохраняем…' : 'Сохранить'}</button>
           </fieldset>
         </form>}
       </div>

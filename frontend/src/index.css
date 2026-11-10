@@ -1,18 +1,21 @@
 @import "tailwindcss";
+@import "./pulse.css";
+@import "./soft.css";
+@import "./night.css";
 
 @layer base {
   :root {
-    --bg-main: #0b0f19;
-    --card-bg: #111726;
-    --card-border: #1e293b;
-    --accent-mint: #00d084;
-    --accent-purple: #6366f1;
-    --accent-amber: #f59e0b;
+    --bg-main: #f5f6f0;
+    --card-bg: #ffffff;
+    --card-border: #dbe5dc;
+    --accent-mint: #218d79;
+    --accent-purple: #e7a27d;
+    --accent-amber: #b57935;
   }
 
   body {
-    background-color: #0b0f19;
-    color: #f8fafc;
+    background-color: #f5f6f0;
+    color: #203d35;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
     -webkit-tap-highlight-color: transparent;
     margin: 0;

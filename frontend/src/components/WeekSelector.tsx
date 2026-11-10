@@ -12,16 +12,16 @@ export function WeekSelector({ weekStart, disabled, onChange, label = 'Неде�
   const end = new Date(Date.parse(weekStart + 'T12:00:00Z') + 6 * DAY);
   const date = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const range = `${date.format(new Date(weekStart + 'T12:00:00Z'))} — ${date.format(end)}`;
-  const button = 'w-10 h-10 rounded-xl bg-[#192235] border border-[#2b3850] flex items-center justify-center text-[#c4b5fd] hover:bg-[#24304a] active:scale-95 transition disabled:opacity-25 disabled:active:scale-100';
-  return <div role="group" aria-label={label} className="rounded-2xl bg-[#0b0f19] border border-[#1e293b] p-2">
+  const button = 'w-10 h-10 rounded-xl bg-[#233028] border border-[#33473b] flex items-center justify-center text-[#c1a5db] hover:bg-[#24304a] active:scale-95 transition disabled:opacity-25 disabled:active:scale-100';
+  return <div role="group" aria-label={label} className="rounded-2xl bg-[#101714] border border-[#33473b] p-2">
     <div className="flex items-center justify-between gap-2">
       <button aria-label="Предыдущая неделя" disabled={disabled || shiftWeek(weekStart, -1) < earliest} onClick={() => onChange(shiftWeek(weekStart, -1))} className={button}><ChevronLeft className="w-5 h-5" /></button>
       <div className="text-center min-w-0" aria-live="polite">
-        <p className="text-xs font-semibold text-white">{range}</p>
-        <p className="text-[10px] text-[#64748b] mt-0.5">{weekStart === monday ? 'Эта неделя' : weekStart.slice(0, 4)}</p>
+        <p className="text-xs font-semibold text-[#e6eee8]">{range}</p>
+        <p className="text-[10px] text-[#91a797] mt-0.5">{weekStart === monday ? 'Эта неделя' : weekStart.slice(0, 4)}</p>
       </div>
       <button aria-label="Следующая неделя" disabled={disabled || weekStart >= monday} onClick={() => onChange(shiftWeek(weekStart, 1))} className={button}><ChevronRight className="w-5 h-5" /></button>
     </div>
-    {weekStart < monday && <button disabled={disabled} onClick={() => onChange('')} className="w-full mt-2 rounded-lg py-1.5 text-[11px] font-medium text-[#00d084] bg-[#00d084]/10 hover:bg-[#00d084]/15 disabled:opacity-40">Текущая неделя</button>}
+    {weekStart < monday && <button disabled={disabled} onClick={() => onChange('')} className="w-full mt-2 rounded-lg py-1.5 text-[11px] font-medium text-[#79c5a6] bg-[#79c5a6]/10 hover:bg-[#79c5a6]/15 disabled:opacity-40">Текущая неделя</button>}
   </div>;
 }

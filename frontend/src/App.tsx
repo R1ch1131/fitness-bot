@@ -635,7 +635,7 @@ export const App: React.FC = () => {
 
   return (
     <div
-      className={`bg-[#0b0f19] text-[#f8fafc] flex flex-col selection:bg-[#00d084]/20 selection:text-[#00d084] ${
+      className={`fit-app bg-[#101714] text-[#e6eee8] flex flex-col selection:bg-[#79c5a6]/20 selection:text-[#79c5a6] ${
         isChatTab ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'
       }`}
     >
@@ -663,7 +663,7 @@ export const App: React.FC = () => {
       />
 
       {serverStatus !== 'ready' && (
-        <p role="status" className="mx-4 my-2 p-3 text-xs text-[#94a3b8] rounded-xl bg-[#111726] shrink-0">
+        <p role="status" className="mx-4 my-2 p-3 text-xs text-[#a4b8aa] rounded-xl bg-[#19221f] shrink-0">
           {serverStatus === 'offline'
             ? 'Нет подключения. Показываем сохранённые данные. Изменения будут доступны после подключения.'
             : serverStatus === 'waking'
@@ -676,25 +676,25 @@ export const App: React.FC = () => {
       <main className={`w-full ${isChatTab ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1'}`}>
         <fieldset disabled={serverStatus !== 'ready'} className="contents">
         {currentTab === 'notifications' && (
-          <section className="max-w-3xl mx-auto px-4 pt-5 pb-32 text-sm text-white space-y-4" aria-label="Уведомления">
+          <section className="max-w-3xl mx-auto px-4 pt-5 pb-32 text-sm text-[#e6eee8] space-y-4" aria-label="Уведомления">
             <div>
               <h2 className="text-xl font-bold">Уведомления</h2>
-              <p className="mt-1 text-[#94a3b8]">Подключение, расписание и свои напоминания. Время — по Омску.</p>
+              <p className="mt-1 text-[#a4b8aa]">Подключение, расписание и свои напоминания. Время — по Омску.</p>
             </div>
             {serverStatus === 'ready' ? (
-              <div className="p-4 rounded-2xl bg-[#111726] border border-[#1e293b] space-y-3">
+              <div className="p-4 rounded-2xl bg-[#19221f] border border-[#33473b] space-y-3">
                 <p className="font-semibold">{push.ready ? 'Уведомления подключены' : 'Уведомления не подключены'}</p>
-                <p role="status" className="text-[#94a3b8]">{push.blocked || push.message}</p>
+                <p role="status" className="text-[#a4b8aa]">{push.blocked || push.message}</p>
                 <div className="flex flex-wrap gap-3">
-                  <button disabled={push.busy || !!push.blocked} onClick={push.enable} className="px-3 py-2 rounded-xl bg-[#00d084] text-[#0b0f19] disabled:opacity-40">Включить</button>
-                  {push.ready && <button disabled={push.busy} onClick={() => push.test(testDelay)} className="px-3 py-2 rounded-xl border border-[#00d084] disabled:opacity-40">Тест</button>}
+                  <button disabled={push.busy || !!push.blocked} onClick={push.enable} className="px-3 py-2 rounded-xl bg-[#79c5a6] text-[#10261b] disabled:opacity-40">Включить</button>
+                  {push.ready && <button disabled={push.busy} onClick={() => push.test(testDelay)} className="px-3 py-2 rounded-xl border border-[#79c5a6] disabled:opacity-40">Тест</button>}
                   {push.ready && <button disabled={push.busy} onClick={push.disable} className="px-3 py-2 disabled:opacity-40">Отключить</button>}
                 </div>
                 {push.ready && (
-                  <div className="space-y-2 text-xs text-[#94a3b8]">
+                  <div className="space-y-2 text-xs text-[#a4b8aa]">
                     <label className="flex items-center justify-between gap-3">
                       <span>Когда отправить тест</span>
-                      <select value={testDelay} disabled={push.busy} onChange={e => setTestDelay(Number(e.target.value))} className="rounded-lg bg-[#0b0f19] border border-[#334155] p-2 text-white">
+                      <select value={testDelay} disabled={push.busy} onChange={e => setTestDelay(Number(e.target.value))} className="rounded-lg bg-[#101714] border border-[#33473b] p-2 text-[#e6eee8]">
                         <option value={0}>Сейчас</option>
                         <option value={60}>Через 1 минуту</option>
                         <option value={2100}>Через 35 минут</option>
@@ -709,7 +709,7 @@ export const App: React.FC = () => {
                 <NotificationSchedule />
               </div>
             ) : (
-              <p className="text-[#94a3b8]">Настройки уведомлений появятся после подключения к серверу.</p>
+              <p className="text-[#a4b8aa]">Настройки уведомлений появятся после подключения к серверу.</p>
             )}
           </section>
         )}

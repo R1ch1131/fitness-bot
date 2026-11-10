@@ -88,12 +88,15 @@ test('anime and series put active items first, then sort by personal rating and 
     { ...sample, id: kind + '5', kind, title: 'Смотрю лучшее', status: 'active', rating: 8 },
   ]);
   const p = await panel({ items });
-  button(p.render(), 'Список').props.onClick();
+  assert.equal(p.render().props['data-layout'], 'list');
+  find(p.render(), n => n.type === 'button' && n.props['aria-label'] === 'Показать карточками').props.onClick();
+  assert.equal(p.render().props['data-layout'], 'grid');
+  find(p.render(), n => n.type === 'button' && n.props['aria-label'] === 'Показать списком').props.onClick();
   for (const category of ['Фильмы', 'Сериалы', 'Аниме']) {
     button(p.render(), category).props.onClick();
     const tree = p.render();
     assert.equal(tree.props['data-layout'], 'list');
-    assert.equal(button(tree, 'Список').props['aria-pressed'], true);
+    assert.ok(find(tree, n => n.type === 'button' && n.props['aria-label'] === 'Показать карточками'));
     assert.deepEqual(nodes(tree).filter(n => n.type === 'article').map(n => find(n, child => child.type === 'Poster').props.title),
       category === 'Фильмы'
         ? ['Лучшее', 'Смотрю лучшее', 'Смотрю', 'Без оценки', 'Смотрю без оценки']

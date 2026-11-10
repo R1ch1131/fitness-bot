@@ -22,7 +22,7 @@ export function EveningReportTest({ onMessage }: { onMessage: (message: ChatMess
     finally { setBusy(false); }
   };
   return <div className="shrink-0 mb-1 text-xs">
-    <button type="button" disabled={busy} onClick={() => void send()} className="px-3 py-2 rounded-xl border border-[#334155] text-[#b5c8bd] disabled:opacity-50">{busy ? 'Тренер готовит отчёт…' : 'Тестовый отчёт и push'}</button>
+    <button type="button" disabled={busy} onClick={() => void send()} className="px-3 py-2 rounded-xl border border-[#33473b] text-[#b4cabb] disabled:opacity-50">{busy ? 'Тренер готовит отчёт…' : 'Тестовый отчёт и push'}</button>
     {status && <p role="status" className="mt-1 text-emerald-300">{status}</p>}
     {error && <p role="alert" className="mt-1 text-rose-300">{error}</p>}
   </div>;

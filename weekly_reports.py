@@ -169,9 +169,9 @@ def _collect(coach, start, today, include_weights=True):
 def render_image(report, sleep=None):
     from PIL import Image, ImageDraw
     from report_image import _get_font
-    image = Image.new("RGB", (1080, 1560), "#0b0f19")
+    image = Image.new("RGB", (1080, 1560), "#101714")
     draw = ImageDraw.Draw(image)
-    white, muted, green = "#f8fafc", "#94a3b8", "#00d084"
+    white, muted, green = "#e6eee8", "#a4b8aa", "#79c5a6"
 
     def text(x, y, value, size=24, fill=white, bold=False):
         draw.text((x, y), str(value), font=_get_font(size, bold), fill=fill)
@@ -186,12 +186,12 @@ def render_image(report, sleep=None):
     avg = report["averages"]
     delta = report["weight_change"]
     cards = [("ТРЕНИРОВКИ", str(report["workout_count"]), f"Тоннаж: {number(report['tonnage_kg'], ' кг')}", green),
-             ("ДИНАМИКА ВЕСА", "Нет данных" if delta is None else f"{delta:+.1f} кг", "По замерам внутри недели", "#a78bfa"),
-             ("КАЛОРИИ / ДЕНЬ", number(avg["calories"], " ккал"), f"Записано дней: {avg['tracked_days']} из 7", "#f59e0b"),
-             ("БЕЛОК / ДЕНЬ", number(avg["protein"], " г"), f"Ж {number(avg['fat'], ' г')}  /  У {number(avg['carbs'], ' г')}", "#38bdf8")]
+             ("ДИНАМИКА ВЕСА", "Нет данных" if delta is None else f"{delta:+.1f} кг", "По замерам внутри недели", "#b9a0d0"),
+             ("КАЛОРИИ / ДЕНЬ", number(avg["calories"], " ккал"), f"Записано дней: {avg['tracked_days']} из 7", "#d7ad76"),
+             ("БЕЛОК / ДЕНЬ", number(avg["protein"], " г"), f"Ж {number(avg['fat'], ' г')}  /  У {number(avg['carbs'], ' г')}", "#81c6ca")]
     for idx, (label, value, note, accent) in enumerate(cards):
         x, y = 52 + (idx % 2) * 500, 236 + (idx // 2) * 174
-        draw.rounded_rectangle((x, y, x + 476, y + 150), 22, fill="#111726", outline="#273449", width=2)
+        draw.rounded_rectangle((x, y, x + 476, y + 150), 22, fill="#19221f", outline="#33473b", width=2)
         draw.rounded_rectangle((x + 20, y + 20, x + 25, y + 130), 2, fill=accent)
         text(x + 42, y + 20, label, 20, muted, True)
         text(x + 42, y + 55, value, 37, accent, True)
@@ -200,8 +200,8 @@ def render_image(report, sleep=None):
     if sleep and sleep["tracked_nights"]:
         minutes = sleep["average_minutes"]
         sleep_text = f"Сон · в среднем {minutes // 60} ч {minutes % 60:02d} мин · ночей с данными: {sleep['tracked_nights']}"
-    draw.rounded_rectangle((52, 596, 1028, 665), 18, fill="#182037")
-    text(78, 614, sleep_text, 24, "#c4b5fd")
+    draw.rounded_rectangle((52, 596, 1028, 665), 18, fill="#233028")
+    text(78, 614, sleep_text, 24, "#bdd5c3")
     # One row per day, with equally readable values in seven distinct columns.
     columns = [(98, "ДЕНЬ"), (194, "ДАТА"), (326, "ККАЛ"), (460, "БЕЛКИ"),
                (590, "ЖИРЫ"), (734, "УГЛЕВОДЫ"), (932, "ТОННАЖ")]
@@ -214,14 +214,14 @@ def render_image(report, sleep=None):
         centered(x, 710, label, 21, muted, True)
     for idx, day in enumerate(report["days"]):
         y = 750 + idx * 78
-        draw.rounded_rectangle((52, y, 1028, y + 70), 14, fill="#111726")
+        draw.rounded_rectangle((52, y, 1028, y + 70), 14, fill="#19221f")
         centered(columns[0][0], y + 19, day['weekday'], 28, green, True)
         centered(columns[1][0], y + 21, day['date'][8:10] + '.' + day['date'][5:7], 26, muted)
         for index, key in enumerate(('calories', 'protein', 'fat', 'carbs'), start=2):
             value = number(day[key], '' if key == 'calories' else ' г') if day['is_logged'] else '—'
             centered(columns[index][0], y + 19, value, 28, white if day['is_logged'] else muted)
         tonnage = number(day['tonnage_kg'], ' кг') if day['workout_count'] else '—'
-        centered(columns[6][0], y + 19, tonnage, 28, '#c4b5fd' if day['workout_count'] else muted)
+        centered(columns[6][0], y + 19, tonnage, 28, '#bdd5c3' if day['workout_count'] else muted)
     text(52, 1340, "Честный отчёт по твоим записям", 28, bold=True)
     text(52, 1391, "Пропуски не считаются нулями. Средние — по дням с питанием.", 22, muted)
     text(52, 1430, "Разбор прогресса и план на следующую неделю — у AI-тренера.", 22, muted)
