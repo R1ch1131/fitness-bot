@@ -18,6 +18,7 @@ class CatalogInfo(BaseModel):
     poster_source: Literal['TMDB'] | None = None
     author: str = Field(default='', max_length=500)
     year: str = Field(default='', max_length=50)
+    description_source: Literal['Open Library', 'Google Books'] | None = None
     description: str = Field(default='', max_length=10000)
     genres: list[str] = Field(default_factory=list, max_length=30)
     isbn: str = Field(default='', max_length=20)
@@ -123,13 +124,19 @@ def anime_posters(item):
 
 def catalog_details(kind, external_id):
     if kind == 'book' and external_id.startswith('google:'):
-        from book_catalog import google_details
-        return google_details(external_id, _get)
+        from book_catalog import google_details, supplement_description
+        return supplement_description(google_details(external_id, _get), _get)
+    if kind == 'book' and re.fullmatch(r'/works/OL\d+W', external_id):
+        from book_catalog import open_library_description
+        return {'description': open_library_description(external_id, _get), 'description_source': 'Open Library'}
     if kind == 'book' and re.fullmatch(r'/books/OL\d+M', external_id):
         item = _get('https://openlibrary.org' + external_id + '.json')
         description = item.get('description', '')
         if isinstance(description, dict):
             description = description.get('value', '')
+        if not description:
+            from book_catalog import open_library_description
+            description = open_library_description(external_id, _get)
         return {'pages': _positive(item.get('number_of_pages')), 'publisher': ', '.join(item.get('publishers', []))[:500], 'year': str(item.get('publish_date') or '')[:50], 'description': str(description)[:10000], **({'image': f"https://covers.openlibrary.org/b/id/{item['covers'][0]}-L.jpg"} if item.get('covers') and item['covers'][0] > 0 else {})}
     match = re.fullmatch(r'tmdb:(tv|movie):(\d+)(?::season:(\d+))?', external_id) if kind == 'anime' else None
     if match:

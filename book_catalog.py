@@ -139,3 +139,50 @@ def find_books(title, author, get_json):
     if not results and failures and not successes:
         raise HTTPException(502,'Каталоги книг временно недоступны. Попробуй позже или загрузи свою обложку.')
     return results[:8]
+
+
+def open_library_description(identifier, get_json):
+    """Read an edition and its linked work, never infer a work by edition number."""
+    if not re.fullmatch(r'/(?:books/OL\d+M|works/OL\d+W)', identifier):
+        return ''
+    item = get_json('https://openlibrary.org' + identifier + '.json')
+    description = item.get('description') or ''
+    if isinstance(description, dict):
+        description = description.get('value') or ''
+    if description:
+        return str(description)[:10000]
+    if identifier.startswith('/books/'):
+        links = [entry.get('key', '') for entry in item.get('works', []) if isinstance(entry, dict)]
+        if len(links) == 1 and re.fullmatch(r'/works/OL\d+W', links[0]):
+            return open_library_description(links[0], get_json)
+    return ''
+
+
+def supplement_description(info, get_json):
+    if info.get('description'):
+        return info
+    try:
+        description = ''
+        isbn = info.get('isbn', '')
+        if re.fullmatch(r'(?:\d{13}|\d{9}[\dXx])', isbn):
+            try:
+                item = get_json('https://openlibrary.org/isbn/' + isbn + '.json')
+                identifier = item.get('key', '')
+                description = open_library_description(identifier, get_json)
+            except HTTPException:
+                pass  # This edition may not be indexed; try the work by title and author.
+        if not description and info.get('author'):
+            params = urllib.parse.urlencode({'title': info['title'], 'author': info['author'], 'limit': 5, 'fields': 'key,title,author_name'})
+            payload = get_json('https://openlibrary.org/search.json?' + params)
+            def key(text):
+                return re.sub(r'[^a-z0-9]', '', romanize(text))
+            title = key(info['title'])
+            authors = {key(author.split()[-1]) for author in re.split(r',|;| и | and ', info['author']) if author.split()}
+            matches = {item.get('key') for item in payload.get('docs', []) if key(item.get('title', '')) == title and authors.intersection({key(author.split()[-1]) for author in item.get('author_name', []) if author.split()}) and re.fullmatch(r'/works/OL\d+W', item.get('key', ''))}
+            if len(matches) == 1:
+                description = open_library_description(matches.pop(), get_json)
+        if description:
+            return {**info, 'description': description, 'description_source': 'Open Library'}
+    except HTTPException:
+        pass  # Missing optional metadata must not discard the selected edition.
+    return info

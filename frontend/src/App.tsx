@@ -506,13 +506,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleUpdateBook = async (bookId: string, updates: Partial<BookItem>) => {
+  const handleUpdateBook = async (bookId: string, updates: Partial<BookItem>, reportErrors = false) => {
     try {
       const res = await fetch(`/api/books/${bookId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
+      if (!res.ok && reportErrors) throw await responseError(res);
       if (res.ok) {
         const data = await res.json();
         if (data.books) {
@@ -525,6 +526,7 @@ export const App: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to update book', err);
+      if (reportErrors) throw err;
     }
   };
 

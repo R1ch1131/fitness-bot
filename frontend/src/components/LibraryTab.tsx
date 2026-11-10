@@ -1,3 +1,4 @@
+import { BookEnrichment } from './BookEnrichment';
 import { DarkSelect } from './DarkSelect';
 import { CatalogPicker, CatalogFacts, Poster } from './CatalogPicker';
 import type { CatalogInfo } from './CatalogPicker';
@@ -24,7 +25,7 @@ interface LibraryTabProps {
     rating?: number;
     notes?: string;
   }) => Promise<void>;
-  onUpdateBook: (bookId: string, updates: Partial<BookItem>) => Promise<void>;
+  onUpdateBook: (bookId: string, updates: Partial<BookItem>, reportErrors?: boolean) => Promise<void>;
   onRecordProgress: (bookId: string, pagesRead: number) => Promise<void>;
   onDeleteBook: (bookId: string) => Promise<void>;
 }
@@ -37,6 +38,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
   onRecordProgress,
   onDeleteBook,
 }) => {
+  const [enrichingBook, setEnrichingBook] = useState<BookItem | null>(null);
   const [filter, setFilter] = useState<'all' | 'reading' | 'finished' | 'planned'>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingBook, setEditingBook] = useState<BookItem | null>(null);
@@ -388,7 +390,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                     : 'border-[#33473b]'
                 }`}
               >
-                <div className="book-cover-row"><Poster image={book.cover_image} title={book.title} /><div><span className="catalog-eyebrow">{book.status === 'reading' ? 'Между страницами' : 'На моей полке'}</span><CatalogFacts info={book.catalog} /></div></div>
+                <div className="book-cover-row"><Poster image={book.cover_image} title={book.title} /><div><span className="catalog-eyebrow">{book.status === 'reading' ? 'Между страницами' : 'На моей полке'}</span><CatalogFacts info={book.catalog} /><button type="button" className="book-enrich-button" onClick={() => setEnrichingBook(book)}>Дополнить сведения</button></div></div>
                 {/* Header Row */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
@@ -1076,6 +1078,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
         </div>
       )}
 
+      {enrichingBook && <BookEnrichment book={enrichingBook} onClose={() => setEnrichingBook(null)} onSave={updates => onUpdateBook(enrichingBook.id, updates, true)} />}
     </div>
   );
 };

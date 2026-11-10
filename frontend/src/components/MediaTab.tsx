@@ -18,8 +18,9 @@ const kinds = {
 const statuses = { planned: 'В планах', active: 'В процессе', finished: 'Завершено' };
 type Kind = keyof typeof kinds;
 type Status = keyof typeof statuses;
-type MediaDraft = { title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string; cover_image?: string | null; catalog?: CatalogInfo | null };
+type MediaDraft = { manual_playtime_minutes?: number | null; title: string; kind: Kind; status: Status; progress: number; total: number | null; rating: number | null; notes: string; cover_image?: string | null; catalog?: CatalogInfo | null };
 type MediaItem = MediaDraft & { id: string; updated_at: string; steam_appid?: number; steam_playtime_minutes?: number; steam_last_played?: number; steam_recent_minutes?: number; steam_header_image?: string | null; steam_genres?: string[]; steam_achievements?: { unlocked: number; total: number } };
+const playtime = (item: MediaItem) => item.steam_appid ? item.steam_playtime_minutes : item.manual_playtime_minutes ?? item.steam_playtime_minutes;
 const emptyDraft = (kind: Kind): MediaDraft => ({ title: '', kind, status: 'planned', progress: 0, total: null, rating: null, notes: '' });
 const inputClass = 'w-full rounded-xl bg-[#101714] border border-[#33473b] p-3 text-[#e6eee8]';
 const cacheKey = 'fitpulse_media_backup_v1';
@@ -67,6 +68,7 @@ export function MediaTab() {
   const [layout, setLayout] = useState<'grid' | 'list'>('list');
   const [enrichmentVersion, setEnrichmentVersion] = useState(0);
   const attemptedDetails = useRef(new Set<string>());
+  const [hoursInput, setHoursInput] = useState('');
   const [draft, setDraft] = useState<MediaDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<MediaItem | null>(null);
@@ -223,16 +225,16 @@ export function MediaTab() {
         const activeFirst = Number(b.status === 'active') - Number(a.status === 'active');
         if (activeFirst) return activeFirst;
       }
-      return kind !== 'game' || sort === 'rating' ? (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title, 'ru') : sort === 'hours' ? (b.steam_playtime_minutes || 0) - (a.steam_playtime_minutes || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at);
+      return kind !== 'game' || sort === 'rating' ? (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title, 'ru') : sort === 'hours' ? (playtime(b) || 0) - (playtime(a) || 0) : sort === 'title' ? a.title.localeCompare(b.title, 'ru') : sort === 'achievements' ? (b.steam_achievements?.unlocked || 0) - (a.steam_achievements?.unlocked || 0) : (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at);
     });
   const episodic = draft?.kind === 'series' || draft?.kind === 'anime';
 
   const featured = categoryItems.filter(item => item.status === 'active').sort((a, b) => (b.steam_last_played || 0) - (a.steam_last_played || 0) || b.updated_at.localeCompare(a.updated_at))[0];
-  const totalMinutes = categoryItems.reduce((sum, item) => sum + (item.steam_playtime_minutes || 0), 0);
+  const totalMinutes = categoryItems.reduce((sum, item) => sum + (playtime(item) || 0), 0);
   const steamGames = categoryItems.filter(item => item.steam_appid);
   const knownAchievements = steamGames.filter(item => item.steam_achievements);
   const unlocked = knownAchievements.reduce((sum, item) => sum + (item.steam_achievements?.unlocked || 0), 0);
-  const edit = (item: MediaItem) => { setEditingId(item.id); setDraft({ ...item }); };
+  const edit = (item: MediaItem) => { setEditingId(item.id); setHoursInput(item.manual_playtime_minutes == null ? '' : String(item.manual_playtime_minutes / 60)); setDraft({ ...item }); };
   const openGame = (item: MediaItem) => item.steam_appid ? setSelectedGame(item) : edit(item);
   const detailsLoaded = useCallback((id: string, details: GameDetails) => {
     setItems(current => current.map(item => item.id === id ? {
@@ -270,7 +272,7 @@ export function MediaTab() {
   return <section className={`mx-auto px-4 pt-5 pb-32 space-y-5 text-[#e6eee8] ${kind === 'game' ? 'game-library' : 'max-w-3xl'}`} aria-label="Досуг" data-layout={layout}>
     <div className="flex items-start justify-between gap-3">
       <div><h2 className="text-xl font-bold">Досуг</h2><p className="text-sm text-[#a4b8aa] mt-1">Игры и истории, к которым хочется вернуться</p></div>
-      <button disabled={!ready || busy || loading} className="flex gap-1 items-center bg-emerald-400 text-[#10261b] p-3 rounded-xl disabled:opacity-40" onClick={() => { setEditingId(null); setDraft(emptyDraft(kind)); }}><Plus size={18} />Добавить</button>
+      <button disabled={!ready || busy || loading} className="media-add-button flex gap-1 items-center disabled:opacity-40" onClick={() => { setEditingId(null); setHoursInput(''); setDraft(emptyDraft(kind)); }}><Plus size={18} />Добавить</button>
     </div>
     <div className="grid grid-cols-4 gap-2" aria-label="Категория">
       {(Object.keys(kinds) as Kind[]).map(key => {
@@ -279,7 +281,7 @@ export function MediaTab() {
       })}
     </div>
     {kind === 'game' ? <>
-      <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2><p>Миры, в которых ты уже оставил часть себя.</p></div><div className="media-heading-actions">{layoutToggle}<button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div></div>
+      <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2></div><div className="media-heading-actions">{layoutToggle}<button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div></div>
       {syncMessage && <p role="status" className="text-sm text-emerald-300">{syncMessage}</p>}
       <div className="game-overview">
         <div><span className="game-overview-label"><Gamepad2 size={13} />В коллекции</span><strong>{categoryItems.length}<small> игр</small></strong></div>
@@ -288,7 +290,7 @@ export function MediaTab() {
       </div>
       {featured && !search && (filter === 'all' || filter === 'finished') && <div className="game-feature">
         <GameArt appid={featured.steam_appid} image={featured.cover_image || featured.steam_header_image} /><div className="game-feature-shade" />{featured.rating != null && <span className="poster-rating game-cover-rating" aria-label={`Моя оценка: ${featured.rating} из 10`}>★ {featured.rating}</span>}
-        <div className="game-feature-content"><span className="game-eyebrow">Играю сейчас</span><h3>{featured.title}</h3>{featured.steam_playtime_minutes !== undefined && <p><Clock3 size={13} />{Math.floor(featured.steam_playtime_minutes / 60)} ч в игре{featured.steam_last_played ? ` · ${new Date(featured.steam_last_played * 1000).toLocaleDateString('ru-RU', { timeZone: 'Asia/Omsk', day: 'numeric', month: 'long' })}` : ''}</p>}<button onClick={() => openGame(featured)}>{featured.steam_appid ? 'Об игре и достижениях' : 'Мой прогресс'}<ArrowUpRight size={15} /></button></div>
+        <div className="game-feature-content"><span className="game-eyebrow">Играю сейчас</span><h3>{featured.title}</h3>{playtime(featured) != null && <p><Clock3 size={13} />{Math.floor(playtime(featured)! / 60)} ч в игре{featured.steam_last_played ? ` · ${new Date(featured.steam_last_played * 1000).toLocaleDateString('ru-RU', { timeZone: 'Asia/Omsk', day: 'numeric', month: 'long' })}` : ''}</p>}<button onClick={() => openGame(featured)}>{featured.steam_appid ? 'Об игре и достижениях' : 'Об игре'}<ArrowUpRight size={15} /></button></div>
       </div>}
       <div><div className="game-collection-heading"><h3>{filter === 'finished' ? 'Пройденные игры' : filter === 'active' ? 'Играю сейчас' : filter === 'planned' ? 'Хочу поиграть' : 'Все твои миры'}<span>{visible.length}</span></h3><DarkSelect label="Сортировка игр" value={sort} onChange={setSort} compact options={[{value:'rating',label:'По моей оценке',icon:<Trophy />},{value:'recent',label:'Недавно играл',icon:<Clock3 />},{value:'hours',label:'Больше часов',icon:<Clock3 />},{value:'title',label:'По названию',icon:<Gamepad2 />},{value:'achievements',label:'Больше достижений',icon:<Trophy />}]} /></div>
         <div className="game-toolbar"><label className="game-search"><Search size={15} /><input aria-label="Поиск по названию" placeholder="Найти свой мир…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="game-filters" aria-label="Статус">{(['all', 'active', 'planned', 'finished'] as const).map(status => <button key={status} aria-pressed={filter === status} onClick={() => setFilter(status)}>{status === 'all' ? 'Все игры' : statuses[status]}</button>)}</div></div>
@@ -298,9 +300,9 @@ export function MediaTab() {
         <div className="game-grid">{visible.map(item => <article key={item.id} className="game-card">
           <button className="game-card-cover" aria-label={`Открыть ${item.title}`} onClick={() => openGame(item)}><GameArt appid={item.steam_appid} image={item.cover_image || item.steam_header_image} />{item.rating != null && <span className="poster-rating game-cover-rating" aria-label={`Моя оценка: ${item.rating} из 10`}>★ {item.rating}</span>}<span className={`game-status ${item.status === 'active' ? 'is-active' : ''}`}>{statuses[item.status]}</span></button>
           <div className="game-card-body"><button className="game-card-title" onClick={() => openGame(item)}><h3>{item.title}</h3></button><p className="game-card-genre">{item.steam_genres?.slice(0, 2).join(' · ') || (item.steam_appid ? 'Из твоей библиотеки Steam' : 'Добавлено тобой')}</p>
-            <p className="game-card-time"><Clock3 size={12} />{item.steam_playtime_minutes !== undefined ? <span>{Math.floor(item.steam_playtime_minutes / 60)} ч {item.steam_playtime_minutes % 60} мин</span> : <span>Часы не указаны</span>}{!!item.steam_recent_minutes && <small>+{Math.round(item.steam_recent_minutes / 60 * 10) / 10} ч за 2 недели</small>}</p>
-            <div className="game-card-achievements">{item.steam_achievements ? <><div><Trophy size={12} /><span>Достижения</span><strong>{item.steam_achievements.unlocked} / {item.steam_achievements.total}</strong></div><div className="game-mini-progress" role="progressbar" aria-label={`Достижения: ${item.title}`} aria-valuenow={item.steam_achievements.unlocked} aria-valuemin={0} aria-valuemax={item.steam_achievements.total}><div style={{ width: `${item.steam_achievements.total ? item.steam_achievements.unlocked / item.steam_achievements.total * 100 : 0}%` }} /></div></> : <button className="game-card-achievement-link" onClick={() => openGame(item)}>{item.steam_appid ? <><span>Посмотреть достижения</span><ArrowUpRight size={13} /></> : <span>Прогресс отмечается вручную</span>}</button>}</div>
-            <div className="game-card-footer"><span>{item.progress > 0 ? `Пройдено ${item.progress}%` : ''}</span><div className="game-card-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={13} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={13} /></button></div></div>
+            <p className="game-card-time"><Clock3 size={12} />{playtime(item) != null ? <span>{Math.floor(playtime(item)! / 60)} ч {playtime(item)! % 60} мин</span> : <span>Часы не указаны</span>}{!!item.steam_recent_minutes && <small>+{Math.round(item.steam_recent_minutes / 60 * 10) / 10} ч за 2 недели</small>}</p>
+            <div className="game-card-achievements">{item.steam_achievements ? <><div><Trophy size={12} /><span>Достижения</span><strong>{item.steam_achievements.unlocked} / {item.steam_achievements.total}</strong></div><div className="game-mini-progress" role="progressbar" aria-label={`Достижения: ${item.title}`} aria-valuenow={item.steam_achievements.unlocked} aria-valuemin={0} aria-valuemax={item.steam_achievements.total}><div style={{ width: `${item.steam_achievements.total ? item.steam_achievements.unlocked / item.steam_achievements.total * 100 : 0}%` }} /></div></> : <button className="game-card-achievement-link" onClick={() => openGame(item)}>{item.steam_appid ? <><span>Посмотреть достижения</span><ArrowUpRight size={13} /></> : <span>Об игре</span>}</button>}</div>
+            <div className="game-card-footer"><div className="game-card-actions"><button aria-label={`Редактировать ${item.title}`} disabled={!ready || busy || loading} onClick={() => edit(item)}><Pencil size={13} /></button><button aria-label={`Удалить ${item.title}`} disabled={!ready || busy || loading} onClick={() => setDeleting(item)}><Trash2 size={13} /></button></div></div>
           </div>
         </article>)}</div>
         <p className="game-library-note"><ShieldCheck size={12} />Из Steam — только игры с временем больше 5 часов</p>
@@ -357,7 +359,8 @@ export function MediaTab() {
             </div>}
             {draft.kind !== 'game' && <CatalogPicker key={editingId || 'new'} kind={draft.kind} title={draft.title} info={draft.catalog} image={draft.cover_image} onBusy={setCoverBusy} onPoster={image => setDraft(current => current ? {...current, cover_image:image, catalog:current.catalog ? {...current.catalog, poster_source:'TMDB'} : current.catalog} : current)} onImage={image => setDraft(current => current ? {...current, cover_image:image, catalog:current.catalog ? {...current.catalog, poster_source:null} : current.catalog} : current)} onSelect={info => setDraft(current => current ? {...current, title:info.title, catalog:info, cover_image:info.image || null, total:info.episodes && info.episodes >= current.progress ? info.episodes : current.total} : current)} />}
             <div className="space-y-2"><span className="block text-sm">Статус</span><DarkSelect label="Статус" value={draft.status} disabled={busy} onChange={value => setDraft({ ...draft, status: value as Status })} options={(Object.keys(statuses) as Status[]).map(key => ({value:key,label:statuses[key],icon:<span className={`select-status-dot ${key}`} />}))} /></div>
-            {draft.kind !== 'movie' && <label className="block text-sm">{episodic ? 'Просмотрено серий' : 'Пройдено, %'}<input type="number" min={0} max={episodic ? draft.total ?? undefined : 100} step={1} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: Number(event.target.value) })} className={inputClass} /></label>}
+            {draft.kind === 'game' && !(editingId && items.find(item => item.id === editingId)?.steam_appid) && <label className="block text-sm">Часов в игре<input aria-label="Часов в игре" type="number" inputMode="decimal" min={0} max={1000000} step="any" placeholder="Например, 12.5" value={hoursInput} onChange={event => { const value = event.target.value; setHoursInput(value); setDraft({...draft, manual_playtime_minutes:value === '' ? null : Math.round(Number(value) * 60)}); }} className={inputClass} /><span className="block text-xs text-[#a4b8aa] mt-1">Можно указать дробное число: 12.5 — это 12 ч 30 мин. Пустое поле — время не указано.</span></label>}
+            {episodic && <label className="block text-sm">Просмотрено серий<input type="number" min={0} max={episodic ? draft.total ?? undefined : 100} step={1} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: Number(event.target.value) })} className={inputClass} /></label>}
             {episodic && <label className="block text-sm">Всего серий (если известно)<input type="number" min={1} step={1} value={draft.total ?? ''} onChange={event => setDraft({ ...draft, total: event.target.value ? Number(event.target.value) : null })} className={inputClass} /></label>}
             <label className="block text-sm">Оценка от 0 до 10<RatingInput value={draft.rating} onChange={rating => setDraft(current => current ? {...current, rating} : current)} /><span className="block text-xs text-[#a4b8aa] mt-1">Можно дробную: 5.5 или 5,5</span></label>
             <label className="block text-sm">Заметки<textarea rows={3} maxLength={10000} value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} className={inputClass} /></label>

@@ -67,3 +67,37 @@ class GoogleRelevanceTests(unittest.TestCase):
   self.assertEqual(seen[0]['q'],['isbn:9785171126223'])
 
 if __name__=='__main__':unittest.main()
+
+class DescriptionFallbackTests(unittest.TestCase):
+ def test_edition_follows_linked_work(self):
+  from book_catalog import open_library_description
+  def get(url):
+   return {'works':[{'key':'/works/OL1W'}]} if '/books/' in url else {'description':{'value':'Аннотация произведения'}}
+  self.assertEqual(open_library_description('/books/OL2M',get),'Аннотация произведения')
+ def test_google_missing_description_uses_matching_work_and_attributes_source(self):
+  from book_catalog import supplement_description
+  def get(url):
+   if 'search.json' in url:return {'docs':[{'key':'/works/OL1W','title':'Book','author_name':['Some Author']}]}
+   return {'description':'Work description'}
+  result=supplement_description({'title':'Book','author':'Some Author','source':'Google Books','external_id':'google:abc','pages':237},get)
+  self.assertEqual(result['description_source'],'Open Library')
+  self.assertEqual(result['pages'],237)
+  self.assertEqual(result['external_id'],'google:abc')
+ def test_wrong_author_or_ambiguous_work_never_enriched(self):
+  from book_catalog import supplement_description
+  for rows in [[{'key':'/works/OL1W','title':'Book','author_name':['Other Person']}],[{'key':key,'title':'Book','author_name':['Some Author']} for key in ['/works/OL1W','/works/OL2W']]]:
+   calls=[]
+   def get(url):calls.append(url);return {'docs':rows}
+   result=supplement_description({'title':'Book','author':'Some Author'},get)
+   self.assertNotIn('description',result)
+   self.assertEqual(len(calls),1)
+ def test_existing_description_and_invalid_link_skip_external_requests(self):
+  from book_catalog import supplement_description,open_library_description
+  def get(url):self.fail('Unexpected external request')
+  self.assertEqual(supplement_description({'description':'Existing'},get),{'description':'Existing'})
+  self.assertEqual(open_library_description('//evil.test',get),'')
+ def test_optional_provider_failure_preserves_selected_book(self):
+  from book_catalog import supplement_description
+  def get(url):raise HTTPException(502,'Down')
+  original={'title':'Book','author':'Author','pages':237}
+  self.assertEqual(supplement_description(original,get),original)

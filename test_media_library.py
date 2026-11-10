@@ -133,3 +133,29 @@ class MediaTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ManualHoursTests(unittest.TestCase):
+    def test_manual_time_roundtrips_and_old_client_keeps_it(self):
+        from media_library import MediaInput
+        with tempfile.TemporaryDirectory() as directory, patch('media_library.get_cloud_data', return_value=None), patch('media_library.set_cloud_data', return_value=True), patch('media_library.is_cloud_configured', return_value=False):
+            manager=MediaLibrary(Path(directory)/'media.json')
+            item=manager.save(MediaInput(title='Manual',kind='game',manual_playtime_minutes=750))['items'][0]
+            self.assertEqual(MediaLibrary(manager.path).items()[0]['manual_playtime_minutes'],750)
+            edited=manager.save(MediaInput(title='Manual',kind='game',notes='Keep'),item['id'])['items'][0]
+            self.assertEqual(edited['manual_playtime_minutes'],750)
+            cleared=manager.save(MediaInput(title='Manual',kind='game',manual_playtime_minutes=None),item['id'])['items'][0]
+            self.assertIsNone(cleared['manual_playtime_minutes'])
+    def test_invalid_minutes_rejected(self):
+        from media_library import MediaInput
+        from pydantic import ValidationError
+        for value in [-1, 1.5, 60000001]:
+            with self.assertRaises(ValidationError):MediaInput(title='Manual',kind='game',manual_playtime_minutes=value)
+
+
+class ExplicitGameStatusTests(unittest.TestCase):
+    def test_status_changes_work_without_a_percentage_field(self):
+        from media_library import MediaInput
+        for status in ('planned', 'active', 'finished'):
+            item=MediaInput(title='Game',kind='game',progress=100,status=status)
+            self.assertEqual(item.status,status)
+            self.assertEqual(item.progress,100 if status=='finished' else 0)

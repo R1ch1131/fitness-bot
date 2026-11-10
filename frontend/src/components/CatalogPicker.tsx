@@ -7,6 +7,7 @@ import './catalog.css';
 
 export type CatalogInfo = {
   source: 'Open Library' | 'Google Books' | 'Shikimori' | 'TMDB'; external_id: string; title: string;
+  description_source?: 'Open Library' | 'Google Books' | null;
   image?: string | null; poster_source?: 'TMDB' | null; author?: string; year?: string; description?: string; genres?: string[];
   isbn?: string; publisher?: string; pages?: number | null; episodes?: number | null; seasons?: number | null;
   runtime?: number | null; score?: number | null; studio?: string; original_title?: string;
@@ -52,10 +53,10 @@ export function CatalogFacts({ info, compact = false, title }: { info?: CatalogI
       const first=controls?.[0],last=controls?.[controls.length-1];
       if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}
       else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}
-    }}><div className="catalog-info-heading"><h3>{title || info.title}</h3><button type="button" aria-label="Закрыть подробности" onClick={()=>setExpanded(false)}>✕</button></div><div className="catalog-tags">{tags.map((tag,index)=><span key={index}>{tag}</span>)}</div>{info.original_title && <p>{info.original_title}</p>}{info.description && <p className="catalog-description">{info.description}</p>}<small>Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}</small></div></div>,document.body)}
+    }}><div className="catalog-info-heading"><h3>{title || info.title}</h3><button type="button" aria-label="Закрыть подробности" onClick={()=>setExpanded(false)}>✕</button></div><div className="catalog-tags">{tags.map((tag,index)=><span key={index}>{tag}</span>)}</div>{info.original_title && <p>{info.original_title}</p>}{info.description && <p className="catalog-description">{info.description}</p>}<small>Источник: {info.source}{info.description_source && info.description_source !== info.source && ` · Описание: ${info.description_source}`}{info.poster_source && ' · Постер: TMDB'}</small></div></div>,document.body)}
   </div>;
   const shown = tags;
-  return <div className={`catalog-facts ${compact ? 'is-compact' : ''}`}><div className="catalog-tags">{shown.map((text, index) => <span key={index}>{text}</span>)}{compact && tags.length > 2 && <button type="button" className="catalog-tags-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Свернуть' : `+${tags.length - 2}`}</button>}</div>{info.original_title && info.original_title !== info.title && <p>{info.original_title}</p>}{info.description && <details><summary>Описание</summary><p className="catalog-description">{info.description}</p></details>}<small>Источник: {info.source}{info.poster_source && ' · Постер: TMDB'}{info.source === 'Open Library' && ' · Проверь издание и число страниц'}</small></div>;
+  return <div className={`catalog-facts ${compact ? 'is-compact' : ''}`}><div className="catalog-tags">{shown.map((text, index) => <span key={index}>{text}</span>)}{compact && tags.length > 2 && <button type="button" className="catalog-tags-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Свернуть' : `+${tags.length - 2}`}</button>}</div>{info.original_title && info.original_title !== info.title && <p>{info.original_title}</p>}{info.description && <details><summary>Описание</summary><p className="catalog-description">{info.description}</p></details>}<small>Источник: {info.source}{info.description_source && info.description_source !== info.source && ` · Описание: ${info.description_source}`}{info.poster_source && ' · Постер: TMDB'}{info.source === 'Open Library' && ' · Проверь издание и число страниц'}</small></div>;
 }
 export function CatalogPicker({ kind, title, info, image, onSelect, onImage, onBusy, onPoster, author }: {
   kind: 'book' | 'movie' | 'series' | 'anime'; title: string; author?: string; info?: CatalogInfo | null; image?: string | null;

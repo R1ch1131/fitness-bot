@@ -16,6 +16,7 @@ from catalog import CatalogInfo
 
 
 class MediaInput(BaseModel):
+    manual_playtime_minutes: int | None = Field(default=None, ge=0, le=60_000_000)
     catalog: CatalogInfo | None = None
     title: str = Field(min_length=1, max_length=200)
     kind: Literal['game', 'movie', 'series', 'anime']
@@ -36,6 +37,10 @@ class MediaInput(BaseModel):
             raise ValueError('Укажи название')
         if self.kind == 'game':
             self.total = 100
+            # The game UI uses status, not an editable percentage.
+            if 'status' in self.model_fields_set:
+                self.progress = 100 if self.status == 'finished' else 0
+                return self
         elif self.kind == 'movie':
             self.total = None
             self.progress = 0
@@ -155,6 +160,10 @@ class MediaLibrary:
             now = datetime.now(timezone.utc).isoformat()
             item = {**(old or {}), **value.model_dump(), 'id': item_id or str(uuid4()),
                     'created_at': old['created_at'] if old else now, 'updated_at': now}
+            if old and ('manual_playtime_minutes' not in value.model_fields_set or old.get('steam_appid')):
+                item['manual_playtime_minutes'] = old.get('manual_playtime_minutes')
+            if value.kind != 'game':
+                item['manual_playtime_minutes'] = None
             if old and 'cover_image' not in value.model_fields_set:
                 item['cover_image'] = old.get('cover_image')
             if old and 'catalog' not in value.model_fields_set:
