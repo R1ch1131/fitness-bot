@@ -12,11 +12,12 @@ function gameCover(appid?: number, image?: string | null) {
   return image || (appid ? `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg` : null);
 }
 
-export function GameArt({ appid, image, className = '' }: { appid?: number; image?: string | null; className?: string }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const url = gameCover(appid, image);
-  return <div className={`game-art ${className}`} aria-hidden="true">
-    {url && failedUrl !== url ? <img src={url} alt="" loading="lazy" onError={() => setFailedUrl(url)} /> : <div className="game-art-fallback"><Gamepad2 size={36} /><span>Твоя следующая история</span></div>}
+export function GameArt({ appid, image, className = '', fullHeight = false }: { appid?: number; image?: string | null; className?: string; fullHeight?: boolean }) {
+  const [failedUrls, setFailedUrls] = useState<string[]>([]);
+  const candidates = [fullHeight && appid && !image ? `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/library_600x900.jpg` : null, gameCover(appid, image)].filter((value): value is string => !!value);
+  const url = candidates.find(candidate => !failedUrls.includes(candidate));
+  return <div className={`game-art ${className} ${fullHeight ? 'is-full-height' : ''}`} aria-hidden="true">
+    {url ? <>{fullHeight && <img className="game-art-backdrop" src={url} alt="" loading="lazy" />}<img className="game-art-image" src={url} alt="" loading="lazy" onError={() => setFailedUrls(current => [...current, url])} /></> : <div className="game-art-fallback"><Gamepad2 size={36} /><span>Твоя следующая история</span></div>}
   </div>;
 }
 

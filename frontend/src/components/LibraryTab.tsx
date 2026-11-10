@@ -390,7 +390,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({
                     : 'border-[#33473b]'
                 }`}
               >
-                <div className="book-cover-row"><Poster image={book.cover_image} title={book.title} /><div><span className="catalog-eyebrow">{book.status === 'reading' ? 'Между страницами' : 'На моей полке'}</span><CatalogFacts info={book.catalog} /><button type="button" className="book-enrich-button" onClick={() => setEnrichingBook(book)}>Дополнить сведения</button></div></div>
+                <div className="book-cover-row"><Poster image={book.cover_image} title={book.title} /><div><span className="catalog-eyebrow">{book.status === 'reading' ? 'Между страницами' : 'На моей полке'}</span><CatalogFacts info={book.catalog} title={book.title} compact /><button type="button" className="book-enrich-button" onClick={() => setEnrichingBook(book)}>Дополнить сведения</button></div></div>
                 {/* Header Row */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
