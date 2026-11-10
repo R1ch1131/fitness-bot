@@ -4,7 +4,7 @@ const SERVER = "https://fitness-bot-9f8m.onrender.com";
 const KEY = "fitpulse.weight.health-token.v1";
 const fm = FileManager.local();
 const CACHE = fm.joinPath(fm.libraryDirectory(), "fitpulse-weight-v1.json");
-const color = { bg: "0b0f19", text: "f8fafc", muted: "94a3b8", green: "00d084", track: "1e293b" };
+const color = { bg: "19221f", text: "e6eee8", muted: "a4b8aa", green: "79c5a6", track: "33473b", warning: "d4b57a" };
 
 function eraseCache() {
   try { if (fm.fileExists(CACHE)) fm.remove(CACHE); } catch (_) {}
@@ -49,7 +49,7 @@ function messageWidget(message) {
   text(w, "FITPULSE", 11, color.green, true); w.addSpacer(10);
   const t = text(w, message, 13, color.muted); t.lineLimit = 5;
   w.url = URLScheme.forRunningScript();
-  w.refreshAfterDate = new Date(Date.now() + 15 * 60000);
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60000);
   return w;
 }
 function render(data, offline = false, savedAt = null) {
@@ -58,7 +58,7 @@ function render(data, offline = false, savedAt = null) {
   const w = new ListWidget();
   w.backgroundColor = new Color(color.bg); w.setPadding(small ? 18 : 16, 18, small ? 18 : 16, 18);
   w.url = SERVER + "/?tab=weekly";
-  w.refreshAfterDate = new Date(Date.now() + 30 * 60000);
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60000);
   const head = w.addStack(); head.centerAlignContent();
   text(head, "FITPULSE", 10, color.green, true); head.addSpacer();
   text(head, `ЦЕЛЬ ${number(data.goal_weight)} КГ`, small ? 9 : 10, color.muted);
@@ -86,9 +86,9 @@ function render(data, offline = false, savedAt = null) {
   const stale = Date.now() - Date.parse(data.measured_on + "T12:00:00+06:00") > 8 * 86400000;
   const footer = offline ? `Нет связи · замер ${day(data.measured_on)}` :
     `${stale ? "Давний замер" : "Замер"} ${day(data.measured_on)} · Apple Здоровье`;
-  text(w, footer, small ? 8 : 9, offline || stale ? "f59e0b" : color.muted);
+  text(w, footer, small ? 8 : 9, offline || stale ? color.warning : color.muted);
   if (offline && savedAt) {
-    w.refreshAfterDate = new Date(Date.now() + 15 * 60000);
+    w.refreshAfterDate = new Date(Date.now() + 5 * 60000);
   }
   return w;
 }
@@ -105,10 +105,10 @@ async function configure() {
   }
   eraseCache(); Keychain.set(KEY, token); return true;
 }
-async function load() {
-  const request = new Request(SERVER + "/api/widgets/weight");
-  request.headers = { Authorization: "Bearer " + Keychain.get(KEY), Accept: "application/json" };
-  request.timeoutInterval = 10;
+async function loadAttempt(timeout) {
+  const request = new Request(SERVER + "/api/widgets/weight?t=" + Date.now());
+  request.headers = { Authorization: "Bearer " + Keychain.get(KEY), Accept: "application/json", "Cache-Control": "no-cache" };
+  request.timeoutInterval = timeout;
   // Never forward the authorization header to a redirect destination.
   request.onRedirect = () => null;
   try {
@@ -119,13 +119,17 @@ async function load() {
     const data = JSON.parse(body);
     if (!valid(data)) throw new Error("Invalid data");
     try { fm.writeString(CACHE, JSON.stringify({ data, savedAt: Date.now() })); } catch (_) {}
-    return render(data);
+    return render(data, false, Date.now());
   } catch (_) {
     const status = request.response && request.response.statusCode;
     if (status === 401 || status === 403) { eraseCache(); return messageWidget("Проверь ключ подключения в Scriptable."); }
+    if (timeout !== 5 && (!status || status === 408 || status === 429 || status >= 500 || status === 200)) return loadAttempt(5);
     const saved = readCache();
     return saved ? render(saved.data, true, saved.savedAt) : messageWidget("Сервер пока недоступен. Открой FitPulse и попробуй ещё раз.");
   }
+}
+async function load() {
+  return loadAttempt(config.runsInApp ? 20 : 10);
 }
 async function main() {
   if (config.runsInApp) {

@@ -4,7 +4,7 @@ const SERVER = "https://fitness-bot-9f8m.onrender.com";
 const KEY = "fitpulse.weight.health-token.v1";
 const fm = FileManager.local();
 const CACHE = fm.joinPath(fm.libraryDirectory(), "fitpulse-overview-v1.json");
-const color = { bg: "0b0f19", text: "f8fafc", muted: "94a3b8", green: "00d084", track: "1e293b" };
+const color = { bg: "19221f", text: "e6eee8", muted: "a4b8aa", green: "79c5a6", track: "33473b", warning: "d4b57a" };
 
 function eraseCache() {
   try { if (fm.fileExists(CACHE)) fm.remove(CACHE); } catch (_) {}
@@ -52,7 +52,7 @@ function messageWidget(message) {
   text(w, "FITPULSE", 11, color.green, true); w.addSpacer(10);
   const t = text(w, message, 13, color.muted); t.lineLimit = 5;
   w.url = URLScheme.forRunningScript();
-  w.refreshAfterDate = new Date(Date.now() + 15 * 60000);
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60000);
   return w;
 }
 function clock(value) {
@@ -63,12 +63,16 @@ function sentTime(value) {
   const dayInOmsk = new Date(Date.parse(value) + 6 * 3600000).toISOString().slice(0,10);
   return (dayInOmsk === nowDay ? '' : `${day(dayInOmsk)} `) + clock(value);
 }
+function refreshURL() {
+  const url = URLScheme.forRunningScript();
+  return url + (url.includes('?') ? '&' : '?') + 'refresh=1';
+}
 function render(data, offline = false, savedAt = null) {
   if (config.widgetFamily === 'small') return messageWidget('Для веса и трёх уведомлений выбери средний прямоугольный размер Scriptable.');
   const w = new ListWidget();
   w.backgroundColor = new Color(color.bg); w.setPadding(12, 14, 12, 14);
   w.url = SERVER + '/?tab=weekly';
-  w.refreshAfterDate = new Date(Date.now() + 15 * 60000);
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60000);
   const columns = w.addStack();
   const left = columns.addStack(); left.layoutVertically(); left.size = new Size(112, 0);
   text(left, 'FITPULSE · ЦЕЛЬ 80', 9, color.green, true); left.addSpacer(6);
@@ -86,7 +90,10 @@ function render(data, offline = false, savedAt = null) {
   const divider = columns.addStack(); divider.size = new Size(1, 112); divider.backgroundColor = new Color(color.track);
   columns.addSpacer(10);
   const right = columns.addStack(); right.layoutVertically();
-  text(right, 'ОТПРАВЛЕННЫЕ PUSH', 10, color.muted, true); right.addSpacer(6);
+  const heading = right.addStack(); heading.centerAlignContent();
+  text(heading, 'УВЕДОМЛЕНИЯ', 10, color.muted, true); heading.addSpacer();
+  const refresh = text(heading, '↻', 17, color.green, true); refresh.url = refreshURL();
+  right.addSpacer(3);
   if (!data.notifications.length) {
     const note = text(right, 'Здесь появятся три последних уведомления после обновления сервера.', 10, color.muted); note.lineLimit = 5;
   }
@@ -100,7 +107,13 @@ function render(data, offline = false, savedAt = null) {
   }
   w.addSpacer();
   const refreshed = new Date(savedAt || data.as_of).toISOString();
-  text(w, `${offline ? 'Нет связи · сохранено' : 'Данные обновлены'} ${sentTime(refreshed)} · Омск`, 9, offline ? 'f59e0b' : color.muted);
+  const footer = w.addStack(); footer.centerAlignContent(); footer.url = refreshURL();
+  const tint = offline ? color.warning : color.muted;
+  text(footer, `${offline ? 'Нет связи · сохранено' : 'Данные обновлены'} ${sentTime(refreshed)} · Омск`, 9, tint);
+  footer.addSpacer(6);
+  const elapsed = footer.addDate(new Date(refreshed)); elapsed.applyRelativeStyle();
+  elapsed.font = Font.systemFont(9); elapsed.textColor = new Color(tint);
+  elapsed.lineLimit = 1; elapsed.minimumScaleFactor = 0.8;
   return w;
 }
 async function configure() {
@@ -116,10 +129,10 @@ async function configure() {
   }
   eraseCache(); Keychain.set(KEY, token); return true;
 }
-async function load() {
-  const request = new Request(SERVER + "/api/widgets/overview");
-  request.headers = { Authorization: "Bearer " + Keychain.get(KEY), Accept: "application/json" };
-  request.timeoutInterval = 10;
+async function loadAttempt(timeout) {
+  const request = new Request(SERVER + "/api/widgets/overview?t=" + Date.now());
+  request.headers = { Authorization: "Bearer " + Keychain.get(KEY), Accept: "application/json", "Cache-Control": "no-cache" };
+  request.timeoutInterval = timeout;
   // Never forward the authorization header to a redirect destination.
   request.onRedirect = () => null;
   try {
@@ -130,19 +143,24 @@ async function load() {
     const data = JSON.parse(body);
     if (!valid(data)) throw new Error("Invalid data");
     try { fm.writeString(CACHE, JSON.stringify({ data, savedAt: Date.now() })); } catch (_) {}
-    return render(data);
+    return render(data, false, Date.now());
   } catch (_) {
     const status = request.response && request.response.statusCode;
     if (status === 401 || status === 403) { eraseCache(); return messageWidget("Проверь ключ подключения в Scriptable."); }
+    if (timeout !== 5 && (!status || status === 408 || status === 429 || status >= 500 || status === 200)) return loadAttempt(5);
     const saved = readCache();
     return saved ? render(saved.data, true, saved.savedAt) : messageWidget("Сервер пока недоступен. Открой FitPulse и попробуй ещё раз.");
   }
 }
+async function load() {
+  return loadAttempt(config.runsInApp ? 20 : 10);
+}
 async function main() {
-  if (config.runsInApp) {
+  const refreshing = typeof args !== 'undefined' && args.queryParameters && args.queryParameters.refresh === '1';
+  if (config.runsInApp && (!refreshing || !Keychain.contains(KEY))) {
     if (Keychain.contains(KEY)) {
       const menu = new Alert(); menu.title = "FitPulse · обзор";
-      menu.addAction("Показать виджет"); menu.addAction("Изменить ключ"); menu.addDestructiveAction("Удалить ключ и сохранённые данные"); menu.addCancelAction("Отмена");
+      menu.addAction("Обновить и показать виджет"); menu.addAction("Изменить ключ"); menu.addDestructiveAction("Удалить ключ и сохранённые данные"); menu.addCancelAction("Отмена");
       const action = await menu.presentSheet();
       if (action < 0) return;
       if (action === 2) { Keychain.remove(KEY); eraseCache(); return; }

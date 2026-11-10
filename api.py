@@ -381,8 +381,16 @@ def overview_widget(request: Request):
     import notification_history
     try:
         sleep_data.authorize(request.headers.get('authorization'))
-        return JSONResponse({**widget_snapshot(), 'notifications': notification_history.latest(3)},
-                            headers={"Cache-Control": "private, no-store"})
+        from concurrent.futures import ThreadPoolExecutor
+        # Both documents are independent; don't spend two cloud timeouts in series.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            weight = pool.submit(widget_snapshot)
+            notifications = pool.submit(notification_history.latest, 3)
+            result = {**weight.result(), 'notifications': notifications.result()}
+        from datetime import datetime
+        from notification_settings import TZ
+        result['as_of'] = datetime.now(TZ).isoformat()
+        return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
     except PermissionError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except (RuntimeError, OSError) as e:

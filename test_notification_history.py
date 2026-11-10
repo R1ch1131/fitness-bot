@@ -30,6 +30,22 @@ class HistoryTests(unittest.TestCase):
     def test_empty_history_does_not_invent_old_notifications(self):
         self.assertEqual(history.latest(),[])
 
+    def test_widget_cloud_reads_overlap_instead_of_waiting_for_each_other(self):
+        import threading
+        entered=threading.Barrier(2)
+        def weight():
+            entered.wait(timeout=2)
+            return {'current_weight':95}
+        def notifications(limit):
+            entered.wait(timeout=2)
+            return []
+        fn=isolated_function('api.py','overview_widget',{'Request':object,'HTTPException':RuntimeError,'JSONResponse':lambda data,**kw:data})
+        with patch.object(sleep_data,'authorize'),patch.object(health_weights,'widget_snapshot',side_effect=weight),patch.object(history,'latest',side_effect=notifications):
+            result=fn(types.SimpleNamespace(headers={'authorization':'Bearer test'}))
+        self.assertEqual(result['current_weight'],95)
+        self.assertEqual(result['notifications'],[])
+        self.assertIn('as_of',result)
+
     def test_widget_auth_happens_before_loading_history_or_weight(self):
         class HttpError(Exception):
             def __init__(self,status_code,detail):self.status_code=status_code
