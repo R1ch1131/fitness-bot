@@ -48,3 +48,15 @@ class EnergyTests(unittest.TestCase):
   with patch.object(energy,'_search_cache',{}),patch.object(energy,'_last_search',0),patch.object(energy,'_get',side_effect=HTTPException(502,'Down')):
    with self.assertRaises(HTTPException) as caught:energy.search_products('Monster')
    self.assertIn('свою картинку',caught.exception.detail)
+
+class SearchProviderFallbackTests(unittest.TestCase):
+ def test_new_search_api_reads_hits_and_brands(self):
+  with patch.object(energy,'_search_cache',{}),patch.object(energy,'_last_search',0),patch.object(energy,'_get',return_value={'hits':[{'code':'1','product_name':'Monster','brands':['Monster','Juiced'],'image_front_url':'https://images.openfoodfacts.org/images/a.jpg'}]}) as get:
+   result=energy.search_products('Monster')
+   self.assertEqual(result['results'][0]['brand'],'Monster, Juiced')
+   self.assertIn('search.openfoodfacts.org/search?',get.call_args.args[0])
+ def test_old_endpoint_is_fallback_only(self):
+  with patch.object(energy,'_search_cache',{}),patch.object(energy,'_last_search',0),patch.object(energy,'_get',side_effect=[HTTPException(502,'Down'),{'products':[{'code':'1','product_name':'Drink','image_front_url':'https://images.openfoodfacts.org/images/a.jpg'}]}]) as get:
+   self.assertEqual(len(energy.search_products('Drink')['results']),1)
+   self.assertEqual(get.call_count,2)
+   self.assertIn('cgi/search.pl',get.call_args.args[0])

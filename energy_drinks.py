@@ -98,16 +98,22 @@ def search_products(title):
             raise HTTPException(429,'Подожди несколько секунд перед следующим поиском.')
         _last_search=time.monotonic()
         query=urlencode({'search_terms':title,'search_simple':1,'action':'process','json':1,'page_size':12,'fields':'code,product_name,product_name_ru,brands,quantity,image_front_url'})
+        search_query=urlencode({'q':title,'page_size':12,'fields':'code,product_name,product_name_ru,brands,quantity,image_front_url'})
         try:
-            data=_get('https://world.openfoodfacts.org/cgi/search.pl?'+query)
+            data=_get('https://search.openfoodfacts.org/search?'+search_query)
+            if data.get('errors'):
+                raise HTTPException(502,'Search unavailable')
         except HTTPException:
-            raise HTTPException(502,'Каталог продуктов временно недоступен. Можно загрузить свою картинку.') from None
+            try:
+                data=_get('https://world.openfoodfacts.org/cgi/search.pl?'+query)
+            except HTTPException:
+                raise HTTPException(502,'Каталог продуктов временно недоступен. Можно загрузить свою картинку.') from None
         results=[]
-        for item in data.get('products',[]):
+        for item in data.get('hits', data.get('products', [])):
             name=item.get('product_name_ru') or item.get('product_name')
             image=product_image(item.get('image_front_url'))
             if name and image:
-                results.append({'id':str(item.get('code') or len(results)), 'title':str(name)[:200],'brand':str(item.get('brands') or '')[:200],'quantity':str(item.get('quantity') or '')[:80],'image':image})
+                results.append({'id':str(item.get('code') or len(results)), 'title':str(name)[:200],'brand':(', '.join(str(brand) for brand in item['brands']) if isinstance(item.get('brands'),list) else str(item.get('brands') or ''))[:200],'quantity':str(item.get('quantity') or '')[:80],'image':image})
         result={'results':results[:8]}
         if len(_search_cache)>=64:
             _search_cache.pop(next(iter(_search_cache)))
