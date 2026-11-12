@@ -30,6 +30,8 @@ books_mgr = BooksManager()
 app = FastAPI(title="Hevy & YAZIO AI Coach PWA", version="1.0.0")
 app.include_router(media_router)
 app.include_router(catalog_router)
+from energy_drinks import router as energy_router
+app.include_router(energy_router)
 
 @app.on_event('startup')
 def start_app_services():

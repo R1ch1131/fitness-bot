@@ -1,7 +1,8 @@
+import { EnergyDrinksTab } from './EnergyDrinksTab';
 import { CatalogPicker, CatalogFacts, Poster, WatchTitle } from './CatalogPicker';
 import type { CatalogInfo } from './CatalogPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck, Download, Upload, LayoutGrid, List } from 'lucide-react';
+import { Gamepad2, Film, Tv, Sparkles, Plus, Pencil, Trash2, X, Clock3, Trophy, ArrowUpRight, Search, RefreshCw, ShieldCheck, Download, Upload, LayoutGrid, List, Zap } from 'lucide-react';
 import { healthHeaders, responseError } from '../healthConnection';
 import { GameArt, GameDetailsDialog } from './GameDetailsDialog';
 import type { GameDetails } from './GameDetailsDialog';
@@ -49,6 +50,7 @@ function RatingInput({ value, onChange }: { value: number | null; onChange: (val
 type StorageStatus = { backend: 'upstash' | 'local' | 'demo'; state: string; count?: number; message?: string };
 
 export function MediaTab() {
+  const [energyOpen, setEnergyOpen] = useState(false);
   const [items, setItems] = useState<MediaItem[]>(cachedItems);
   const [kind, setKind] = useState<Kind>('game');
   const [filters, setFilters] = useState<Record<Kind, Status | 'all'>>({ game: 'finished', movie: 'all', series: 'all', anime: 'all' });
@@ -267,6 +269,8 @@ export function MediaTab() {
     return () => request.abort();
   }, [visibleSteamKey, enrichmentVersion, detailsLoaded]);
 
+  if (energyOpen) return <EnergyDrinksTab onBack={() => setEnergyOpen(false)} />;
+  const energyButton = <button type="button" className="media-view-toggle" aria-label="Открыть коллекцию энергетиков" title="Энергетики" onClick={() => setEnergyOpen(true)}><Zap size={18} /></button>;
   const layoutToggle = <button type="button" className="media-view-toggle" aria-label={layout === 'list' ? 'Показать карточками' : 'Показать списком'} title={layout === 'list' ? 'Показать карточками' : 'Показать списком'} onClick={() => setLayout(current => current === 'list' ? 'grid' : 'list')}>{layout === 'list' ? <LayoutGrid size={18} /> : <List size={18} />}</button>;
 
   return <section className={`mx-auto px-4 pt-5 pb-32 space-y-5 text-[#e6eee8] ${kind === 'game' ? 'game-library' : 'max-w-3xl'}`} aria-label="Досуг" data-layout={layout}>
@@ -281,7 +285,7 @@ export function MediaTab() {
       })}
     </div>
     {kind === 'game' ? <>
-      <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2></div><div className="media-heading-actions">{layoutToggle}<button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div></div>
+      <div className="game-library-heading"><div><span className="game-eyebrow">Личная коллекция · Steam</span><h2>Моя игротека</h2></div><div className="media-heading-actions">{energyButton}{layoutToggle}<button aria-label="Синхронизировать Steam" disabled={!ready || busy || loading} onClick={() => void mutate('/api/media/steam/sync', 'POST')} className="game-sync"><RefreshCw size={13} className={busy ? 'animate-spin' : ''} /><span>{busy ? 'Синхронизируем…' : 'Синхронизировать Steam'}</span></button></div></div>
       {syncMessage && <p role="status" className="text-sm text-emerald-300">{syncMessage}</p>}
       <div className="game-overview">
         <div><span className="game-overview-label"><Gamepad2 size={13} />В коллекции</span><strong>{categoryItems.length}<small> игр</small></strong></div>
@@ -309,7 +313,7 @@ export function MediaTab() {
         {!!knownAchievements.length && knownAchievements.length < steamGames.length && <p className="game-library-note">Достижения посчитаны для {knownAchievements.length} из {steamGames.length} игр Steam. Открой остальные карточки, чтобы загрузить данные.</p>}
       </div>
     </> : <>
-    <div className="watch-heading"><div><span className="catalog-eyebrow">Твоя личная коллекция</span><h2>{kind === 'movie' ? 'Мой кинотеатр' : kind === 'series' ? 'Ещё одна серия' : 'Миры аниме'}</h2><p>Сохраняй находки, отмечай просмотренное и собирай впечатления.</p></div>{layoutToggle}</div>
+    <div className="watch-heading"><div><span className="catalog-eyebrow">Твоя личная коллекция</span><h2>{kind === 'movie' ? 'Мой кинотеатр' : kind === 'series' ? 'Ещё одна серия' : 'Миры аниме'}</h2><p>Сохраняй находки, отмечай просмотренное и собирай впечатления.</p></div><div className="media-heading-actions">{energyButton}{layoutToggle}</div></div>
     <div className="grid grid-cols-3 gap-2">
       {(Object.keys(statuses) as Status[]).map(status => <div key={status} className="rounded-2xl bg-[#19221f] p-3 text-center"><p className="text-xl font-bold">{categoryItems.filter(item => item.status === status).length}</p><p className="text-xs text-[#a4b8aa]">{statuses[status]}</p></div>)}
     </div>
