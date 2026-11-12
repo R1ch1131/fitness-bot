@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import RLock, Lock
 from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
+from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 from cloud_storage import get_cloud_data, set_cloud_data, is_cloud_configured, CloudStorageError
@@ -14,12 +15,15 @@ from media_covers import normalize_cover
 from catalog import _get
 
 
+PRODUCT_IMAGE_HOSTS = {'images.openfoodfacts.org', 'c1.neweggimages.com', 'i5.walmartimages.com', 'pics.walgreens.com', 'products.blains.com', 'scene7.samsclub.com', 'target.scene7.com', 'tshop.r10s.com', 'www.cvs.com', 'i28.onbuy.com', 'www0.alibris-static.com', 'm.media-amazon.com', 'images-na.ssl-images-amazon.com'}
+
+
 def product_image(value):
     if not isinstance(value, str):
         return None
     try:
         url = urlsplit(value)
-        return value if url.scheme == 'https' and url.hostname == 'images.openfoodfacts.org' and not url.username and not url.password and url.port in (None,443) else None
+        return value if url.scheme == 'https' and url.hostname in PRODUCT_IMAGE_HOSTS and not url.username and not url.password and url.port in (None,443) else None
     except ValueError:
         return None
 
@@ -27,6 +31,7 @@ def product_image(value):
 class DrinkInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     rating: float | None = Field(default=None, ge=0, le=10)
+    image_source: Literal['UPCitemdb', 'Open Food Facts'] | None = None
     notes: str = Field(default='', max_length=10000)
     image: str | None = Field(default=None, max_length=3_000_000)
     @model_validator(mode='after')
@@ -81,6 +86,34 @@ class DrinkStore:
             self.write(items)
             return {'items':items}
 
+_upc_lock=Lock()
+_last_upc_search=0
+
+
+def search_upc(title):
+    """A general retail catalog. Free quota exhaustion falls back to Open Food Facts."""
+    global _last_upc_search
+    with _upc_lock:
+        if time.monotonic()-_last_upc_search < 16:
+            return []
+        _last_upc_search=time.monotonic()
+        try:
+            data=_get('https://api.upcitemdb.com/prod/trial/search?'+urlencode({'s':title,'type':'product'}))
+        except HTTPException:
+            return []
+    if data.get('code') != 'OK':
+        return []
+    results=[]
+    images=set()
+    for item in data.get('items',[]):
+        for index, value in enumerate((item.get('images') or [])[:2]):
+            image=product_image(value)
+            if image and image not in images and item.get('title'):
+                images.add(image)
+                results.append({'id':'upc:'+str(item.get('ean') or item.get('upc') or len(results))+':'+str(index), 'title':str(item['title'])[:200], 'brand':str(item.get('brand') or '')[:200], 'quantity':'', 'image':image, 'source':'UPCitemdb'})
+    return results[:8]
+
+
 _search_lock=Lock()
 _search_cache={}
 _last_search=0
@@ -97,6 +130,13 @@ def search_products(title):
         if time.monotonic()-_last_search < 6:
             raise HTTPException(429,'Подожди несколько секунд перед следующим поиском.')
         _last_search=time.monotonic()
+        retail_results=search_upc(title)
+        if retail_results:
+            result={'results':retail_results}
+            if len(_search_cache)>=64:
+                _search_cache.pop(next(iter(_search_cache)))
+            _search_cache[title.casefold()]=(time.monotonic(),result)
+            return result
         query=urlencode({'search_terms':title,'search_simple':1,'action':'process','json':1,'page_size':12,'fields':'code,product_name,product_name_ru,brands,quantity,image_front_url'})
         search_query=urlencode({'q':title,'page_size':12,'fields':'code,product_name,product_name_ru,brands,quantity,image_front_url'})
         try:
@@ -113,7 +153,7 @@ def search_products(title):
             name=item.get('product_name_ru') or item.get('product_name')
             image=product_image(item.get('image_front_url'))
             if name and image:
-                results.append({'id':str(item.get('code') or len(results)), 'title':str(name)[:200],'brand':(', '.join(str(brand) for brand in item['brands']) if isinstance(item.get('brands'),list) else str(item.get('brands') or ''))[:200],'quantity':str(item.get('quantity') or '')[:80],'image':image})
+                results.append({'id':str(item.get('code') or len(results)), 'title':str(name)[:200],'brand':(', '.join(str(brand) for brand in item['brands']) if isinstance(item.get('brands'),list) else str(item.get('brands') or ''))[:200],'quantity':str(item.get('quantity') or '')[:80],'image':image,'source':'Open Food Facts'})
         result={'results':results[:8]}
         if len(_search_cache)>=64:
             _search_cache.pop(next(iter(_search_cache)))

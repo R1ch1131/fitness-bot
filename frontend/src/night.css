@@ -153,3 +153,5 @@ body,.fit-app { background:#101714; color:#e6eee8; }
 @media(max-width:380px) { .fit-app .game-library-heading h2 { font-size:17px; }.fit-app .game-library-heading .media-heading-actions { gap:4px; }.fit-app .game-library-heading .media-view-toggle { width:34px; height:38px; }.fit-app .game-library-heading .game-sync { padding:8px; } }
 
 .energy-page .media-add-button { display:flex; align-items:center; gap:6px; }
+
+.energy-results .energy-result-source,.energy-image-source { color:#79c5a6; font-size:10px; line-height:1.5; }
