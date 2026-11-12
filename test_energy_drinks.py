@@ -68,19 +68,19 @@ class SearchProviderFallbackTests(unittest.TestCase):
 class GeneralCatalogTests(unittest.TestCase):
  def test_retail_results_precede_off_and_are_cached(self):
   retail=[{'id':'upc:1','title':'Drink','image':'https://i5.walmartimages.com/a.jpg','source':'UPCitemdb'}]
-  with patch.object(energy,'_search_cache',{}),patch.object(energy,'_last_search',0),patch.object(energy,'search_upc',return_value=retail) as upc,patch.object(energy,'_get') as off:
+  with patch.object(energy,'_search_cache',{}),patch.object(energy,'_last_search',0),patch.object(energy,'search_upc',return_value=retail) as upc,patch.object(energy,'_upc_get') as off:
    self.assertEqual(energy.search_products('Drink')['results'],retail)
    self.assertEqual(energy.search_products('Drink')['results'],retail)
    upc.assert_called_once();off.assert_not_called()
  def test_upc_only_returns_safe_image_hosts_and_deduplicates(self):
   data={'code':'OK','items':[{'ean':'123','title':'Drink','images':['https://i5.walmartimages.com/a.jpg','https://i5.walmartimages.com/a.jpg']},{'title':'Wrong','images':['https://i5.walmartimages.com.evil.test/a.jpg']}]}
-  with patch.object(energy,'_last_upc_search',0),patch.object(energy,'_get',return_value=data):
+  with patch.object(energy,'_last_upc_search',0),patch.object(energy,'_upc_get',return_value=data):
    result=energy.search_upc('Drink')
    self.assertEqual(len(result),1);self.assertEqual(result[0]['source'],'UPCitemdb')
  def test_quota_and_unavailable_retail_service_allow_fallback(self):
   for response in [{'code':'TOO_MANY_REQUESTS'},{'code':'OK','items':[]}]:
-   with patch.object(energy,'_last_upc_search',0),patch.object(energy,'_get',return_value=response):self.assertEqual(energy.search_upc('Drink'),[])
-  with patch.object(energy,'_last_upc_search',0),patch.object(energy,'_get',side_effect=HTTPException(502,'Down')):self.assertEqual(energy.search_upc('Drink'),[])
+   with patch.object(energy,'_last_upc_search',0),patch.object(energy,'_upc_get',return_value=response):self.assertEqual(energy.search_upc('Drink'),[])
+  with patch.object(energy,'_last_upc_search',0),patch.object(energy,'_upc_get',side_effect=HTTPException(502,'Down')):self.assertEqual(energy.search_upc('Drink'),[])
  def test_retail_image_and_source_survive_validation(self):
   value=energy.DrinkInput(title='Drink',rating=8.5,image='https://i5.walmartimages.com/a.jpg',image_source='UPCitemdb')
   self.assertEqual(value.image_source,'UPCitemdb')

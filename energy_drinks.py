@@ -2,6 +2,8 @@
 import json
 import re
 import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 from threading import RLock, Lock
 from urllib.parse import urlencode, urlsplit
@@ -88,21 +90,38 @@ class DrinkStore:
 
 _upc_lock=Lock()
 _last_upc_search=0
+_upc_last_state='idle'
+
+
+def _upc_get(url):
+    request=urllib.request.Request(url,headers={'User-Agent':'FitPulse/1.0 (https://github.com/R1ch1131/fitness-bot)', 'Accept':'application/json','Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(request,timeout=12) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        return {'code':'QUOTA' if error.code==429 else 'HTTP_ERROR'}
+    except (OSError,ValueError):
+        return {'code':'UNAVAILABLE'}
+
 
 
 def search_upc(title):
     """A general retail catalog. Free quota exhaustion falls back to Open Food Facts."""
-    global _last_upc_search
+    global _last_upc_search, _upc_last_state
     with _upc_lock:
         if time.monotonic()-_last_upc_search < 16:
+            _upc_last_state='cooldown'
             return []
         _last_upc_search=time.monotonic()
         try:
-            data=_get('https://api.upcitemdb.com/prod/trial/search?'+urlencode({'s':title,'type':'product'}))
+            data=_upc_get('https://api.upcitemdb.com/prod/trial/search?'+urlencode({'s':title,'type':'product'}))
         except HTTPException:
+            _upc_last_state='unavailable'
             return []
     if data.get('code') != 'OK':
+        _upc_last_state='quota' if data.get('code') in ('QUOTA','TOO_MANY_REQUESTS','EXCEED_LIMIT') else 'unavailable'
         return []
+    _upc_last_state='ok'
     results=[]
     images=set()
     for item in data.get('items',[]):
@@ -132,7 +151,7 @@ def search_products(title):
         _last_search=time.monotonic()
         retail_results=search_upc(title)
         if retail_results:
-            result={'results':retail_results}
+            result={'results':retail_results,'retail_state':_upc_last_state}
             if len(_search_cache)>=64:
                 _search_cache.pop(next(iter(_search_cache)))
             _search_cache[title.casefold()]=(time.monotonic(),result)
@@ -154,7 +173,7 @@ def search_products(title):
             image=product_image(item.get('image_front_url'))
             if name and image:
                 results.append({'id':str(item.get('code') or len(results)), 'title':str(name)[:200],'brand':(', '.join(str(brand) for brand in item['brands']) if isinstance(item.get('brands'),list) else str(item.get('brands') or ''))[:200],'quantity':str(item.get('quantity') or '')[:80],'image':image,'source':'Open Food Facts'})
-        result={'results':results[:8]}
+        result={'results':results[:8],'retail_state':_upc_last_state}
         if len(_search_cache)>=64:
             _search_cache.pop(next(iter(_search_cache)))
         _search_cache[title.casefold()]=(time.monotonic(),result)
