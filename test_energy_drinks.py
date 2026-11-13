@@ -1,4 +1,8 @@
 import tempfile
+import os
+import io
+import json
+import urllib.error
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -85,3 +89,60 @@ class GeneralCatalogTests(unittest.TestCase):
   value=energy.DrinkInput(title='Drink',rating=8.5,image='https://i5.walmartimages.com/a.jpg',image_source='UPCitemdb')
   self.assertEqual(value.image_source,'UPCitemdb')
   with self.assertRaises(ValueError):energy.DrinkInput(title='Drink',image='https://i5.walmartimages.com.evil.test/a.jpg')
+
+
+class SerperTests(unittest.TestCase):
+ def setUp(self):
+  self.tmp=tempfile.TemporaryDirectory()
+  for p in [patch.dict(os.environ, {'SERPER_API_KEY':'test-key'}), patch.object(energy,'is_cloud_configured',return_value=False), patch.object(energy,'SERPER_CACHE_FILE',Path(self.tmp.name)/'search.json'),patch.object(energy,'_search_cache',{}),patch.object(energy,'_last_search',0)]:
+   p.start();self.addCleanup(p.stop)
+  self.addCleanup(self.tmp.cleanup)
+ def test_serper_search_saved_cache_survives_process_memory_reset(self):
+  payload={'images':[{'title':'Monster can','imageUrl':'https://cdn.monsterenergy.com/can.png','link':'https://www.monsterenergy.com/product','source':'Monster'},{'title':'duplicate','imageUrl':'https://cdn.monsterenergy.com/can.png'},{'title':'private','imageUrl':'https://127.0.0.1/can.png'}]}
+  with patch.object(energy,'_serper_request',return_value=payload) as provider,patch.object(energy,'search_upc') as upc:
+   result=energy.search_products('Monster Mango')
+   self.assertEqual(len(result['results']),1)
+   self.assertTrue(result['cache_saved'])
+   with patch.object(energy,'_search_cache',{}),patch.object(energy,'_last_search',0):
+    self.assertTrue(energy.search_products('  monster  mango ')['cached'])
+   provider.assert_called_once();upc.assert_not_called()
+ def test_view_save_and_edit_never_call_serper(self):
+  store=energy.DrinkStore(Path(self.tmp.name)/'drinks.json')
+  app=FastAPI();app.include_router(energy.router)
+  with patch.object(energy,'store',store),patch.object(energy,'_serper_request') as provider:
+   client=TestClient(app)
+   data={'title':'My drink','rating':8.5,'image_source':'Serper','image':'https://cdn.example.com/can.png','image_page':'https://example.com/drink'}
+   result=client.post('/api/energy-drinks',json=data)
+   self.assertEqual(result.status_code,200)
+   item=result.json()['items'][0]
+   self.assertEqual(item['image'],data['image'])
+   self.assertEqual(item['image_page'],data['image_page'])
+   self.assertEqual(client.get('/api/energy-drinks').json()['items'][0]['rating'],8.5)
+   self.assertEqual(client.put('/api/energy-drinks/'+item['id'],json={**data,'rating':9}).status_code,200)
+   provider.assert_not_called()
+ def test_private_and_unsafe_web_images_blocked(self):
+  for value in ['http://example.com/a.png','https://localhost/a.png','https://192.168.1.1/a.png','https://user:password@example.com/a.png','https://example.com:8443/a.png','data:text/html,no']:
+   with self.assertRaises(ValueError):energy.DrinkInput(title='Drink',image=value,image_source='Serper')
+ def test_cache_failure_does_not_spend_search(self):
+  with patch.object(energy,'_read_image_cache',side_effect=HTTPException(503,'down')),patch.object(energy,'_serper_request') as provider:
+   with self.assertRaises(HTTPException):energy.search_products('Monster')
+   provider.assert_not_called()
+ def test_provider_failure_does_not_silently_return_off(self):
+  with patch.object(energy,'_serper_request',side_effect=HTTPException(503,'quota')),patch.object(energy,'_get') as off:
+   with self.assertRaises(HTTPException):energy.search_products('Monster')
+   off.assert_not_called()
+ def test_request_sends_key_only_in_header_and_makes_one_call(self):
+  with patch.object(energy.urllib.request,'urlopen',return_value=io.BytesIO(b'{"images":[]}')) as send:
+   self.assertEqual(energy._serper_request('Monster','secret-key'),{'images':[]})
+   request=send.call_args.args[0]
+   self.assertEqual(request.full_url,'https://google.serper.dev/images')
+   self.assertEqual(request.get_header('X-api-key'),'secret-key')
+   self.assertNotIn('secret-key',request.data.decode())
+   self.assertEqual(json.loads(request.data)['num'],10)
+   send.assert_called_once()
+ def test_upstream_errors_do_not_retry_or_expose_credentials(self):
+  for code in (401,429):
+   with patch.object(energy.urllib.request,'urlopen',side_effect=urllib.error.HTTPError('https://google.serper.dev/images',code,'secret-key',{},None)) as send:
+    with self.assertRaises(HTTPException) as caught:energy._serper_request('Monster','secret-key')
+    self.assertNotIn('secret-key',caught.exception.detail)
+    send.assert_called_once()

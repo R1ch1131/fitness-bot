@@ -1,5 +1,7 @@
 """Personal energy drink ratings, stored independently of the media collection."""
 import json
+import os
+import ipaddress
 import re
 import time
 import urllib.request
@@ -30,10 +32,32 @@ def product_image(value):
         return None
 
 
+def web_image(value):
+    """Public HTTPS URLs displayed by the browser; never fetched by our server."""
+    if not isinstance(value, str) or len(value) > 8000:
+        return None
+    try:
+        url = urlsplit(value)
+        host = (url.hostname or '').lower().rstrip('.')
+        if url.scheme != 'https' or not host or '.' not in host or url.username or url.password or url.port not in (None, 443):
+            return None
+        if host.endswith(('.localhost', '.local', '.internal', '.test')) or host == 'localhost':
+            return None
+        try:
+            if not ipaddress.ip_address(host).is_global:
+                return None
+        except ValueError:
+            pass
+        return value
+    except ValueError:
+        return None
+
+
 class DrinkInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     rating: float | None = Field(default=None, ge=0, le=10)
-    image_source: Literal['UPCitemdb', 'Open Food Facts'] | None = None
+    image_source: Literal['UPCitemdb', 'Open Food Facts', 'Serper'] | None = None
+    image_page: str | None = Field(default=None, max_length=8000)
     notes: str = Field(default='', max_length=10000)
     image: str | None = Field(default=None, max_length=3_000_000)
     @model_validator(mode='after')
@@ -41,7 +65,8 @@ class DrinkInput(BaseModel):
         self.title = self.title.strip()
         if not self.title:
             raise ValueError('Укажи название энергетика')
-        self.image = product_image(self.image) or normalize_cover(self.image)
+        self.image = (web_image(self.image) if self.image_source == 'Serper' else product_image(self.image)) or normalize_cover(self.image)
+        self.image_page = web_image(self.image_page)
         return self
 
 
@@ -137,24 +162,104 @@ _search_lock=Lock()
 _search_cache={}
 _last_search=0
 
+SERPER_CACHE_FILE = DATA_DIR / 'energy_image_search_cache.json'
+SERPER_CACHE_KEY = 'athlete_energy_image_search_cache'
+SERPER_CACHE_TTL = 30 * 86400
+
+
+def _read_image_cache():
+    try:
+        data = get_cloud_data(SERPER_CACHE_KEY, strict=True) if is_cloud_configured() else json.loads(SERPER_CACHE_FILE.read_text(encoding='utf-8')) if SERPER_CACHE_FILE.exists() else {}
+    except (CloudStorageError, OSError, ValueError):
+        # A failed cache read must not silently spend another paid search.
+        raise HTTPException(503, 'Не удалось прочитать кеш картинок. Повтори поиск позже.') from None
+    if data is not None and not isinstance(data, dict):
+        raise HTTPException(503, 'Кеш картинок временно недоступен.')
+    return {key: value for key, value in (data or {}).items() if isinstance(value, dict) and isinstance(value.get('at'), (int, float)) and time.time() - value['at'] < SERPER_CACHE_TTL and isinstance(value.get('results'), list)}
+
+
+def _write_image_cache(data):
+    data = dict(sorted(data.items(), key=lambda item: item[1]['at'])[-128:])
+    if is_cloud_configured():
+        return set_cloud_data(SERPER_CACHE_KEY, data)
+    try:
+        SERPER_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = SERPER_CACHE_FILE.with_suffix('.tmp')
+        temporary.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        temporary.replace(SERPER_CACHE_FILE)
+        return True
+    except OSError:
+        return False
+
+
+def _serper_request(title, key):
+    request = urllib.request.Request('https://google.serper.dev/images',
+        data=json.dumps({'q': title + ' energy drink can product', 'num': 10, 'hl': 'ru'}).encode('utf-8'),
+        headers={'X-API-KEY': key, 'Content-Type': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.load(response)
+        if not isinstance(data, dict) or not isinstance(data.get('images'), list):
+            raise ValueError()
+        return data
+    except urllib.error.HTTPError as error:
+        message = 'Лимит Serper исчерпан или поиск временно ограничен.' if error.code in (402, 429) else 'Проверь ключ Serper в настройках сервера.' if error.code in (401, 403) else 'Serper временно недоступен.'
+        raise HTTPException(503, message + ' Можно загрузить свою картинку.') from None
+    except (OSError, ValueError):
+        raise HTTPException(502, 'Поиск Serper временно недоступен. Можно загрузить свою картинку.') from None
+
+
+def search_serper(title, key):
+    cache = _read_image_cache()
+    cache_key = ' '.join(title.casefold().split())
+    if cache_key in cache:
+        return {'results': cache[cache_key]['results'], 'provider': 'Serper', 'cached': True}
+    data = _serper_request(title, key)
+    results, seen = [], set()
+    for item in data['images']:
+        if not isinstance(item, dict):
+            continue
+        image = web_image(item.get('imageUrl'))
+        if not image or image in seen:
+            continue
+        seen.add(image)
+        results.append({'id': 'serper:' + str(len(results)), 'title': str(item.get('title') or title)[:200],
+            'brand': str(item.get('source') or item.get('domain') or '')[:200], 'quantity': '',
+            'image': image, 'image_page': web_image(item.get('link')), 'source': 'Serper'})
+    # Prefer known manufacturers, retaining other brands and stores in the results.
+    official = ('monsterenergy.com', 'adrenalinerush.ru', 'redbull.com', 'burn.com', 'rockstarenergy.com')
+    results.sort(key=lambda item: not any((urlsplit(item.get('image_page') or '').hostname or '') == domain or (urlsplit(item.get('image_page') or '').hostname or '').endswith('.' + domain) for domain in official))
+    result = {'results': results[:10], 'provider': 'Serper', 'cached': False}
+    cache[cache_key] = {'at': time.time(), 'results': result['results']}
+    result['cache_saved'] = _write_image_cache(cache)
+    return result
+
 def search_products(title):
     global _last_search
-    title=title.strip()
+    title=' '.join(title.split())
     if not 2 <= len(title) <= 200:
         raise HTTPException(422,'Введи хотя бы 2 символа названия.')
     with _search_lock:
-        cached=_search_cache.get(title.casefold())
-        if cached and time.monotonic()-cached[0] < 3600:
-            return cached[1]
+        serper_key=os.getenv('SERPER_API_KEY', '').strip()
+        cache_key=('serper:' if serper_key else 'catalog:') + title.casefold()
+        cached=_search_cache.get(cache_key)
+        if cached and time.monotonic()-cached[0] < (SERPER_CACHE_TTL if serper_key else 3600):
+            return {**cached[1], 'cached': True} if serper_key else cached[1]
         if time.monotonic()-_last_search < 6:
             raise HTTPException(429,'Подожди несколько секунд перед следующим поиском.')
         _last_search=time.monotonic()
+        if serper_key:
+            result=search_serper(title, serper_key)
+            if len(_search_cache)>=128:
+                _search_cache.pop(next(iter(_search_cache)))
+            _search_cache[cache_key]=(time.monotonic(),result)
+            return result
         retail_results=search_upc(title)
         if retail_results:
             result={'results':retail_results,'retail_state':_upc_last_state}
             if len(_search_cache)>=64:
                 _search_cache.pop(next(iter(_search_cache)))
-            _search_cache[title.casefold()]=(time.monotonic(),result)
+            _search_cache[cache_key]=(time.monotonic(),result)
             return result
         query=urlencode({'search_terms':title,'search_simple':1,'action':'process','json':1,'page_size':12,'fields':'code,product_name,product_name_ru,brands,quantity,image_front_url'})
         search_query=urlencode({'q':title,'page_size':12,'fields':'code,product_name,product_name_ru,brands,quantity,image_front_url'})
@@ -176,7 +281,7 @@ def search_products(title):
         result={'results':results[:8],'retail_state':_upc_last_state}
         if len(_search_cache)>=64:
             _search_cache.pop(next(iter(_search_cache)))
-        _search_cache[title.casefold()]=(time.monotonic(),result)
+        _search_cache[cache_key]=(time.monotonic(),result)
         return result
 
 store=DrinkStore()
